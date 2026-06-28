@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.idea/
+.vscode/
+.venv/
+venv/
+*.kslide.json
+*.pdf
+crash*.txt
