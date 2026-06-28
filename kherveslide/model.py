@@ -101,6 +101,10 @@ class Deck:
     color_theme: str = ""         # beamer colour theme (\usecolortheme)
     aspect: str = "169"           # "169" | "43" | "1610" | "32"
     template: str = "Blank"       # name of the template this deck started from
+    # Frames are [plain] by default (no theme title bars / footers, so they
+    # never overlap absolutely-positioned boxes). Turn this off to let the
+    # chosen beamer theme show its full decoration.
+    plain_frames: bool = True
     type: str = "Deck"
 
 
@@ -167,6 +171,7 @@ def _build_deck(d: dict) -> Deck:
         color_theme=str(d.get("color_theme", "")),
         aspect=str(d.get("aspect", "169")),
         template=str(d.get("template", "Blank")),
+        plain_frames=bool(d.get("plain_frames", True)),
     )
 
 

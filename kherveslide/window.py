@@ -133,11 +133,17 @@ class SlideWindow(QMainWindow):
         m_deck.addAction("Theme…", self._set_theme)
         m_deck.addAction("Colour theme…", self._set_colour_theme)
         m_deck.addAction("Aspect ratio…", self._set_aspect)
+        m_deck.addSeparator()
+        self.act_decorations = m_deck.addAction("Show theme decorations")
+        self.act_decorations.setCheckable(True)
+        self.act_decorations.setChecked(not self.deck.plain_frames)
+        self.act_decorations.toggled.connect(self._toggle_decorations)
 
         m_slide = mb.addMenu("&Slide")
         m_slide.addAction("Add slide", self._add_slide)
         m_slide.addAction("Delete slide", self._del_slide)
-        m_slide.addAction("Background…", self._pick_slide_bg)
+        m_slide.addAction("Background colour…", self._pick_slide_bg)
+        m_slide.addAction("Clear background", self._clear_slide_bg)
 
         m_insert = mb.addMenu("&Insert")
         m_insert.addAction("Text box", self._add_text)
@@ -303,6 +309,9 @@ class SlideWindow(QMainWindow):
         return self.deck.slides[self.current]
 
     def _reload_all(self):
+        self.act_decorations.blockSignals(True)
+        self.act_decorations.setChecked(not self.deck.plain_frames)
+        self.act_decorations.blockSignals(False)
         self.nav.refresh(self.deck, self.current)
         self._reload_scene()
 
@@ -311,7 +320,12 @@ class SlideWindow(QMainWindow):
         self._loading = True
         self._items = []
         self.scene.set_aspect(self.deck.aspect)
+        self.scene.page_color = self.slide.bg or "#FFFFFF"
+        # Silence selectionChanged while clearing — otherwise it fires with
+        # the just-deleted items still referenced.
+        self.scene.blockSignals(True)
         self.scene.clear()
+        self.scene.blockSignals(False)
         sw = scene_width(self.deck.aspect)
         for obj in self.slide.objects:
             item = make_item(obj, sw)
@@ -602,8 +616,13 @@ class SlideWindow(QMainWindow):
 
     def _selected_item(self):
         for it in self._items:
-            if it.isSelected():
-                return it
+            try:
+                if it.isSelected():
+                    return it
+            except RuntimeError:
+                # The underlying C++ item was deleted (e.g. a stale entry
+                # during a scene rebuild) — skip it rather than crash.
+                continue
         return None
 
     # ---------------- selection → format toolbar ----------------
@@ -704,11 +723,25 @@ class SlideWindow(QMainWindow):
         if ok and t:
             self.deck.aspect = t; self._reload_all()
 
+    def _toggle_decorations(self, on):
+        # on = show the beamer theme's title bars / footers (frames not plain)
+        self.deck.plain_frames = not on
+        self._refresh_latex()
+
     def _pick_slide_bg(self):
         cur = self.slide.bg or "#FFFFFF"
         col = QColorDialog.getColor(QColor(cur), self, "Slide background")
         if col.isValid():
-            self.slide.bg = col.name(); self._touch_current()
+            self.slide.bg = col.name()
+            self.scene.page_color = col.name()
+            self.scene.invalidate()        # repaint the page immediately
+            self._touch_current()
+
+    def _clear_slide_bg(self):
+        self.slide.bg = ""
+        self.scene.page_color = "#FFFFFF"
+        self.scene.invalidate()
+        self._touch_current()
 
     # ---------------- templates ----------------
     def _populate_templates_menu(self):

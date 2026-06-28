@@ -119,8 +119,8 @@ def _serialize_table(obj: SlideTable) -> str:
             f"\\end{{textblock}}")
 
 
-def _serialize_slide(slide: Slide) -> str:
-    parts = ["\\begin{frame}[plain]"]
+def _serialize_slide(slide: Slide, plain: bool = True) -> str:
+    parts = ["\\begin{frame}[plain]" if plain else "\\begin{frame}"]
     bg = _hex_to_rgb_arg(slide.bg)
     if bg:
         # Full-slide coloured panel behind everything else.
@@ -166,6 +166,6 @@ def serialize_deck(deck: Deck) -> str:
         lines.append(f"\\author{{{deck.author}}}")
     lines.append("\\begin{document}")
     for slide in deck.slides:
-        lines.append(_serialize_slide(slide))
+        lines.append(_serialize_slide(slide, deck.plain_frames))
     lines.append("\\end{document}")
     return "\n".join(lines) + "\n"

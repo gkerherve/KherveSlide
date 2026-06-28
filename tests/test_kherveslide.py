@@ -104,6 +104,20 @@ def test_serialize_frames_are_plain():
     assert "\\begin{frame}[plain]" in tex
 
 
+def test_serialize_decorated_frames_when_not_plain():
+    deck = _sample_deck()
+    deck.plain_frames = False
+    tex = serialize_deck(deck)
+    assert "\\begin{frame}[plain]" not in tex
+    assert "\\begin{frame}" in tex
+
+
+def test_plain_frames_round_trip():
+    deck = _sample_deck()
+    deck.plain_frames = False
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
 def test_serialize_text_styling():
     deck = Deck(slides=[Slide(objects=[
         SlideText(text="Hi", font_pt=30, color="#FF0000", align="center",

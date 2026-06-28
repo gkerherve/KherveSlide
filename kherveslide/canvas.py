@@ -326,6 +326,7 @@ class SlideScene(QGraphicsScene):
     def __init__(self, aspect="169"):
         super().__init__()
         self.aspect = aspect
+        self.page_color = "#FFFFFF"   # current slide background
         self._set_rect()
 
     def _set_rect(self):
@@ -344,7 +345,7 @@ class SlideScene(QGraphicsScene):
         painter.fillRect(rect, QColor("#9aa0a6"))
         r = self.sceneRect()
         painter.fillRect(r.translated(7, 7), QColor(0, 0, 0, 45))
-        painter.fillRect(r, QColor("#FFFFFF"))
+        painter.fillRect(r, QColor(self.page_color or "#FFFFFF"))
         painter.setPen(QPen(QColor(150, 150, 150), 0))
         painter.drawRect(r)
 
