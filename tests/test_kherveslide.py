@@ -89,10 +89,19 @@ def test_serialize_43_has_no_aspect_option():
 
 
 def test_serialize_textblock_coordinates():
+    # Unstarred textblock with module-relative width and coordinates: the
+    # modules are bound to \paperwidth/\paperheight so a bare 0.4 is half
+    # the slide's quarter-width and (0.25,0.5) is the box's top-left.
     deck = Deck(slides=[Slide(objects=[
         SlideText(x=0.25, y=0.5, w=0.4, h=0.1, text="X")])])
     tex = serialize_deck(deck)
-    assert "\\begin{textblock*}{0.4\\paperwidth}(0.25,0.5)" in tex
+    assert "\\begin{textblock}{0.4}(0.25,0.5)" in tex
+    assert "\\textblockorigin{0pt}{0pt}" in tex
+
+
+def test_serialize_frames_are_plain():
+    tex = serialize_deck(_sample_deck())
+    assert "\\begin{frame}[plain]" in tex
 
 
 def test_serialize_text_styling():
@@ -122,10 +131,12 @@ def test_serialize_frame_count_matches_slides():
     assert tex.count("\\end{frame}") == 2
 
 
-def test_serialize_frame_title_and_bg():
+def test_serialize_slide_background():
+    # Frame titles are intentionally not emitted (the user composes titles
+    # as free text boxes); the slide background still renders.
     deck = Deck(slides=[Slide(title="Heading", bg="#123456")])
     tex = serialize_deck(deck)
-    assert "\\frametitle{Heading}" in tex
+    assert "\\frametitle" not in tex
     assert "\\colorbox[HTML]{123456}" in tex
 
 

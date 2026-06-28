@@ -56,7 +56,7 @@ def _title_content() -> Deck:
                            SlideText(x=0.1, y=0.56, w=0.8, h=0.1,
                                      text="Subtitle", font_pt=24,
                                      align="center", color="#555555")]),
-            Slide(title="Section heading", objects=[
+            Slide(objects=[
                 _title("Heading", x=0.06, y=0.06, w=0.88, h=0.12, pt=32,
                        align="left"),
                 _body("\\begin{itemize}\n  \\item First point\n"

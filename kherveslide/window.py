@@ -13,7 +13,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
 from PySide6.QtWidgets import (
     QColorDialog, QFileDialog, QGraphicsView, QHBoxLayout, QInputDialog,
@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QSplitter, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
-from . import icons, templates
+from . import icons, templates, version_string
 from .canvas import (
     SlideScene, TextBoxItem, PictureBoxItem, make_item, scene_width,
     FONT_SCALE,
@@ -45,6 +45,24 @@ _COLOUR_THEMES = ["", "default", "beaver", "crane", "dolphin", "seagull",
 _ASPECTS = ["169", "1610", "43", "32", "54", "141"]
 
 
+class _CompileWorker(QThread):
+    """Runs a tectonic compile off the UI thread so auto-compile on every
+    edit never freezes the canvas."""
+
+    done = Signal(object)   # CompileResult
+
+    def __init__(self, tex, workdir, src_dir):
+        super().__init__()
+        self._tex = tex
+        self._workdir = workdir
+        self._src_dir = src_dir
+
+    def run(self):
+        result = compile_tex(self._tex, self._workdir, "slides",
+                             source_dir=self._src_dir)
+        self.done.emit(result)
+
+
 class _InlineEditor(QPlainTextEdit):
     """A text box editor that floats over the object being edited and
     commits when it loses focus (or Escape is pressed)."""
@@ -65,7 +83,6 @@ class _InlineEditor(QPlainTextEdit):
 class SlideWindow(QMainWindow):
     def __init__(self, parent=None, *, dark=False, theme=None):
         super().__init__(parent)
-        self.setWindowTitle("KherveSlide — WYSIWYG slides")
         self.setWindowIcon(icons.app_icon())
         self.resize(1360, 820)
         self._dark = dark
@@ -79,6 +96,15 @@ class SlideWindow(QMainWindow):
         self._edit_proxy = None
         self._edit_item = None
 
+        # Auto-compile: debounce edits, run tectonic off-thread.
+        self._worker: _CompileWorker | None = None
+        self._compile_pending = False
+        self._auto_timer = QTimer(self)
+        self._auto_timer.setSingleShot(True)
+        self._auto_timer.setInterval(900)
+        self._auto_timer.timeout.connect(self._start_compile)
+
+        self._update_title()
         self._build_menus()
         self._build_toolbar()
         self._build_format_toolbar()
@@ -89,10 +115,16 @@ class SlideWindow(QMainWindow):
     def _build_menus(self):
         mb = self.menuBar()
         m_file = mb.addMenu("&File")
-        m_file.addAction("New", self._new_deck)
-        m_file.addAction("Open…", self._open_deck)
-        m_file.addAction("Save…", self._save_deck)
-        m_file.addAction("Export .tex…", self._export_tex)
+        m_file.addAction("New", self._new_deck).setShortcut("Ctrl+N")
+        m_file.addAction("Open…", self._open_deck).setShortcut("Ctrl+O")
+        m_file.addSeparator()
+        m_file.addAction("Save", self._save_deck).setShortcut("Ctrl+S")
+        m_file.addAction("Save As…", self._save_deck_as).setShortcut("Ctrl+Shift+S")
+        m_file.addSeparator()
+        m_file.addAction("Export LaTeX (.tex)…", self._export_tex)
+        m_file.addAction("Compile to PDF", self._compile).setShortcut("Ctrl+R")
+        m_file.addSeparator()
+        m_file.addAction("Quit", self.close).setShortcut("Ctrl+Q")
 
         m_deck = mb.addMenu("&Deck")
         m_deck.addAction("Title…", self._set_deck_title)
@@ -104,7 +136,6 @@ class SlideWindow(QMainWindow):
         m_slide = mb.addMenu("&Slide")
         m_slide.addAction("Add slide", self._add_slide)
         m_slide.addAction("Delete slide", self._del_slide)
-        m_slide.addAction("Frame title…", self._set_frame_title)
         m_slide.addAction("Background…", self._pick_slide_bg)
 
         m_insert = mb.addMenu("&Insert")
@@ -114,6 +145,7 @@ class SlideWindow(QMainWindow):
     # ---------------- toolbars ----------------
     def _build_toolbar(self):
         tb = QToolBar("Main"); tb.setMovable(False); self.addToolBar(tb)
+        tb.setIconSize(QSize(24, 24))
 
         def act(icon, text, slot):
             a = QAction(icon, text, self); a.setToolTip(text)
@@ -140,6 +172,7 @@ class SlideWindow(QMainWindow):
     def _build_format_toolbar(self):
         self.addToolBarBreak()
         tb = QToolBar("Format"); tb.setMovable(False); self.addToolBar(tb)
+        tb.setIconSize(QSize(24, 24))
         self._fmt_tb = tb
 
         tb.addWidget(QLabel(" Font "))
@@ -207,26 +240,33 @@ class SlideWindow(QMainWindow):
         self.scene.selectionChanged.connect(self._on_selection)
         self.view = QGraphicsView(self.scene)
 
-        left = QSplitter(Qt.Horizontal)
-        left.addWidget(nav_panel)
-        left.addWidget(self.view)
-        left.setStretchFactor(1, 1)
-        left.setSizes([220, 760])
+        wysiwyg = QSplitter(Qt.Horizontal)
+        wysiwyg.addWidget(nav_panel)
+        wysiwyg.addWidget(self.view)
+        wysiwyg.setStretchFactor(1, 1)
+        wysiwyg.setSizes([220, 760])
 
+        # LEFT tabs: the WYSIWYG (default) and the live LaTeX source.
         self.latex_view = LatexView()
         self.latex_view._edit.setReadOnly(True)
         self.latex_view.set_dark(self._dark, self._theme)
+        self.left_tabs = QTabWidget()
+        self.left_tabs.addTab(wysiwyg, "WYSIWYG")
+        self.left_tabs.addTab(self.latex_view, "LaTeX")
+        self.left_tabs.setCurrentIndex(0)
+
+        # RIGHT tabs: the PDF preview (default) and the compiler Console.
         self.console = QPlainTextEdit(); self.console.setReadOnly(True)
         cf = QFont("Consolas"); cf.setStyleHint(QFont.Monospace); cf.setPointSize(10)
         self.console.setFont(cf)
         self.pdf_view = PdfPreview()
         self.right_tabs = QTabWidget()
-        self.right_tabs.addTab(self.latex_view, "LaTeX")
-        self.right_tabs.addTab(self.console, "Console")
         self.right_tabs.addTab(self.pdf_view, "PDF")
+        self.right_tabs.addTab(self.console, "Console")
+        self.right_tabs.setCurrentIndex(0)
 
         main = QSplitter(Qt.Horizontal)
-        main.addWidget(left)
+        main.addWidget(self.left_tabs)
         main.addWidget(self.right_tabs)
         main.setStretchFactor(0, 1); main.setStretchFactor(1, 1)
         main.setSizes([800, 560])
@@ -263,6 +303,44 @@ class SlideWindow(QMainWindow):
 
     def _refresh_latex(self):
         self.latex_view.set_source(serialize_deck(self.deck))
+        self._schedule_compile()
+
+    def _update_title(self):
+        name = self.path.name if self.path else "Untitled"
+        self.setWindowTitle(f"KherveSlide {version_string()} — {name}")
+
+    # ---------------- auto-compile ----------------
+    def _schedule_compile(self):
+        """Debounce: (re)start the timer so a compile fires shortly after
+        the last change. Skipped while bulk-loading."""
+        if not self._loading and tectonic_available():
+            self._auto_timer.start()
+
+    def _start_compile(self):
+        if not tectonic_available():
+            return
+        if self._worker is not None and self._worker.isRunning():
+            self._compile_pending = True   # coalesce: run again when done
+            return
+        tex = serialize_deck(self.deck)
+        workdir = Path(tempfile.gettempdir()) / "kherveslide_build"
+        src_dir = self.path.parent if self.path else None
+        self.statusBar().showMessage("Compiling…")
+        self._worker = _CompileWorker(tex, workdir, src_dir)
+        self._worker.done.connect(self._on_compiled)
+        self._worker.start()
+
+    def _on_compiled(self, result):
+        self.console.setPlainText(result.log or "")
+        if result.ok and result.pdf_path:
+            self.pdf_view.show_pdf(Path(result.pdf_path))
+            self.statusBar().showMessage("Compiled OK")
+        else:
+            self.statusBar().showMessage("Compile failed — see Console tab")
+        self._worker = None
+        if self._compile_pending:
+            self._compile_pending = False
+            self._start_compile()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -500,12 +578,6 @@ class SlideWindow(QMainWindow):
         if ok and t:
             self.deck.aspect = t; self._reload_all()
 
-    def _set_frame_title(self):
-        t, ok = QInputDialog.getText(self, "Frame title", "Frame title:",
-                                     text=self.slide.title)
-        if ok:
-            self.slide.title = t; self._touch_current()
-
     def _pick_slide_bg(self):
         cur = self.slide.bg or "#FFFFFF"
         col = QColorDialog.getColor(QColor(cur), self, "Slide background")
@@ -573,42 +645,37 @@ class SlideWindow(QMainWindow):
 
     # ---------------- compile / IO ----------------
     def _compile(self):
-        tex = serialize_deck(self.deck)
-        self.latex_view.set_source(tex)
+        """Manual compile — force it now and show the PDF."""
+        self.latex_view.set_source(serialize_deck(self.deck))
         if not tectonic_available():
             self.console.setPlainText("tectonic is not available on this system.")
             self.right_tabs.setCurrentWidget(self.console)
             return
-        self.statusBar().showMessage("Compiling…")
-        self.setCursor(Qt.WaitCursor)
-        try:
-            workdir = Path(tempfile.gettempdir()) / "kherveslide_build"
-            src_dir = self.path.parent if self.path else None
-            result = compile_tex(tex, workdir, "slides", source_dir=src_dir)
-        finally:
-            self.unsetCursor()
-        self.console.setPlainText(result.log or "")
-        if result.ok and result.pdf_path:
-            self.pdf_view.show_pdf(Path(result.pdf_path))
-            self.right_tabs.setCurrentWidget(self.pdf_view)
-            self.statusBar().showMessage("Compiled OK")
-        else:
-            self.right_tabs.setCurrentWidget(self.console)
-            self.statusBar().showMessage("Compile failed — see Console")
+        self.right_tabs.setCurrentWidget(self.pdf_view)
+        self._auto_timer.stop()
+        self._start_compile()
 
     def _new_deck(self):
         self.deck = templates.instantiate_builtin("Blank")
         self.current = 0
         self.path = None
+        self._update_title()
         self._reload_all()
 
     def _save_deck(self):
+        if self.path is None:
+            return self._save_deck_as()
+        self.path.write_text(deck_to_json(self.deck), encoding="utf-8")
+        self.statusBar().showMessage(f"Saved {self.path}")
+
+    def _save_deck_as(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save deck", "", "KherveSlide deck (*.kslide.json)")
+            self, "Save deck as", "", "KherveSlide deck (*.kslide.json)")
         if not path:
             return
-        Path(path).write_text(deck_to_json(self.deck), encoding="utf-8")
         self.path = Path(path)
+        self.path.write_text(deck_to_json(self.deck), encoding="utf-8")
+        self._update_title()
         self.statusBar().showMessage(f"Saved {path}")
 
     def _open_deck(self):
@@ -625,6 +692,7 @@ class SlideWindow(QMainWindow):
             self.deck.slides = [Slide()]
         self.path = Path(path)
         self.current = 0
+        self._update_title()
         self._reload_all()
 
     def _export_tex(self):

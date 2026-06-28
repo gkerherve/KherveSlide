@@ -1,18 +1,23 @@
-"""Serialize a WYSIWYG beamer :class:`~kherveslide.model.Deck` to
-LaTeX.
+"""Serialize a WYSIWYG :class:`~kherveslide.model.Deck` to LaTeX.
 
-Absolute placement is done with the ``textpos`` package in
-``absolute,overlay`` mode. We bind one grid module to the full slide so
-the model's ``0..1`` fractions drop straight in::
+Absolute placement uses the ``textpos`` package in ``absolute,overlay``
+mode. The grid modules are bound to the whole slide::
 
     \\setlength{\\TPHorizModule}{\\paperwidth}
     \\setlength{\\TPVertModule}{\\paperheight}
-    \\begin{textblock*}{<w>\\paperwidth}(<x>,<y>)
-        ...
-    \\end{textblock*}
+    \\textblockorigin{0pt}{0pt}
 
-so a box at ``x=0.25`` sits a quarter of the way across the slide, and a
-box with ``w=0.5`` is half the slide wide — exactly what the canvas drew.
+so the model's ``0..1`` fractions drop straight into the (unstarred)
+``textblock`` whose width and coordinates are both in module units::
+
+    \\begin{textblock}{<w>}(<x>,<y>)   % w,x,y are fractions of the slide
+        ...
+    \\end{textblock}
+
+A box at ``x=0.25`` sits a quarter across, ``w=0.5`` is half the slide
+wide — exactly what the canvas drew. Frames are ``[plain]`` so the
+theme's title bars / headlines / footlines don't fight the absolute
+layout; the user composes the slide entirely from boxes.
 """
 from __future__ import annotations
 
@@ -20,8 +25,6 @@ from .model import Deck, Slide, SlideText, SlidePicture
 
 
 def _hex_to_rgb_arg(hex_color: str) -> str:
-    """``#aabbcc`` -> ``AABBCC`` for xcolor's ``[HTML]`` model. Returns ''
-    for an empty / malformed colour so callers can skip it."""
     h = (hex_color or "").lstrip("#").strip()
     if len(h) != 6:
         return ""
@@ -47,7 +50,9 @@ def _fmt(v: float) -> str:
     return f"{v:.4f}".rstrip("0").rstrip(".") or "0"
 
 
-def _serialize_text(obj: SlideText) -> str:
+def _styled_text(obj: SlideText) -> str:
+    """The inner (font/colour/weight/alignment-styled) content of a text
+    box, sized to the block width."""
     body = obj.text or ""
     if obj.bold:
         body = f"\\textbf{{{body}}}"
@@ -56,26 +61,24 @@ def _serialize_text(obj: SlideText) -> str:
     color = _hex_to_rgb_arg(obj.color)
     if color and color != "000000":
         body = f"\\textcolor[HTML]{{{color}}}{{{body}}}"
-
     align_cmd = {"center": "\\centering", "right": "\\raggedleft",
                  "left": "\\raggedright"}.get(obj.align, "\\raggedright")
-    # Font size: pick a baseline 20% larger than the size for readable
-    # leading, matching how the canvas lays text out.
     lead = int(round(obj.font_pt * 1.2))
     sized = f"\\fontsize{{{obj.font_pt}}}{{{lead}}}\\selectfont"
+    return f"{align_cmd}{sized} {body}"
 
-    inner = (f"\\begin{{minipage}}[t]{{{_fmt(obj.w)}\\paperwidth}}"
-             f"{align_cmd}{sized} {body}"
-             f"\\end{{minipage}}")
 
+def _serialize_text(obj: SlideText) -> str:
+    content = _styled_text(obj)
     fill = _hex_to_rgb_arg(obj.fill)
     if fill:
-        inner = f"\\colorbox[HTML]{{{fill}}}{{{inner}}}"
-
-    return (f"\\begin{{textblock*}}{{{_fmt(obj.w)}\\paperwidth}}"
-            f"({_fmt(obj.x)},{_fmt(obj.y)})\n"
+        inner = (f"\\colorbox[HTML]{{{fill}}}{{\\begin{{minipage}}{{\\linewidth}}"
+                 f"{content}\\end{{minipage}}}}")
+    else:
+        inner = f"{{{content}\\par}}"
+    return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
             f"{inner}\n"
-            f"\\end{{textblock*}}")
+            f"\\end{{textblock}}")
 
 
 def _serialize_picture(obj: SlidePicture) -> str:
@@ -88,24 +91,21 @@ def _serialize_picture(obj: SlidePicture) -> str:
     else:
         opts = (f"width={_fmt(obj.w)}\\paperwidth,"
                 f"height={_fmt(obj.h)}\\paperheight")
-    return (f"\\begin{{textblock*}}{{{_fmt(obj.w)}\\paperwidth}}"
-            f"({_fmt(obj.x)},{_fmt(obj.y)})\n"
+    return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
             f"\\includegraphics[{opts}]{{{path}}}\n"
-            f"\\end{{textblock*}}")
+            f"\\end{{textblock}}")
 
 
 def _serialize_slide(slide: Slide) -> str:
-    parts = ["\\begin{frame}"]
-    if slide.title:
-        parts.append(f"\\frametitle{{{slide.title}}}")
+    parts = ["\\begin{frame}[plain]"]
     bg = _hex_to_rgb_arg(slide.bg)
     if bg:
         # Full-slide coloured panel behind everything else.
         parts.append(
-            "\\begin{textblock*}{\\paperwidth}(0,0)\n"
+            "\\begin{textblock}{1}(0,0)\n"
             f"\\colorbox[HTML]{{{bg}}}{{\\rule{{0pt}}{{\\paperheight}}"
             "\\hspace{\\paperwidth}}\n"
-            "\\end{textblock*}")
+            "\\end{textblock}")
     for obj in slide.objects:
         if isinstance(obj, SlideText):
             parts.append(_serialize_text(obj))
@@ -132,7 +132,7 @@ def serialize_deck(deck: Deck) -> str:
         "\\usepackage{graphicx}",
         "\\setlength{\\TPHorizModule}{\\paperwidth}",
         "\\setlength{\\TPVertModule}{\\paperheight}",
-        # Suppress navigation symbols — almost never wanted on a designed slide.
+        "\\textblockorigin{0pt}{0pt}",
         "\\setbeamertemplate{navigation symbols}{}",
     ]
     if deck.title:
