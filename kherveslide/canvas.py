@@ -336,9 +336,13 @@ class SlideScene(QGraphicsScene):
         self._set_rect()
 
     def drawBackground(self, painter, rect):
+        # Fill the whole exposed area (incl. the margins beyond the page)
+        # with grey "desk", then lay the white page on top with a soft
+        # shadow and a thin edge. Done here — not via the view's
+        # backgroundBrush — because setting that brush stops the view from
+        # ever calling this, leaving the page unpainted.
+        painter.fillRect(rect, QColor("#9aa0a6"))
         r = self.sceneRect()
-        # Soft drop shadow, then the white page, then a thin grey edge —
-        # so on the grey view backdrop the slide looks like a sheet.
         painter.fillRect(r.translated(7, 7), QColor(0, 0, 0, 45))
         painter.fillRect(r, QColor("#FFFFFF"))
         painter.setPen(QPen(QColor(150, 150, 150), 0))

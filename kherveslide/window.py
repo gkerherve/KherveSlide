@@ -258,8 +258,9 @@ class SlideWindow(QMainWindow):
         self.scene = SlideScene(self.deck.aspect)
         self.scene.selectionChanged.connect(self._on_selection)
         self.view = QGraphicsView(self.scene)
-        # Grey desk so the white slide reads as a page sitting on it.
-        self.view.setBackgroundBrush(QColor("#9aa0a6"))
+        # The grey "desk" + white page are painted in SlideScene.drawBackground;
+        # we must NOT set a view backgroundBrush here, or the view stops
+        # delegating to the scene and the page never gets drawn.
         self.view.setFrameShape(QGraphicsView.NoFrame)
 
         wysiwyg = QSplitter(Qt.Horizontal)
