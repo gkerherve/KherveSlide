@@ -23,13 +23,15 @@ from PySide6.QtWidgets import (
 
 from . import icons, templates, version_string
 from .canvas import (
-    SlideScene, TextBoxItem, PictureBoxItem, make_item, scene_width,
-    FONT_SCALE,
+    SlideScene, TextBoxItem, PictureBoxItem, TableBoxItem, make_item,
+    scene_width, FONT_SCALE,
 )
 from .compiler import compile_tex, tectonic_available
+from .drawing_dialog import DrawingDialog
 from .latex_view import LatexView
 from .model import (
-    Deck, Slide, SlideText, SlidePicture, deck_to_json, deck_from_json,
+    Deck, Slide, SlideText, SlidePicture, SlideTable,
+    deck_to_json, deck_from_json,
     raise_object, lower_object, to_front, to_back,
 )
 from .navigator import SlideNavigator
@@ -94,7 +96,7 @@ class SlideWindow(QMainWindow):
         self._items = []
         self._loading = False
         self._edit_proxy = None
-        self._edit_item = None
+        self._edit_commit = None
 
         # Auto-compile: debounce edits, run tectonic off-thread.
         self._worker: _CompileWorker | None = None
@@ -141,6 +143,15 @@ class SlideWindow(QMainWindow):
         m_insert = mb.addMenu("&Insert")
         m_insert.addAction("Text box", self._add_text)
         m_insert.addAction("Picture", self._add_picture)
+        m_insert.addAction("Table", self._add_table)
+        m_insert.addAction("Equation…", self._add_equation)
+        m_insert.addAction("Drawing…", self._add_drawing)
+
+        m_table = mb.addMenu("&Table")
+        m_table.addAction("Add row", lambda: self._table_op("add_row"))
+        m_table.addAction("Add column", lambda: self._table_op("add_col"))
+        m_table.addAction("Delete row", lambda: self._table_op("del_row"))
+        m_table.addAction("Delete column", lambda: self._table_op("del_col"))
 
     # ---------------- toolbars ----------------
     def _build_toolbar(self):
@@ -159,6 +170,9 @@ class SlideWindow(QMainWindow):
         act(icons.slide_add(), "Add slide", self._add_slide)
         act(icons.text_box(), "Add text box", self._add_text)
         act(icons.image_box(), "Add image box", self._add_picture)
+        act(icons.table(), "Add table", self._add_table)
+        act(icons.math_block(), "Add equation", self._add_equation)
+        act(icons.drawing(), "Add drawing", self._add_drawing)
         act(icons.delete_box(), "Delete object", self._delete_selected)
         tb.addSeparator()
         act(icons.raise_box(), "Raise", lambda: self._zorder("raise"))
@@ -293,7 +307,12 @@ class SlideWindow(QMainWindow):
         for obj in self.slide.objects:
             item = make_item(obj, sw)
             item.geometryChanged.connect(self._on_item_geometry)
-            item.doubleClicked.connect(lambda it=item: self._on_double_click(it))
+            if isinstance(item, TableBoxItem):
+                item.cellDoubleClicked.connect(
+                    lambda r, c, it=item: self._edit_table_cell(it, r, c))
+            else:
+                item.doubleClicked.connect(
+                    lambda it=item: self._on_double_click(it))
             self.scene.addItem(item)
             self._items.append(item)
         self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
@@ -353,46 +372,70 @@ class SlideWindow(QMainWindow):
         elif isinstance(item, PictureBoxItem):
             self._pick_image_for(item)
 
-    def _edit_text_item(self, item):
+    def _begin_inline_edit(self, rect, initial, *, font_pt, bold=False,
+                           italic=False, commit):
+        """Float a text editor over *rect*; on focus-out call commit(text)."""
         self._cancel_edit()
         editor = _InlineEditor()
-        editor.setPlainText(item.obj.text)
+        editor.setPlainText(initial)
         f = QFont("Helvetica")
-        f.setPixelSize(max(8, int(item.obj.font_pt * FONT_SCALE)))
-        f.setBold(item.obj.bold); f.setItalic(item.obj.italic)
+        f.setPixelSize(max(8, int(font_pt * FONT_SCALE)))
+        f.setBold(bold); f.setItalic(italic)
         editor.setFont(f)
         editor.setStyleSheet(
             "QPlainTextEdit { background: rgba(255,255,255,235);"
             " border: 1px solid #2878dc; }")
         proxy = self.scene.addWidget(editor)
-        proxy.setGeometry(item.scene_rect())
+        proxy.setGeometry(rect)
         proxy.setZValue(1e6)
         self._edit_proxy = proxy
-        self._edit_item = item
+        self._edit_commit = commit
         editor.editingFinished.connect(self._finish_edit)
         editor.setFocus()
         editor.selectAll()
+
+    def _edit_text_item(self, item):
+        self._begin_inline_edit(
+            item.scene_rect(), item.obj.text, font_pt=item.obj.font_pt,
+            bold=item.obj.bold, italic=item.obj.italic,
+            commit=lambda t: self._commit_obj_text(item, t))
+
+    def _commit_obj_text(self, item, text):
+        item.obj.text = text
+        item.update()
+        item.setSelected(True)
+
+    def _edit_table_cell(self, item, r, c):
+        rows = item.obj.rows
+        cur = rows[r][c] if c < len(rows[r]) else ""
+        self._begin_inline_edit(
+            item.cell_scene_rect(r, c), cur, font_pt=item.obj.font_pt,
+            commit=lambda t: self._commit_cell(item, r, c, t))
+
+    def _commit_cell(self, item, r, c, text):
+        item.obj.rows[r][c] = text
+        item.update()
+        item.setSelected(True)
 
     def _finish_edit(self):
         if self._edit_proxy is None:
             return
         proxy = self._edit_proxy
-        item = self._edit_item
+        commit = self._edit_commit
         text = proxy.widget().toPlainText()
         # Clear state first so the removal's focus change can't re-enter.
         self._edit_proxy = None
-        self._edit_item = None
+        self._edit_commit = None
         self.scene.removeItem(proxy)
-        item.obj.text = text
-        item.update()
-        item.setSelected(True)
+        if commit is not None:
+            commit(text)
         self._touch_current()
 
     def _cancel_edit(self):
         if self._edit_proxy is not None:
             self.scene.removeItem(self._edit_proxy)
             self._edit_proxy = None
-            self._edit_item = None
+            self._edit_commit = None
 
     def _pick_image_for(self, item):
         path, _ = QFileDialog.getOpenFileName(
@@ -447,6 +490,61 @@ class SlideWindow(QMainWindow):
         self.slide.objects.append(SlidePicture(path=path or ""))
         self._reload_scene()
         self._select_last()
+        self._touch_current()
+
+    def _add_table(self):
+        self.slide.objects.append(SlideTable())
+        self._reload_scene()
+        self._select_last()
+        self._touch_current()
+
+    def _add_equation(self):
+        latex, ok = QInputDialog.getText(
+            self, "Insert equation",
+            "LaTeX (without the $ … $ — e.g.  E = mc^2):")
+        if not ok or not latex.strip():
+            return
+        obj = SlideText(text=f"${latex.strip()}$", font_pt=28, align="center")
+        self.slide.objects.append(obj)
+        self._reload_scene()
+        self._select_last()
+        self._touch_current()
+
+    def _add_drawing(self):
+        images_dir = (self.path.parent if self.path
+                      else Path(tempfile.gettempdir()) / "kherveslide_drawings")
+        dlg = DrawingDialog(images_dir, self)
+        dlg.drawingSaved.connect(self._on_drawing_saved)
+        dlg.exec()
+
+    def _on_drawing_saved(self, png_path):
+        self.slide.objects.append(
+            SlidePicture(path=png_path, w=0.4, h=0.4, keep_aspect=True))
+        self._reload_scene()
+        self._select_last()
+        self._touch_current()
+
+    def _table_op(self, op):
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlideTable):
+            self.statusBar().showMessage("Select a table first")
+            return
+        rows = item.obj.rows
+        ncols = max((len(r) for r in rows), default=1)
+        if op == "add_row":
+            rows.append([""] * ncols)
+        elif op == "add_col":
+            for r in rows:
+                r.append("")
+        elif op == "del_row" and len(rows) > 1:
+            rows.pop()
+        elif op == "del_col" and ncols > 1:
+            for r in rows:
+                if len(r) > 1:
+                    r.pop()
+        self._reload_scene()
+        if self._items:
+            self._items[self.slide.objects.index(item.obj)].setSelected(True)
         self._touch_current()
 
     def _select_last(self):

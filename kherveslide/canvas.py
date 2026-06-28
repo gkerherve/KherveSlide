@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QGraphicsItem, QGraphicsObject, QGraphicsScene,
 )
 
-from .model import Slide, SlideText, SlidePicture
+from .model import Slide, SlideText, SlidePicture, SlideTable
 
 
 SCENE_H = 720.0                 # slide height in scene units (px)
@@ -253,9 +253,73 @@ class PictureBoxItem(BoxItem):
         self._paint_selection(painter)
 
 
+class TableBoxItem(BoxItem):
+    """A grid of cells stretched to the box. Double-clicking a cell asks
+    the window to edit that cell in place."""
+
+    cellDoubleClicked = Signal(int, int)
+
+    def _dims(self):
+        rows = self.obj.rows or [[""]]
+        nrows = len(rows)
+        ncols = max((len(r) for r in rows), default=1)
+        return rows, nrows, ncols
+
+    def cell_scene_rect(self, r: int, c: int) -> QRectF:
+        _, nrows, ncols = self._dims()
+        cw = self._rect.width() / ncols
+        ch = self._rect.height() / nrows
+        return QRectF(self.pos().x() + c * cw, self.pos().y() + r * ch, cw, ch)
+
+    def _cell_at(self, pos: QPointF):
+        _, nrows, ncols = self._dims()
+        cw = self._rect.width() / ncols
+        ch = self._rect.height() / nrows
+        c = min(ncols - 1, max(0, int(pos.x() // cw)))
+        r = min(nrows - 1, max(0, int(pos.y() // ch)))
+        return r, c
+
+    def mouseDoubleClickEvent(self, event):
+        r, c = self._cell_at(event.pos())
+        self.cellDoubleClicked.emit(r, c)
+        event.accept()
+
+    def paint(self, painter, option, widget=None):
+        obj: SlideTable = self.obj
+        rows, nrows, ncols = self._dims()
+        cw = self._rect.width() / ncols
+        ch = self._rect.height() / nrows
+        painter.fillRect(self._rect, QColor("#FFFFFF"))
+        if obj.border:
+            painter.setPen(QPen(QColor(80, 80, 80), 0))
+            for i in range(ncols + 1):
+                x = self._rect.x() + i * cw
+                painter.drawLine(QPointF(x, self._rect.y()),
+                                 QPointF(x, self._rect.bottom()))
+            for j in range(nrows + 1):
+                y = self._rect.y() + j * ch
+                painter.drawLine(QPointF(self._rect.x(), y),
+                                 QPointF(self._rect.right(), y))
+        font = QFont("Helvetica")
+        font.setPixelSize(max(6, int(obj.font_pt * FONT_SCALE)))
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(obj.color or "#000000")))
+        for r in range(nrows):
+            for c in range(ncols):
+                text = rows[r][c] if c < len(rows[r]) else ""
+                cell = QRectF(self._rect.x() + c * cw, self._rect.y() + r * ch,
+                              cw, ch)
+                painter.drawText(cell.adjusted(3, 1, -3, -1),
+                                 int(Qt.AlignCenter | Qt.TextWordWrap), text)
+        self._paint_selection(painter)
+
+
 def make_item(obj, scene_w: float) -> BoxItem:
-    return (TextBoxItem(obj, scene_w) if isinstance(obj, SlideText)
-            else PictureBoxItem(obj, scene_w))
+    if isinstance(obj, SlideText):
+        return TextBoxItem(obj, scene_w)
+    if isinstance(obj, SlideTable):
+        return TableBoxItem(obj, scene_w)
+    return PictureBoxItem(obj, scene_w)
 
 
 class SlideScene(QGraphicsScene):

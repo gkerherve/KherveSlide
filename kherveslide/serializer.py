@@ -21,7 +21,7 @@ layout; the user composes the slide entirely from boxes.
 """
 from __future__ import annotations
 
-from .model import Deck, Slide, SlideText, SlidePicture
+from .model import Deck, Slide, SlideText, SlidePicture, SlideTable
 
 
 def _hex_to_rgb_arg(hex_color: str) -> str:
@@ -96,6 +96,29 @@ def _serialize_picture(obj: SlidePicture) -> str:
             f"\\end{{textblock}}")
 
 
+def _serialize_table(obj: SlideTable) -> str:
+    rows = obj.rows or [[""]]
+    ncols = max((len(r) for r in rows), default=1)
+    sep = "|" if obj.border else ""
+    colspec = sep + sep.join("c" for _ in range(ncols)) + sep
+    hline = "\\hline\n" if obj.border else ""
+    body = []
+    for row in rows:
+        cells = list(row) + [""] * (ncols - len(row))
+        body.append("  " + " & ".join(cells) + " \\\\")
+    table = (f"\\begin{{tabular}}{{{colspec}}}\n{hline}"
+             + ("\n" + hline).join(body)
+             + f"\n{hline}\\end{{tabular}}")
+    lead = int(round(obj.font_pt * 1.2))
+    sized = f"\\fontsize{{{obj.font_pt}}}{{{lead}}}\\selectfont"
+    color = _hex_to_rgb_arg(obj.color)
+    if color and color != "000000":
+        table = f"\\textcolor[HTML]{{{color}}}{{{table}}}"
+    return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
+            f"{{{sized} {table}}}\n"
+            f"\\end{{textblock}}")
+
+
 def _serialize_slide(slide: Slide) -> str:
     parts = ["\\begin{frame}[plain]"]
     bg = _hex_to_rgb_arg(slide.bg)
@@ -109,6 +132,8 @@ def _serialize_slide(slide: Slide) -> str:
     for obj in slide.objects:
         if isinstance(obj, SlideText):
             parts.append(_serialize_text(obj))
+        elif isinstance(obj, SlideTable):
+            parts.append(_serialize_table(obj))
         elif isinstance(obj, SlidePicture):
             block = _serialize_picture(obj)
             if block:

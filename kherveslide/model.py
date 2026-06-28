@@ -59,7 +59,27 @@ class SlidePicture:
     type: str = "SlidePicture"
 
 
-SlideObject = Union[SlideText, SlidePicture]
+def _default_rows() -> list[list[str]]:
+    return [["", ""], ["", ""]]
+
+
+@dataclass
+class SlideTable:
+    """A free-floating table. ``rows`` is a list of rows, each a list of
+    cell strings (cells may contain LaTeX). The grid is stretched to the
+    box; cells are edited in place on the canvas."""
+    x: float = 0.1
+    y: float = 0.1
+    w: float = 0.5
+    h: float = 0.25
+    rows: list[list[str]] = field(default_factory=_default_rows)
+    font_pt: int = 18
+    color: str = "#000000"
+    border: bool = True
+    type: str = "SlideTable"
+
+
+SlideObject = Union[SlideText, SlidePicture, SlideTable]
 
 
 # ---------------- Slide + deck ----------------
@@ -114,6 +134,16 @@ def _build_object(d: dict) -> SlideObject:
             w=float(d.get("w", 0.3)), h=float(d.get("h", 0.3)),
             path=str(d.get("path", "")),
             keep_aspect=bool(d.get("keep_aspect", False)),
+        )
+    if t == "SlideTable":
+        rows = d.get("rows") or _default_rows()
+        return SlideTable(
+            x=float(d.get("x", 0.1)), y=float(d.get("y", 0.1)),
+            w=float(d.get("w", 0.5)), h=float(d.get("h", 0.25)),
+            rows=[[str(c) for c in row] for row in rows],
+            font_pt=int(d.get("font_pt", 18)),
+            color=str(d.get("color", "#000000")),
+            border=bool(d.get("border", True)),
         )
     raise ValueError(f"Unknown slide object type: {t!r}")
 

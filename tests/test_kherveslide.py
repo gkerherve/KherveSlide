@@ -4,7 +4,7 @@ import json
 import pytest
 
 from kherveslide.model import (
-    Deck, Slide, SlideText, SlidePicture,
+    Deck, Slide, SlideText, SlidePicture, SlideTable,
     deck_to_json, deck_from_json,
     raise_object, lower_object, to_front, to_back,
 )
@@ -144,6 +144,33 @@ def test_serialize_empty_picture_path_skipped():
     deck = Deck(slides=[Slide(objects=[SlidePicture(path="")])])
     tex = serialize_deck(deck)
     assert "\\includegraphics" not in tex
+
+
+# --- tables ---
+
+def test_table_round_trip():
+    deck = Deck(slides=[Slide(objects=[
+        SlideTable(rows=[["a", "b"], ["c", "d"]], border=True, font_pt=16)])])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
+def test_serialize_table_tabular():
+    deck = Deck(slides=[Slide(objects=[
+        SlideTable(x=0.1, y=0.1, w=0.5, h=0.25,
+                   rows=[["a", "b"], ["c", "d"]])])])
+    tex = serialize_deck(deck)
+    assert "\\begin{textblock}{0.5}(0.1,0.1)" in tex
+    assert "\\begin{tabular}{|c|c|}" in tex
+    assert "a & b \\\\" in tex
+    assert "\\hline" in tex
+
+
+def test_serialize_table_no_border():
+    deck = Deck(slides=[Slide(objects=[
+        SlideTable(rows=[["x", "y"]], border=False)])])
+    tex = serialize_deck(deck)
+    assert "\\begin{tabular}{cc}" in tex
+    assert "\\hline" not in tex
 
 
 # --- templates ---
