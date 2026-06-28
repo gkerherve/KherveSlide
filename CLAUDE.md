@@ -64,3 +64,11 @@ Window mirrors KherveTeX: left = the WYSIWYG (slide navigator you can
 drag to reorder + the live canvas); right = tabs for the generated
 LaTeX source and the compiler Console (+ a PDF preview). The LaTeX view
 stays live as you edit on the left.
+
+Editing is in-place, PowerPoint-style — there is **no properties side
+panel**. Double-click a text box to type into it (a floating editor
+commits on focus-out / Escape); double-click a picture to swap the
+image. Frequent text formatting (font size, bold/italic, alignment,
+colours) is on a compact Format toolbar that tracks the selection;
+deck/slide settings (title, author, theme, aspect, frame title,
+background) live in the menus.

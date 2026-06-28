@@ -46,6 +46,7 @@ class BoxItem(QGraphicsObject):
     ``(0, 0, w, h)``. Subclasses paint the content."""
 
     geometryChanged = Signal()
+    doubleClicked = Signal()
 
     def __init__(self, obj, scene_w: float):
         super().__init__()
@@ -144,6 +145,17 @@ class BoxItem(QGraphicsObject):
         self._write_geometry()
         self.geometryChanged.emit()
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        # PowerPoint-style: double-click edits the object in place.
+        self.doubleClicked.emit()
+        event.accept()
+
+    def scene_rect(self) -> QRectF:
+        """The box's rectangle in scene coordinates (for placing an
+        in-place editor over it)."""
+        return QRectF(self.pos().x(), self.pos().y(),
+                      self._rect.width(), self._rect.height())
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionChange and self.scene():

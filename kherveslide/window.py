@@ -1,28 +1,31 @@
 """KherveSlide main window — a dedicated WYSIWYG slide designer.
 
-Layout mirrors KherveTeX: the left side is the **WYSIWYG** editing area
-(a visual slide navigator you can drag to reorder, plus the live slide
-canvas), and the right side shows the generated **LaTeX** source and the
-compiler **console** — kept live so what you build on the left is always
-reflected on the right. Object properties live in a dock on the left.
+Editing happens directly on the objects, PowerPoint-style: double-click a
+text box to type into it in place, double-click a picture to swap the
+image. There is no separate properties panel — frequent text formatting
+lives on a compact Format toolbar, and deck/slide settings live in the
+menus. The left side is the WYSIWYG (a slide navigator you drag to
+reorder + the live canvas); the right side shows the generated LaTeX and
+the compiler console, kept live as you edit.
 """
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QColor, QFont
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
 from PySide6.QtWidgets import (
-    QCheckBox, QColorDialog, QComboBox, QDockWidget, QDoubleSpinBox,
-    QFileDialog, QFormLayout, QGraphicsView, QHBoxLayout, QInputDialog,
-    QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
-    QPushButton, QSpinBox, QSplitter, QTabWidget, QToolBar, QVBoxLayout,
-    QWidget,
+    QColorDialog, QFileDialog, QGraphicsView, QHBoxLayout, QInputDialog,
+    QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
+    QSpinBox, QSplitter, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
 from . import icons, templates
-from .canvas import SlideScene, make_item, scene_width
+from .canvas import (
+    SlideScene, TextBoxItem, PictureBoxItem, make_item, scene_width,
+    FONT_SCALE,
+)
 from .compiler import compile_tex, tectonic_available
 from .latex_view import LatexView
 from .model import (
@@ -32,6 +35,31 @@ from .model import (
 from .navigator import SlideNavigator
 from .preview import PdfPreview
 from .serializer import serialize_deck
+
+
+_THEMES = ["default", "Madrid", "Berlin", "Copenhagen", "Frankfurt",
+           "Singapore", "Warsaw", "metropolis", "CambridgeUS", "Boadilla",
+           "Pittsburgh"]
+_COLOUR_THEMES = ["", "default", "beaver", "crane", "dolphin", "seagull",
+                  "wolverine", "orchid", "whale"]
+_ASPECTS = ["169", "1610", "43", "32", "54", "141"]
+
+
+class _InlineEditor(QPlainTextEdit):
+    """A text box editor that floats over the object being edited and
+    commits when it loses focus (or Escape is pressed)."""
+
+    editingFinished = Signal()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.editingFinished.emit()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.clearFocus()
+            return
+        super().keyPressEvent(event)
 
 
 class SlideWindow(QMainWindow):
@@ -48,23 +76,48 @@ class SlideWindow(QMainWindow):
         self.path: Path | None = None
         self._items = []
         self._loading = False
+        self._edit_proxy = None
+        self._edit_item = None
 
+        self._build_menus()
         self._build_toolbar()
+        self._build_format_toolbar()
         self._build_ui()
         self._reload_all()
 
-    # ---------------- toolbar ----------------
+    # ---------------- menus ----------------
+    def _build_menus(self):
+        mb = self.menuBar()
+        m_file = mb.addMenu("&File")
+        m_file.addAction("New", self._new_deck)
+        m_file.addAction("Open…", self._open_deck)
+        m_file.addAction("Save…", self._save_deck)
+        m_file.addAction("Export .tex…", self._export_tex)
+
+        m_deck = mb.addMenu("&Deck")
+        m_deck.addAction("Title…", self._set_deck_title)
+        m_deck.addAction("Author…", self._set_deck_author)
+        m_deck.addAction("Theme…", self._set_theme)
+        m_deck.addAction("Colour theme…", self._set_colour_theme)
+        m_deck.addAction("Aspect ratio…", self._set_aspect)
+
+        m_slide = mb.addMenu("&Slide")
+        m_slide.addAction("Add slide", self._add_slide)
+        m_slide.addAction("Delete slide", self._del_slide)
+        m_slide.addAction("Frame title…", self._set_frame_title)
+        m_slide.addAction("Background…", self._pick_slide_bg)
+
+        m_insert = mb.addMenu("&Insert")
+        m_insert.addAction("Text box", self._add_text)
+        m_insert.addAction("Picture", self._add_picture)
+
+    # ---------------- toolbars ----------------
     def _build_toolbar(self):
-        tb = QToolBar("Main")
-        tb.setMovable(False)
-        self.addToolBar(tb)
+        tb = QToolBar("Main"); tb.setMovable(False); self.addToolBar(tb)
 
         def act(icon, text, slot):
-            a = QAction(icon, text, self)
-            a.setToolTip(text)
-            a.triggered.connect(slot)
-            tb.addAction(a)
-            return a
+            a = QAction(icon, text, self); a.setToolTip(text)
+            a.triggered.connect(slot); tb.addAction(a); return a
 
         act(icons.file_new(), "New", self._new_deck)
         act(icons.file_open(), "Open", self._open_deck)
@@ -84,9 +137,57 @@ class SlideWindow(QMainWindow):
         act(icons.templates_icon(), "Templates", self._templates_menu)
         act(icons.compile_pdf(), "Compile", self._compile)
 
+    def _build_format_toolbar(self):
+        self.addToolBarBreak()
+        tb = QToolBar("Format"); tb.setMovable(False); self.addToolBar(tb)
+        self._fmt_tb = tb
+
+        tb.addWidget(QLabel(" Font "))
+        self.fmt_font = QSpinBox(); self.fmt_font.setRange(6, 160)
+        self.fmt_font.setToolTip("Font size (pt)")
+        self.fmt_font.valueChanged.connect(self._apply_text_format)
+        tb.addWidget(self.fmt_font)
+
+        self.act_bold = QAction(icons.bold(), "Bold", self, checkable=True)
+        self.act_bold.triggered.connect(self._apply_text_format)
+        self.act_italic = QAction(icons.italic(), "Italic", self, checkable=True)
+        self.act_italic.triggered.connect(self._apply_text_format)
+        tb.addAction(self.act_bold); tb.addAction(self.act_italic)
+        tb.addSeparator()
+
+        self._align_group = QActionGroup(self)
+        self._align_actions = {}
+        for key, icon, tip in (("left", icons.align_left(), "Align left"),
+                               ("center", icons.align_center(), "Centre"),
+                               ("right", icons.align_right(), "Align right")):
+            a = QAction(icon, tip, self, checkable=True)
+            a.triggered.connect(lambda _=False, k=key: self._set_align(k))
+            self._align_group.addAction(a); tb.addAction(a)
+            self._align_actions[key] = a
+        tb.addSeparator()
+
+        self.act_textcolor = QAction(icons._glyph_icon("A", color=QColor("#1a6dd8")),
+                                     "Text colour", self)
+        self.act_textcolor.triggered.connect(lambda: self._pick_obj_color("color"))
+        self.act_fill = QAction(icons._glyph_icon("█", color=QColor("#d96b00")),
+                                "Fill colour", self)
+        self.act_fill.triggered.connect(lambda: self._pick_obj_color("fill"))
+        tb.addAction(self.act_textcolor); tb.addAction(self.act_fill)
+
+        self.act_pic = QAction(icons.image_box(), "Replace image…", self)
+        self.act_pic.triggered.connect(self._pick_image)
+        tb.addAction(self.act_pic)
+
+        self._enable_format(False)
+
+    def _enable_format(self, on, is_text=True, is_pic=False):
+        for w in (self.fmt_font, self.act_bold, self.act_italic,
+                  self.act_textcolor, self.act_fill, *self._align_actions.values()):
+            w.setEnabled(on and is_text)
+        self.act_pic.setEnabled(on and is_pic)
+
     # ---------------- layout ----------------
     def _build_ui(self):
-        # --- LEFT: the WYSIWYG side (navigator + canvas) ---
         self.nav = SlideNavigator()
         self.nav.slideSelected.connect(self._on_slide_changed)
         self.nav.slidesReordered.connect(self._on_reorder)
@@ -110,18 +211,15 @@ class SlideWindow(QMainWindow):
         left.addWidget(nav_panel)
         left.addWidget(self.view)
         left.setStretchFactor(1, 1)
-        left.setSizes([220, 720])
+        left.setSizes([220, 760])
 
-        # --- RIGHT: LaTeX + console (+ PDF) ---
         self.latex_view = LatexView()
         self.latex_view._edit.setReadOnly(True)
         self.latex_view.set_dark(self._dark, self._theme)
-        self.console = QPlainTextEdit()
-        self.console.setReadOnly(True)
+        self.console = QPlainTextEdit(); self.console.setReadOnly(True)
         cf = QFont("Consolas"); cf.setStyleHint(QFont.Monospace); cf.setPointSize(10)
         self.console.setFont(cf)
         self.pdf_view = PdfPreview()
-
         self.right_tabs = QTabWidget()
         self.right_tabs.addTab(self.latex_view, "LaTeX")
         self.right_tabs.addTab(self.console, "Console")
@@ -130,98 +228,11 @@ class SlideWindow(QMainWindow):
         main = QSplitter(Qt.Horizontal)
         main.addWidget(left)
         main.addWidget(self.right_tabs)
-        main.setStretchFactor(0, 1)
-        main.setStretchFactor(1, 1)
-        main.setSizes([760, 600])
+        main.setStretchFactor(0, 1); main.setStretchFactor(1, 1)
+        main.setSizes([800, 560])
         self.setCentralWidget(main)
-
-        # --- Properties dock (part of the WYSIWYG side) ---
-        self.props_dock = QDockWidget("Properties", self)
-        self.props_dock.setWidget(self._build_props_panel())
-        self.props_dock.setAllowedAreas(Qt.LeftDockWidgetArea
-                                        | Qt.RightDockWidgetArea)
-        self.addDockWidget(Qt.LeftDockWidgetArea, self.props_dock)
-
-        self.statusBar().showMessage("Ready")
-
-    def _build_props_panel(self) -> QWidget:
-        w = QWidget(); w.setMinimumWidth(260)
-        v = QVBoxLayout(w)
-
-        v.addWidget(QLabel("<b>Deck</b>"))
-        deck_form = QFormLayout()
-        self.f_title = QLineEdit(); self.f_title.editingFinished.connect(self._apply_deck)
-        self.f_author = QLineEdit(); self.f_author.editingFinished.connect(self._apply_deck)
-        self.f_theme = QComboBox(); self.f_theme.setEditable(True)
-        self.f_theme.addItems(["default", "Madrid", "Berlin", "Copenhagen",
-                               "Frankfurt", "Singapore", "Warsaw", "metropolis",
-                               "CambridgeUS", "Boadilla", "Pittsburgh"])
-        self.f_theme.currentTextChanged.connect(self._apply_deck)
-        self.f_color = QComboBox(); self.f_color.setEditable(True)
-        self.f_color.addItems(["", "default", "beaver", "crane", "dolphin",
-                               "seagull", "wolverine", "orchid", "whale"])
-        self.f_color.currentTextChanged.connect(self._apply_deck)
-        self.f_aspect = QComboBox()
-        self.f_aspect.addItems(["169", "1610", "43", "32", "54", "141"])
-        self.f_aspect.currentTextChanged.connect(self._apply_aspect)
-        deck_form.addRow("Title", self.f_title)
-        deck_form.addRow("Author", self.f_author)
-        deck_form.addRow("Theme", self.f_theme)
-        deck_form.addRow("Colours", self.f_color)
-        deck_form.addRow("Aspect", self.f_aspect)
-        v.addLayout(deck_form)
-
-        v.addWidget(QLabel("<b>Slide</b>"))
-        slide_form = QFormLayout()
-        self.f_slide_title = QLineEdit()
-        self.f_slide_title.editingFinished.connect(self._apply_slide)
-        self.b_slide_bg = QPushButton("Background…")
-        self.b_slide_bg.clicked.connect(self._pick_slide_bg)
-        slide_form.addRow("Frame title", self.f_slide_title)
-        slide_form.addRow("", self.b_slide_bg)
-        v.addLayout(slide_form)
-
-        v.addWidget(QLabel("<b>Selected object</b>"))
-        self.obj_form = QFormLayout()
-        self.f_text = QPlainTextEdit(); self.f_text.setMaximumHeight(90)
-        self.f_text.textChanged.connect(self._apply_obj_text)
-        self.f_font = QSpinBox(); self.f_font.setRange(6, 160)
-        self.f_font.valueChanged.connect(self._apply_obj)
-        self.b_color = QPushButton("Text colour…")
-        self.b_color.clicked.connect(lambda: self._pick_obj_color("color"))
-        self.b_fill = QPushButton("Fill…")
-        self.b_fill.clicked.connect(lambda: self._pick_obj_color("fill"))
-        self.f_align = QComboBox(); self.f_align.addItems(["left", "center", "right"])
-        self.f_align.currentTextChanged.connect(self._apply_obj)
-        self.c_bold = QCheckBox("Bold"); self.c_bold.toggled.connect(self._apply_obj)
-        self.c_italic = QCheckBox("Italic"); self.c_italic.toggled.connect(self._apply_obj)
-        self.b_img = QPushButton("Image file…"); self.b_img.clicked.connect(self._pick_image)
-        self.c_aspect = QCheckBox("Keep aspect"); self.c_aspect.toggled.connect(self._apply_obj)
-        self.f_x = self._pct(); self.f_y = self._pct()
-        self.f_w = self._pct(); self.f_h = self._pct()
-        for s in (self.f_x, self.f_y, self.f_w, self.f_h):
-            s.valueChanged.connect(self._apply_obj_geometry)
-        self.obj_form.addRow("Text", self.f_text)
-        self.obj_form.addRow("Font pt", self.f_font)
-        self.obj_form.addRow("", self.b_color)
-        self.obj_form.addRow("", self.b_fill)
-        self.obj_form.addRow("Align", self.f_align)
-        self.obj_form.addRow(self.c_bold, self.c_italic)
-        self.obj_form.addRow("", self.b_img)
-        self.obj_form.addRow("", self.c_aspect)
-        self.obj_form.addRow("X %", self.f_x)
-        self.obj_form.addRow("Y %", self.f_y)
-        self.obj_form.addRow("W %", self.f_w)
-        self.obj_form.addRow("H %", self.f_h)
-        v.addLayout(self.obj_form)
-        v.addStretch(1)
-        self._set_obj_enabled(False)
-        return w
-
-    def _pct(self):
-        s = QDoubleSpinBox(); s.setRange(0, 100); s.setSuffix(" %")
-        s.setDecimals(1); s.setSingleStep(1.0)
-        return s
+        self.statusBar().showMessage(
+            "Double-click an object to edit it in place")
 
     # ---------------- reload ----------------
     @property
@@ -233,6 +244,7 @@ class SlideWindow(QMainWindow):
         self._reload_scene()
 
     def _reload_scene(self):
+        self._cancel_edit()
         self._loading = True
         self._items = []
         self.scene.set_aspect(self.deck.aspect)
@@ -241,22 +253,77 @@ class SlideWindow(QMainWindow):
         for obj in self.slide.objects:
             item = make_item(obj, sw)
             item.geometryChanged.connect(self._on_item_geometry)
+            item.doubleClicked.connect(lambda it=item: self._on_double_click(it))
             self.scene.addItem(item)
             self._items.append(item)
         self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
-        self._load_deck_fields()
-        self._load_slide_fields()
-        self._set_obj_enabled(False)
+        self._enable_format(False)
         self._loading = False
         self._refresh_latex()
 
     def _refresh_latex(self):
-        """Keep the right-hand LaTeX view in sync with the deck."""
         self.latex_view.set_source(serialize_deck(self.deck))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
+
+    # ---------------- in-place editing ----------------
+    def _on_double_click(self, item):
+        if isinstance(item, TextBoxItem):
+            self._edit_text_item(item)
+        elif isinstance(item, PictureBoxItem):
+            self._pick_image_for(item)
+
+    def _edit_text_item(self, item):
+        self._cancel_edit()
+        editor = _InlineEditor()
+        editor.setPlainText(item.obj.text)
+        f = QFont("Helvetica")
+        f.setPixelSize(max(8, int(item.obj.font_pt * FONT_SCALE)))
+        f.setBold(item.obj.bold); f.setItalic(item.obj.italic)
+        editor.setFont(f)
+        editor.setStyleSheet(
+            "QPlainTextEdit { background: rgba(255,255,255,235);"
+            " border: 1px solid #2878dc; }")
+        proxy = self.scene.addWidget(editor)
+        proxy.setGeometry(item.scene_rect())
+        proxy.setZValue(1e6)
+        self._edit_proxy = proxy
+        self._edit_item = item
+        editor.editingFinished.connect(self._finish_edit)
+        editor.setFocus()
+        editor.selectAll()
+
+    def _finish_edit(self):
+        if self._edit_proxy is None:
+            return
+        proxy = self._edit_proxy
+        item = self._edit_item
+        text = proxy.widget().toPlainText()
+        # Clear state first so the removal's focus change can't re-enter.
+        self._edit_proxy = None
+        self._edit_item = None
+        self.scene.removeItem(proxy)
+        item.obj.text = text
+        item.update()
+        item.setSelected(True)
+        self._touch_current()
+
+    def _cancel_edit(self):
+        if self._edit_proxy is not None:
+            self.scene.removeItem(self._edit_proxy)
+            self._edit_proxy = None
+            self._edit_item = None
+
+    def _pick_image_for(self, item):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose image", "",
+            "Images (*.png *.jpg *.jpeg *.pdf *.gif *.bmp)")
+        if path:
+            item.obj.path = path
+            item.update()
+            self._touch_current()
 
     # ---------------- slides ----------------
     def _on_slide_changed(self, row):
@@ -283,8 +350,6 @@ class SlideWindow(QMainWindow):
         self._reload_all()
 
     def _touch_current(self):
-        """After editing the current slide: refresh its thumbnail and the
-        live LaTeX."""
         if self._loading:
             return
         self.nav.refresh_one(self.deck, self.current)
@@ -337,89 +402,51 @@ class SlideWindow(QMainWindow):
                 return it
         return None
 
-    # ---------------- property syncing ----------------
+    # ---------------- selection → format toolbar ----------------
     def _on_selection(self):
         if self._loading:
             return
         item = self._selected_item()
         if item is None:
-            self._set_obj_enabled(False)
-            return
-        self._load_obj_fields(item.obj)
-
-    def _on_item_geometry(self):
-        item = self._selected_item()
-        if item is not None:
-            self._load_obj_geometry(item.obj)
-            self._touch_current()
-
-    def _set_obj_enabled(self, on, is_text=True, is_pic=False):
-        for wdg in (self.f_text, self.f_font, self.b_color, self.b_fill,
-                    self.f_align, self.c_bold, self.c_italic):
-            wdg.setEnabled(on and is_text)
-        for wdg in (self.b_img, self.c_aspect):
-            wdg.setEnabled(on and is_pic)
-        for wdg in (self.f_x, self.f_y, self.f_w, self.f_h):
-            wdg.setEnabled(on)
-
-    def _load_obj_geometry(self, obj):
-        self._loading = True
-        self.f_x.setValue(obj.x * 100); self.f_y.setValue(obj.y * 100)
-        self.f_w.setValue(obj.w * 100); self.f_h.setValue(obj.h * 100)
-        self._loading = False
-
-    def _load_obj_fields(self, obj):
-        self._loading = True
-        is_text = isinstance(obj, SlideText)
-        self._set_obj_enabled(True, is_text=is_text, is_pic=not is_text)
-        if is_text:
-            self.f_text.setPlainText(obj.text)
-            self.f_font.setValue(obj.font_pt)
-            self.f_align.setCurrentText(obj.align)
-            self.c_bold.setChecked(obj.bold)
-            self.c_italic.setChecked(obj.italic)
-        else:
-            self.c_aspect.setChecked(obj.keep_aspect)
-        self._load_obj_geometry(obj)
-        self._loading = False
-
-    def _apply_obj(self):
-        if self._loading:
-            return
-        item = self._selected_item()
-        if item is None:
+            self._enable_format(False)
             return
         obj = item.obj
-        if isinstance(obj, SlideText):
-            obj.font_pt = self.f_font.value()
-            obj.align = self.f_align.currentText()
-            obj.bold = self.c_bold.isChecked()
-            obj.italic = self.c_italic.isChecked()
-        else:
-            obj.keep_aspect = self.c_aspect.isChecked()
-        item.update()
+        is_text = isinstance(obj, SlideText)
+        self._enable_format(True, is_text=is_text, is_pic=not is_text)
+        if is_text:
+            self._loading = True
+            self.fmt_font.setValue(obj.font_pt)
+            self.act_bold.setChecked(obj.bold)
+            self.act_italic.setChecked(obj.italic)
+            self._align_actions.get(obj.align, self._align_actions["left"]).setChecked(True)
+            self._loading = False
+
+    def _on_item_geometry(self):
+        # An object was dragged or resized on the canvas — keep the
+        # thumbnail and live LaTeX in step.
         self._touch_current()
 
-    def _apply_obj_text(self):
+    def _apply_text_format(self):
         if self._loading:
             return
         item = self._selected_item()
         if item is None or not isinstance(item.obj, SlideText):
             return
-        item.obj.text = self.f_text.toPlainText()
+        obj = item.obj
+        obj.font_pt = self.fmt_font.value()
+        obj.bold = self.act_bold.isChecked()
+        obj.italic = self.act_italic.isChecked()
         item.update()
         self._touch_current()
 
-    def _apply_obj_geometry(self):
+    def _set_align(self, key):
         if self._loading:
             return
         item = self._selected_item()
-        if item is None:
+        if item is None or not isinstance(item.obj, SlideText):
             return
-        obj = item.obj
-        obj.x = self.f_x.value() / 100; obj.y = self.f_y.value() / 100
-        obj.w = self.f_w.value() / 100; obj.h = self.f_h.value() / 100
-        item.sync_from_model()
+        item.obj.align = key
+        item.update()
         self._touch_current()
 
     def _pick_obj_color(self, which):
@@ -435,58 +462,55 @@ class SlideWindow(QMainWindow):
 
     def _pick_image(self):
         item = self._selected_item()
-        if item is None or not isinstance(item.obj, SlidePicture):
-            return
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Choose image", "",
-            "Images (*.png *.jpg *.jpeg *.pdf *.gif *.bmp)")
-        if path:
-            item.obj.path = path
-            item.update()
-            self._touch_current()
+        if isinstance(item, PictureBoxItem):
+            self._pick_image_for(item)
 
-    # ---------------- deck/slide fields ----------------
-    def _load_deck_fields(self):
-        self._loading = True
-        self.f_title.setText(self.deck.title)
-        self.f_author.setText(self.deck.author)
-        self.f_theme.setCurrentText(self.deck.theme)
-        self.f_color.setCurrentText(self.deck.color_theme)
-        self.f_aspect.setCurrentText(self.deck.aspect)
-        self._loading = False
+    # ---------------- deck / slide settings (menus) ----------------
+    def _set_deck_title(self):
+        t, ok = QInputDialog.getText(self, "Deck title", "Title:",
+                                     text=self.deck.title)
+        if ok:
+            self.deck.title = t; self._refresh_latex()
 
-    def _load_slide_fields(self):
-        self._loading = True
-        self.f_slide_title.setText(self.slide.title)
-        self._loading = False
+    def _set_deck_author(self):
+        t, ok = QInputDialog.getText(self, "Deck author", "Author:",
+                                     text=self.deck.author)
+        if ok:
+            self.deck.author = t; self._refresh_latex()
 
-    def _apply_deck(self):
-        if self._loading:
-            return
-        self.deck.title = self.f_title.text()
-        self.deck.author = self.f_author.text()
-        self.deck.theme = self.f_theme.currentText()
-        self.deck.color_theme = self.f_color.currentText()
-        self._refresh_latex()
+    def _set_theme(self):
+        cur = _THEMES.index(self.deck.theme) if self.deck.theme in _THEMES else 0
+        t, ok = QInputDialog.getItem(self, "Beamer theme", "Theme:",
+                                     _THEMES, cur, True)
+        if ok and t:
+            self.deck.theme = t; self._refresh_latex()
 
-    def _apply_aspect(self, aspect):
-        if self._loading:
-            return
-        self.deck.aspect = aspect
-        self._reload_all()
+    def _set_colour_theme(self):
+        cur = (_COLOUR_THEMES.index(self.deck.color_theme)
+               if self.deck.color_theme in _COLOUR_THEMES else 0)
+        t, ok = QInputDialog.getItem(self, "Colour theme", "Colour theme:",
+                                     _COLOUR_THEMES, cur, True)
+        if ok:
+            self.deck.color_theme = t; self._refresh_latex()
 
-    def _apply_slide(self):
-        if self._loading:
-            return
-        self.slide.title = self.f_slide_title.text()
-        self._touch_current()
+    def _set_aspect(self):
+        cur = _ASPECTS.index(self.deck.aspect) if self.deck.aspect in _ASPECTS else 0
+        t, ok = QInputDialog.getItem(self, "Aspect ratio",
+                                     "Aspect (w:h code):", _ASPECTS, cur, False)
+        if ok and t:
+            self.deck.aspect = t; self._reload_all()
+
+    def _set_frame_title(self):
+        t, ok = QInputDialog.getText(self, "Frame title", "Frame title:",
+                                     text=self.slide.title)
+        if ok:
+            self.slide.title = t; self._touch_current()
 
     def _pick_slide_bg(self):
         cur = self.slide.bg or "#FFFFFF"
         col = QColorDialog.getColor(QColor(cur), self, "Slide background")
         if col.isValid():
-            self.slide.bg = col.name()
-            self._touch_current()
+            self.slide.bg = col.name(); self._touch_current()
 
     # ---------------- templates ----------------
     def _templates_menu(self):

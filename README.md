@@ -31,7 +31,10 @@ needed to compile slides to PDF; the designer itself runs without it.
 
 - **Left — WYSIWYG:** slide navigator (drag thumbnails to reorder) + the
   live slide canvas. Move boxes by dragging, resize from any of eight
-  handles, raise/lower in the z-stack, edit properties in the dock.
+  handles, raise/lower in the z-stack. **Double-click an object to edit
+  it in place** (type into a text box, swap a picture) — no side panel.
+  A compact Format toolbar handles font, bold/italic, alignment and
+  colours for the selected text.
 - **Right — LaTeX + Console:** the generated beamer source (live) and
   the compiler output, plus a PDF preview tab.
 
