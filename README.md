@@ -14,9 +14,14 @@ tectonic/preview engine, but is its own application.
 
 ## Run
 
+Easiest: right-click **`KherveSlide.py`** at the project root and **Run**
+(or double-click it). It's a thin launcher around the package.
+
+Or from a terminal:
+
 ```sh
 pip install -r requirements.txt
-python -m kherveslide
+python -m kherveslide      # equivalent to running KherveSlide.py
 ```
 
 A working `tectonic` binary on `PATH` (or installed via KherveTeX) is
