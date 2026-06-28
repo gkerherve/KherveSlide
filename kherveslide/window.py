@@ -109,7 +109,6 @@ class SlideWindow(QMainWindow):
         self._update_title()
         self._build_menus()
         self._build_toolbar()
-        self._build_format_toolbar()
         self._build_ui()
         self._reload_all()
 
@@ -153,6 +152,14 @@ class SlideWindow(QMainWindow):
         m_table.addAction("Delete row", lambda: self._table_op("del_row"))
         m_table.addAction("Delete column", lambda: self._table_op("del_col"))
 
+        m_tpl = mb.addMenu("Te&mplates")
+        self._m_tpl_new = m_tpl.addMenu("New deck from template")
+        self._m_tpl_new.aboutToShow.connect(self._populate_templates_menu)
+        m_tpl.addSeparator()
+        m_tpl.addAction("Save current deck as template…", self._save_as_template)
+        m_tpl.addAction("Rename template…", self._rename_template)
+        m_tpl.addAction("Delete template…", self._delete_template)
+
     # ---------------- toolbars ----------------
     def _build_toolbar(self):
         tb = QToolBar("Main"); tb.setMovable(False); self.addToolBar(tb)
@@ -183,10 +190,8 @@ class SlideWindow(QMainWindow):
         act(icons.templates_icon(), "Templates", self._templates_menu)
         act(icons.compile_pdf(), "Compile", self._compile)
 
-    def _build_format_toolbar(self):
-        self.addToolBarBreak()
-        tb = QToolBar("Format"); tb.setMovable(False); self.addToolBar(tb)
-        tb.setIconSize(QSize(24, 24))
+        # Format controls live on the same single horizontal toolbar.
+        tb.addSeparator()
         self._fmt_tb = tb
 
         tb.addWidget(QLabel(" Font "))
@@ -253,6 +258,9 @@ class SlideWindow(QMainWindow):
         self.scene = SlideScene(self.deck.aspect)
         self.scene.selectionChanged.connect(self._on_selection)
         self.view = QGraphicsView(self.scene)
+        # Grey desk so the white slide reads as a page sitting on it.
+        self.view.setBackgroundBrush(QColor("#9aa0a6"))
+        self.view.setFrameShape(QGraphicsView.NoFrame)
 
         wysiwyg = QSplitter(Qt.Horizontal)
         wysiwyg.addWidget(nav_panel)
@@ -338,16 +346,21 @@ class SlideWindow(QMainWindow):
     def _start_compile(self):
         if not tectonic_available():
             return
-        if self._worker is not None and self._worker.isRunning():
+        # Guard on "a worker object exists" — not isRunning(), which is
+        # still False in the gap between start() and the thread actually
+        # entering run(); replacing the worker in that gap GC's it mid-run.
+        if self._worker is not None:
             self._compile_pending = True   # coalesce: run again when done
             return
         tex = serialize_deck(self.deck)
         workdir = Path(tempfile.gettempdir()) / "kherveslide_build"
         src_dir = self.path.parent if self.path else None
         self.statusBar().showMessage("Compiling…")
-        self._worker = _CompileWorker(tex, workdir, src_dir)
-        self._worker.done.connect(self._on_compiled)
-        self._worker.start()
+        worker = _CompileWorker(tex, workdir, src_dir)
+        worker.done.connect(self._on_compiled)
+        worker.finished.connect(self._on_worker_finished)
+        self._worker = worker
+        worker.start()
 
     def _on_compiled(self, result):
         self.console.setPlainText(result.log or "")
@@ -356,7 +369,14 @@ class SlideWindow(QMainWindow):
             self.statusBar().showMessage("Compiled OK")
         else:
             self.statusBar().showMessage("Compile failed — see Console tab")
+
+    def _on_worker_finished(self):
+        # Runs after the thread's run() has returned, so it's safe to drop
+        # the reference here (never inside the cross-thread done handler).
+        worker = self._worker
         self._worker = None
+        if worker is not None:
+            worker.deleteLater()
         if self._compile_pending:
             self._compile_pending = False
             self._start_compile()
@@ -364,6 +384,13 @@ class SlideWindow(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
+
+    def closeEvent(self, event):
+        # Don't tear down while a compile thread is still running.
+        self._auto_timer.stop()
+        if self._worker is not None:
+            self._worker.wait(4000)
+        super().closeEvent(event)
 
     # ---------------- in-place editing ----------------
     def _on_double_click(self, item):
@@ -683,6 +710,19 @@ class SlideWindow(QMainWindow):
             self.slide.bg = col.name(); self._touch_current()
 
     # ---------------- templates ----------------
+    def _populate_templates_menu(self):
+        m = self._m_tpl_new
+        m.clear()
+        for name in self.store.all_names():
+            m.addAction(name, lambda n=name: self._new_from_template(n))
+
+    def _new_from_template(self, name):
+        self.deck = self.store.instantiate(name)
+        self.current = 0
+        self.path = None
+        self._update_title()
+        self._reload_all()
+
     def _templates_menu(self):
         choices = (["New from: " + n for n in self.store.all_names()]
                    + ["— Save current deck as template…",

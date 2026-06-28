@@ -336,9 +336,13 @@ class SlideScene(QGraphicsScene):
         self._set_rect()
 
     def drawBackground(self, painter, rect):
-        painter.fillRect(self.sceneRect(), QColor("#FFFFFF"))
-        painter.setPen(QPen(QColor(200, 200, 200), 0))
-        painter.drawRect(self.sceneRect())
+        r = self.sceneRect()
+        # Soft drop shadow, then the white page, then a thin grey edge —
+        # so on the grey view backdrop the slide looks like a sheet.
+        painter.fillRect(r.translated(7, 7), QColor(0, 0, 0, 45))
+        painter.fillRect(r, QColor("#FFFFFF"))
+        painter.setPen(QPen(QColor(150, 150, 150), 0))
+        painter.drawRect(r)
 
 
 def render_thumbnail(slide: Slide, aspect: str, width_px: int = 160) -> QPixmap:
