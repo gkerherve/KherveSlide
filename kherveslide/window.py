@@ -17,7 +17,7 @@ from PySide6.QtCore import QSize, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
 from PySide6.QtWidgets import (
     QColorDialog, QFileDialog, QGraphicsView, QHBoxLayout, QInputDialog,
-    QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
+    QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
     QSpinBox, QSplitter, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
@@ -249,6 +249,7 @@ class SlideWindow(QMainWindow):
         self.nav = SlideNavigator()
         self.nav.slideSelected.connect(self._on_slide_changed)
         self.nav.slidesReordered.connect(self._on_reorder)
+        self.nav.slideMenuRequested.connect(self._slide_context_menu)
 
         nav_panel = QWidget()
         nv = QVBoxLayout(nav_panel); nv.setContentsMargins(4, 4, 4, 4)
@@ -510,6 +511,44 @@ class SlideWindow(QMainWindow):
             return
         del self.deck.slides[self.current]
         self.current = max(0, self.current - 1)
+        self._reload_all()
+
+    def _slide_context_menu(self, row, global_pos):
+        if not (0 <= row < len(self.deck.slides)):
+            return
+        menu = QMenu(self)
+        lay = menu.addMenu("Apply layout to this slide")
+        for name in templates.slide_layout_names():
+            lay.addAction(name, lambda n=name, r=row: self._apply_layout(r, n))
+        menu.addSeparator()
+        menu.addAction("Duplicate slide", lambda: self._duplicate_slide(row))
+        menu.addAction("New blank slide after",
+                       lambda: self._new_slide_after(row))
+        menu.addAction("Delete slide", lambda: self._delete_slide_at(row))
+        menu.exec(global_pos)
+
+    def _apply_layout(self, row, name):
+        layout = templates.instantiate_slide_layout(name)
+        self.deck.slides[row] = layout
+        self.current = row
+        self._reload_all()
+
+    def _duplicate_slide(self, row):
+        import copy
+        self.deck.slides.insert(row + 1, copy.deepcopy(self.deck.slides[row]))
+        self.current = row + 1
+        self._reload_all()
+
+    def _new_slide_after(self, row):
+        self.deck.slides.insert(row + 1, Slide())
+        self.current = row + 1
+        self._reload_all()
+
+    def _delete_slide_at(self, row):
+        if len(self.deck.slides) <= 1:
+            return
+        del self.deck.slides[row]
+        self.current = min(row, len(self.deck.slides) - 1)
         self._reload_all()
 
     def _touch_current(self):

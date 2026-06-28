@@ -217,3 +217,18 @@ def test_template_store_rejects_builtin_name(tmp_path):
     store = templates.TemplateStore(tmp_path / "tpl.json")
     with pytest.raises(ValueError):
         store.save_deck_as("Blank", _sample_deck())
+
+
+# --- per-slide layouts ---
+
+def test_slide_layouts_instantiate():
+    for name in templates.slide_layout_names():
+        s = templates.instantiate_slide_layout(name)
+        assert isinstance(s, Slide)
+    # applying a layout into a deck still serializes
+    deck = Deck(slides=[templates.instantiate_slide_layout("Two columns")])
+    serialize_deck(deck)
+
+
+def test_slide_layout_unknown_falls_back_to_blank():
+    assert templates.instantiate_slide_layout("nope").objects == []

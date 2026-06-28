@@ -22,6 +22,7 @@ class SlideNavigator(QListWidget):
 
     slideSelected = Signal(int)
     slidesReordered = Signal(list)   # emits the new index order
+    slideMenuRequested = Signal(int, object)   # (row, global QPoint)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -35,11 +36,19 @@ class SlideNavigator(QListWidget):
         self.setFixedWidth(THUMB_W + 36)
         self.setStyleSheet("QListWidget::item { padding: 2px; }")
         self.currentRowChanged.connect(self._on_row)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
         self._suppress = False
 
     def _on_row(self, row: int):
         if not self._suppress and row >= 0:
             self.slideSelected.emit(row)
+
+    def _on_context_menu(self, pos):
+        item = self.itemAt(pos)
+        row = self.row(item) if item is not None else self.currentRow()
+        if row >= 0:
+            self.slideMenuRequested.emit(row, self.viewport().mapToGlobal(pos))
 
     def refresh(self, deck: Deck, current: int):
         """Rebuild every thumbnail from the deck and keep *current*

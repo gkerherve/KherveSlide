@@ -117,6 +117,73 @@ def instantiate_builtin(name: str) -> Deck:
     return factory()
 
 
+# ---------------- Per-slide layouts ----------------
+# A layout is applied to a single slide (PowerPoint-style "Layout"): it
+# returns a fresh Slide whose objects replace that page's content.
+
+def _lay_blank() -> Slide:
+    return Slide()
+
+
+def _lay_title() -> Slide:
+    return Slide(objects=[
+        _title("Presentation Title", y=0.36, pt=44),
+        SlideText(x=0.1, y=0.56, w=0.8, h=0.1, text="Subtitle",
+                  font_pt=24, align="center", color="#555555"),
+        SlideText(x=0.1, y=0.78, w=0.8, h=0.08,
+                  text="Author \\textbar{} Date", font_pt=18,
+                  align="center", color="#777777"),
+    ])
+
+
+def _lay_title_content() -> Slide:
+    return Slide(objects=[
+        _title("Heading", x=0.06, y=0.06, w=0.88, h=0.12, pt=32, align="left"),
+        _body("\\begin{itemize}\n  \\item First point\n"
+              "  \\item Second point\n\\end{itemize}", y=0.26),
+    ])
+
+
+def _lay_two_columns() -> Slide:
+    return Slide(objects=[
+        _title("Heading", x=0.06, y=0.06, w=0.88, h=0.12, pt=32, align="left"),
+        _body("Left column text.", x=0.06, y=0.26, w=0.42, h=0.6),
+        _body("Right column text.", x=0.52, y=0.26, w=0.42, h=0.6),
+    ])
+
+
+def _lay_picture_text() -> Slide:
+    return Slide(objects=[
+        _title("Heading", x=0.06, y=0.06, w=0.88, h=0.12, pt=32, align="left"),
+        SlidePicture(x=0.06, y=0.26, w=0.42, h=0.6, path=""),
+        _body("Describe the picture here.", x=0.52, y=0.26, w=0.42, h=0.6),
+    ])
+
+
+def _lay_section() -> Slide:
+    return Slide(bg="#1F3A5F", objects=[
+        _title("Section", y=0.42, pt=48, color="#FFFFFF"),
+    ])
+
+
+_SLIDE_LAYOUTS: dict[str, callable] = {
+    "Blank": _lay_blank,
+    "Title": _lay_title,
+    "Title + content": _lay_title_content,
+    "Two columns": _lay_two_columns,
+    "Picture + text": _lay_picture_text,
+    "Section divider": _lay_section,
+}
+
+
+def slide_layout_names() -> list[str]:
+    return list(_SLIDE_LAYOUTS.keys())
+
+
+def instantiate_slide_layout(name: str) -> Slide:
+    return _SLIDE_LAYOUTS.get(name, _lay_blank)()
+
+
 # ---------------- User template store ----------------
 
 def _default_store_path() -> Path:
