@@ -55,6 +55,8 @@ _THEMES = [
     "Frankfurt", "Goettingen", "Hannover", "Ilmenau", "JuanLesPins",
     "Luebeck", "Madrid", "Malmoe", "Marburg", "Montpellier", "PaloAlto",
     "Pittsburgh", "Rochester", "Singapore", "Szeged", "Warsaw",
+    # Third-party themes (fetched by tectonic; verified to compile).
+    "metropolis", "Auriga", "Trigon", "sintef",
 ]
 _COLOUR_THEMES = [
     "", "default", "albatross", "beaver", "beetle", "crane", "dolphin",

@@ -19,6 +19,7 @@ _THEMES = [
     "Frankfurt", "Goettingen", "Hannover", "Ilmenau", "JuanLesPins",
     "Luebeck", "Madrid", "Malmoe", "Marburg", "Montpellier", "PaloAlto",
     "Pittsburgh", "Rochester", "Singapore", "Szeged", "Warsaw",
+    "metropolis", "Auriga", "Trigon", "sintef",
 ]
 _COLOUR = ["default", "albatross", "beaver", "beetle", "crane", "dolphin",
            "dove", "fly", "lily", "monarca", "orchid", "rose", "seagull",
