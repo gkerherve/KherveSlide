@@ -21,7 +21,9 @@ layout; the user composes the slide entirely from boxes.
 """
 from __future__ import annotations
 
-from .model import Deck, Slide, SlideText, SlidePicture, SlideTable
+from .model import (
+    Deck, Slide, SlideText, SlidePicture, SlideTable, blend_over_white,
+)
 
 
 def _hex_to_rgb_arg(hex_color: str) -> str:
@@ -121,7 +123,7 @@ def _serialize_table(obj: SlideTable) -> str:
 
 def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0) -> str:
     parts = ["\\begin{frame}[plain]" if plain else "\\begin{frame}"]
-    bg = _hex_to_rgb_arg(slide.bg)
+    bg = _hex_to_rgb_arg(blend_over_white(slide.bg, slide.bg_alpha))
     if bg:
         # Full-slide coloured panel behind everything else. The textpos grid
         # is inset by the gap, so place this block back at the page corner

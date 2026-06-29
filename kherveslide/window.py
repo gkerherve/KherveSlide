@@ -32,7 +32,7 @@ from .compiler import compile_tex, download_tectonic_bundle, tectonic_available
 from .drawing_dialog import DrawingDialog
 from .latex_view import LatexView
 from .model import (
-    Deck, Slide, SlideText, SlidePicture, SlideTable,
+    Deck, Slide, SlideText, SlidePicture, SlideTable, blend_over_white,
     deck_to_json, deck_from_json,
     raise_object, lower_object, to_front, to_back,
 )
@@ -420,7 +420,9 @@ class SlideWindow(QMainWindow):
         pw, ph, self._font_scale = page_size_px(
             self.deck.aspect, self.deck.page_w_cm, self.deck.page_h_cm)
         self.scene.set_page(pw, ph, self.deck.gap)
-        self.scene.page_color = self.slide.bg or "#FFFFFF"
+        self.scene.page_color = (blend_over_white(self.slide.bg,
+                                                  self.slide.bg_alpha)
+                                 if self.slide.bg else "#FFFFFF")
         # Silence selectionChanged while clearing — otherwise it fires with
         # the just-deleted items still referenced.
         self.scene.blockSignals(True)
@@ -1065,16 +1067,22 @@ class SlideWindow(QMainWindow):
         self._recompile_now()
 
     def _pick_slide_bg(self):
-        cur = self.slide.bg or "#FFFFFF"
-        col = QColorDialog.getColor(QColor(cur), self, "Slide background")
+        cur = QColor(self.slide.bg or "#FFFFFF")
+        cur.setAlphaF(self.slide.bg_alpha)
+        col = QColorDialog.getColor(
+            cur, self, "Slide background (drag the opacity slider for a tint)",
+            QColorDialog.ShowAlphaChannel)
         if col.isValid():
-            self.slide.bg = col.name()
-            self.scene.page_color = col.name()
-            self.scene.invalidate()        # repaint the page immediately
+            self.slide.bg = col.name()          # #rrggbb
+            self.slide.bg_alpha = col.alphaF()  # transparency level
+            self.scene.page_color = blend_over_white(self.slide.bg,
+                                                      self.slide.bg_alpha)
+            self.scene.invalidate()             # repaint the page immediately
             self._touch_current()
 
     def _clear_slide_bg(self):
         self.slide.bg = ""
+        self.slide.bg_alpha = 1.0
         self.scene.page_color = "#FFFFFF"
         self.scene.invalidate()
         self._touch_current()

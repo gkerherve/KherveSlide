@@ -160,6 +160,25 @@ def test_nav_symbols_suppressed_by_default():
     assert "\\setbeamertemplate{navigation symbols}{}" in tex
 
 
+def test_background_alpha_blends_over_white():
+    from kherveslide.model import blend_over_white
+    # 50% black over white -> mid grey
+    assert blend_over_white("#000000", 0.5) == "#808080"
+    assert blend_over_white("#000000", 1.0) == "#000000"
+    assert blend_over_white("#3366CC", 0.0) == "#FFFFFF"
+
+
+def test_serialize_background_uses_blended_colour():
+    deck = Deck(slides=[Slide(bg="#000000", bg_alpha=0.5)])
+    tex = serialize_deck(deck)
+    assert "\\colorbox[HTML]{808080}" in tex
+
+
+def test_background_alpha_round_trip():
+    deck = Deck(slides=[Slide(bg="#3366CC", bg_alpha=0.4)])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
 def test_nav_symbols_kept_when_enabled():
     deck = _sample_deck()
     deck.nav_symbols = True

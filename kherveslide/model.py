@@ -89,6 +89,7 @@ class Slide:
     objects: list[SlideObject] = field(default_factory=list)
     title: str = ""               # optional \frametitle
     bg: str = ""                  # hex background colour, "" = theme default
+    bg_alpha: float = 1.0         # background opacity 0..1 (blended over white)
     type: str = "Slide"
 
 
@@ -169,7 +170,26 @@ def _build_slide(d: dict) -> Slide:
         objects=[_build_object(o) for o in d.get("objects", [])],
         title=str(d.get("title", "")),
         bg=str(d.get("bg", "")),
+        bg_alpha=float(d.get("bg_alpha", 1.0)),
     )
+
+
+def blend_over_white(hex_color: str, alpha: float) -> str:
+    """Composite *hex_color* at *alpha* (0..1) over white — the slide page
+    is white, so a semi-transparent background reads as a tint. Returns a
+    solid ``#RRGGBB`` so it works without any LaTeX transparency package."""
+    h = (hex_color or "").lstrip("#")
+    if len(h) != 6:
+        return hex_color
+    a = max(0.0, min(1.0, alpha))
+    try:
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    except ValueError:
+        return hex_color
+    r = round(r * a + 255 * (1 - a))
+    g = round(g * a + 255 * (1 - a))
+    b = round(b * a + 255 * (1 - a))
+    return f"#{r:02X}{g:02X}{b:02X}"
 
 
 def _build_deck(d: dict) -> Deck:
