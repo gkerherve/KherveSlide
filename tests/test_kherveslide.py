@@ -272,12 +272,18 @@ def test_serialize_frame_count_matches_slides():
     assert tex.count("\\end{frame}") == 2
 
 
+def test_serialize_frame_title_when_set():
+    deck = Deck(slides=[Slide(title="Key Results")])
+    assert "\\frametitle{Key Results}" in serialize_deck(deck)
+
+
+def test_no_frame_title_when_empty():
+    assert "\\frametitle" not in serialize_deck(Deck(slides=[Slide()]))
+
+
 def test_serialize_slide_background():
-    # Frame titles are intentionally not emitted (the user composes titles
-    # as free text boxes); the slide background still renders.
-    deck = Deck(slides=[Slide(title="Heading", bg="#123456")])
+    deck = Deck(slides=[Slide(bg="#123456")])
     tex = serialize_deck(deck)
-    assert "\\frametitle" not in tex
     assert "\\colorbox[HTML]{123456}" in tex
 
 

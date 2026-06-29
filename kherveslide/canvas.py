@@ -345,6 +345,13 @@ class BoxItem(QGraphicsObject):
 
 
 class TextBoxItem(BoxItem):
+    def boundingRect(self):
+        # Allow text taller than the box (e.g. a big heading in a short box)
+        # to render without being clipped or leaving paint artifacts — it
+        # flows downward from the top, just like the textblock in the PDF.
+        r = super().boundingRect()
+        return QRectF(r.x(), r.y(), r.width(), r.height() * 2 + 40)
+
     def paint(self, painter, option, widget=None):
         obj: SlideText = self.obj
         if obj.fill:
@@ -364,12 +371,14 @@ class TextBoxItem(BoxItem):
         doc.setDefaultTextOption(opt)
         colour = obj.color or "#000000"
         doc.setHtml(f'<div style="color:{colour}">{latex_to_html(obj.text)}</div>')
-        inner = self._rect.adjusted(6, 3, -6, -3)
+        inner = self._rect.adjusted(6, 1, -6, -1)
         doc.setTextWidth(inner.width())
 
         painter.save()
         painter.translate(inner.topLeft())
-        painter.setClipRect(QRectF(0, 0, inner.width(), inner.height()))
+        # Clip generously below so glyphs/descenders and overflow aren't cut.
+        painter.setClipRect(QRectF(0, -2, inner.width(),
+                                   max(inner.height(), doc.size().height()) + 6))
         doc.drawContents(painter)
         painter.restore()
         self._paint_selection(painter)

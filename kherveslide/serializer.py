@@ -215,6 +215,9 @@ def _serialize_line(obj: SlideLine, gap: float, idx: int) -> str:
 def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
                      counter: list | None = None) -> str:
     parts = ["\\begin{frame}[plain]" if plain else "\\begin{frame}"]
+    # A frame title makes the chosen theme render its standard title bar.
+    if slide.title:
+        parts.append(f"\\frametitle{{{slide.title}}}")
     bg = _hex_to_rgb_arg(blend_over_white(slide.bg, slide.bg_alpha))
     if bg:
         # Full-slide coloured panel behind everything else. The textpos grid

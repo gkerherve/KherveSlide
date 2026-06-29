@@ -28,7 +28,7 @@ from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
     make_item, page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
 )
-from .compiler import compile_tex, download_tectonic_bundle, tectonic_available
+from .compiler import compile_tex, tectonic_available
 from .drawing_dialog import DrawingDialog
 from .latex_view import LatexView
 from .model import (
@@ -88,8 +88,8 @@ class _DownloadWorker(QThread):
     done = Signal(bool)
 
     def run(self):
-        ok, _log = download_tectonic_bundle(
-            on_output=lambda s: self.line.emit(s.rstrip()))
+        from .offline import download_offline
+        ok = download_offline(on_output=lambda s: self.line.emit(s.rstrip()))
         self.done.emit(ok)
 
 
@@ -199,6 +199,7 @@ class SlideWindow(QMainWindow):
         m_slide = mb.addMenu("&Slide")
         m_slide.addAction("Add slide", self._add_slide)
         m_slide.addAction("Delete slide", self._del_slide)
+        m_slide.addAction("Frame title…", self._set_frame_title)
         m_slide.addAction("Background colour…", self._pick_slide_bg)
         m_slide.addAction("Clear background", self._clear_slide_bg)
 
@@ -603,7 +604,9 @@ class SlideWindow(QMainWindow):
         """On first launch, pre-fetch the TeX packages in the background so
         compiling is fast and works offline — done by default, once."""
         settings = QSettings("kherveDOC", "KherveSlide")
-        if settings.value("offline_packages_done", False, type=bool):
+        # v2 key: the v1 download used a generic bundle that missed beamer
+        # themes/textpos/tikz, so re-warm with the KherveSlide-specific set.
+        if settings.value("offline_packages_v2", False, type=bool):
             return
         if not tectonic_available():
             return
@@ -631,7 +634,7 @@ class SlideWindow(QMainWindow):
             "LaTeX packages ready (offline)" if ok else "Package download failed")
         if ok:
             QSettings("kherveDOC", "KherveSlide").setValue(
-                "offline_packages_done", True)
+                "offline_packages_v2", True)
 
     def _on_dl_finished(self):
         worker = self._dl_worker
@@ -1179,6 +1182,15 @@ class SlideWindow(QMainWindow):
                 self.act_deco.blockSignals(False)
             self._recompile_now()
 
+    def _set_frame_title(self):
+        text, ok = QInputDialog.getText(
+            self, "Frame title",
+            "Title shown in the theme's title bar (decorations on):",
+            text=self.slide.title)
+        if ok:
+            self.slide.title = text
+            self._touch_current()
+
     def _pick_slide_bg(self):
         cur = QColor(self.slide.bg or "#FFFFFF")
         cur.setAlphaF(self.slide.bg_alpha)
@@ -1303,7 +1315,7 @@ class SlideWindow(QMainWindow):
     def _save_deck_as(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Save presentation as", "",
-            "KherveSlide presentation (*.kslide.json)")
+            "KherveSlide presentation (*.kslide)")
         if not path:
             return
         self.path = Path(path)
@@ -1315,7 +1327,7 @@ class SlideWindow(QMainWindow):
     def _open_deck(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Open presentation", "",
-            "KherveSlide presentation (*.kslide.json *.json)")
+            "KherveSlide presentation (*.kslide *.kslide.json *.json)")
         if path:
             self.open_path(path)
 

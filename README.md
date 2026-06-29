@@ -44,7 +44,8 @@ needed to compile slides to PDF; the designer itself runs without it.
 
 ## Files
 
-Decks save as `*.kslide.json`. Export the LaTeX with **Export .tex**.
+Presentations save as `*.kslide` (JSON inside). Export the LaTeX with
+**Export .tex**.
 
 ## Layout of the code
 
