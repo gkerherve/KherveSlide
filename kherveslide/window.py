@@ -548,8 +548,16 @@ class SlideWindow(QMainWindow):
         self._worker = worker
         worker.start()
 
+    @staticmethod
+    def _clean_log(log):
+        # Drop the harmless, scary-looking xdvipdfmx/fontconfig warning on
+        # Windows (no fontconfig config file) — it doesn't affect output.
+        return "\n".join(
+            ln for ln in (log or "").splitlines()
+            if "Fontconfig error" not in ln)
+
     def _on_compiled(self, result):
-        self.console.setPlainText(result.log or "")
+        self.console.setPlainText(self._clean_log(result.log))
         if result.ok and result.pdf_path:
             self.pdf_view.show_pdf(Path(result.pdf_path))
             self.statusBar().showMessage("Compiled OK")

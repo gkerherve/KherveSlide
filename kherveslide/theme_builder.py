@@ -40,8 +40,12 @@ class ThemeBuilderDialog(QDialog):
         self._colours = {key: getattr(spec, key) for key, _ in _COLOURS}
 
         v = QVBoxLayout(self)
-        self._enabled = QCheckBox("Apply this custom theme")
-        self._enabled.setChecked(spec.enabled)
+        self._enabled = QCheckBox("Apply this custom theme (uncheck to "
+                                  "turn it off)")
+        # Default to on: opening the builder and pressing Apply should
+        # actually apply. Reflect the saved state only if it was explicitly
+        # disabled with content already set.
+        self._enabled.setChecked(True)
         v.addWidget(self._enabled)
 
         form = QFormLayout()
