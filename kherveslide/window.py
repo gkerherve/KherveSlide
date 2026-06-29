@@ -1165,7 +1165,8 @@ class SlideWindow(QMainWindow):
 
     def _open_theme_builder(self):
         from .theme_builder import ThemeBuilderDialog
-        dlg = ThemeBuilderDialog(self.deck.theme_spec, self)
+        dlg = ThemeBuilderDialog(self.deck.theme_spec, self.deck.theme,
+                                 self.deck.color_theme, self.deck.aspect, self)
         if dlg.exec() and dlg.result_spec is not None:
             self.deck.theme_spec = dlg.result_spec
             if dlg.result_spec.enabled:
