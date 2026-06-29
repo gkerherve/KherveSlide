@@ -155,6 +155,19 @@ def test_page_fields_round_trip():
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
+def test_nav_symbols_suppressed_by_default():
+    tex = serialize_deck(_sample_deck())
+    assert "\\setbeamertemplate{navigation symbols}{}" in tex
+
+
+def test_nav_symbols_kept_when_enabled():
+    deck = _sample_deck()
+    deck.nav_symbols = True
+    tex = serialize_deck(deck)
+    assert "\\setbeamertemplate{navigation symbols}{}" not in tex
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
 def test_serialize_text_styling():
     deck = Deck(slides=[Slide(objects=[
         SlideText(text="Hi", font_pt=30, color="#FF0000", align="center",

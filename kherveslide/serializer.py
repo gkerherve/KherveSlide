@@ -175,6 +175,8 @@ def serialize_deck(deck: Deck) -> str:
         f"\\setlength{{\\TPVertModule}}{{{span}\\paperheight}}",
         f"\\textblockorigin{{{_fmt(g)}\\paperwidth}}{{{_fmt(g)}\\paperheight}}",
     ]
+    if not deck.nav_symbols:
+        lines.append("\\setbeamertemplate{navigation symbols}{}")
     if deck.title:
         lines.append(f"\\title{{{deck.title}}}")
     if deck.author:

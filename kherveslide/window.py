@@ -164,6 +164,10 @@ class SlideWindow(QMainWindow):
         m_deck.addAction("Author…", self._set_deck_author)
         m_deck.addAction("Colour theme…", self._set_colour_theme)
         m_deck.addAction("Page setup (size & gap)…", self._page_setup)
+        self.act_nav = m_deck.addAction("Navigation symbols (prev / next)")
+        self.act_nav.setCheckable(True)
+        self.act_nav.setChecked(self.deck.nav_symbols)
+        self.act_nav.toggled.connect(self._toggle_nav_symbols)
         # Theme + decorations live on the toolbar (see _build_toolbar).
 
         m_slide = mb.addMenu("&Slide")
@@ -379,6 +383,9 @@ class SlideWindow(QMainWindow):
         self.act_deco.blockSignals(True)
         self.act_deco.setChecked(not self.deck.plain_frames)
         self.act_deco.blockSignals(False)
+        self.act_nav.blockSignals(True)
+        self.act_nav.setChecked(self.deck.nav_symbols)
+        self.act_nav.blockSignals(False)
         self.theme_combo.blockSignals(True)
         self.theme_combo.setCurrentText(self.deck.theme)
         self.theme_combo.blockSignals(False)
@@ -973,6 +980,10 @@ class SlideWindow(QMainWindow):
     def _toggle_decorations(self, on):
         # on = show the beamer theme's title bars / footers (frames not plain)
         self.deck.plain_frames = not on
+        self._recompile_now()
+
+    def _toggle_nav_symbols(self, on):
+        self.deck.nav_symbols = on
         self._recompile_now()
 
     def _pick_slide_bg(self):

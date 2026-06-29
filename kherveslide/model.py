@@ -113,6 +113,10 @@ class Deck:
     # Object coordinates are 0..1 within the page minus this gap, so every
     # box keeps the same breathing room from the slide edge.
     gap: float = 0.0
+    # beamer's prev/next navigation symbols. Off by default: they're rarely
+    # wanted on a designed slide and their hyperlink annotations poke just
+    # below the page edge, which makes xdvipdfmx warn on every page.
+    nav_symbols: bool = False
     type: str = "Deck"
 
 
@@ -183,6 +187,7 @@ def _build_deck(d: dict) -> Deck:
         page_w_cm=float(d.get("page_w_cm", 0.0)),
         page_h_cm=float(d.get("page_h_cm", 0.0)),
         gap=float(d.get("gap", 0.0)),
+        nav_symbols=bool(d.get("nav_symbols", False)),
     )
 
 
