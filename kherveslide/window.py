@@ -13,7 +13,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QSize, QThread, QTimer, Qt, Signal
+from PySide6.QtCore import QSettings, QSize, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
 from PySide6.QtWidgets import (
     QColorDialog, QFileDialog, QGraphicsView, QHBoxLayout, QInputDialog,
@@ -26,7 +26,7 @@ from .canvas import (
     SlideScene, TextBoxItem, PictureBoxItem, TableBoxItem, make_item,
     scene_width, FONT_SCALE,
 )
-from .compiler import compile_tex, tectonic_available
+from .compiler import compile_tex, download_tectonic_bundle, tectonic_available
 from .drawing_dialog import DrawingDialog
 from .latex_view import LatexView
 from .model import (
@@ -65,6 +65,19 @@ class _CompileWorker(QThread):
         self.done.emit(result)
 
 
+class _DownloadWorker(QThread):
+    """Pre-downloads the tectonic TeX packages so compiles are fast and
+    fully offline. Runs off the UI thread; streams progress lines."""
+
+    line = Signal(str)
+    done = Signal(bool)
+
+    def run(self):
+        ok, _log = download_tectonic_bundle(
+            on_output=lambda s: self.line.emit(s.rstrip()))
+        self.done.emit(ok)
+
+
 class _InlineEditor(QPlainTextEdit):
     """A text box editor that floats over the object being edited and
     commits when it loses focus (or Escape is pressed)."""
@@ -101,6 +114,7 @@ class SlideWindow(QMainWindow):
         # Auto-compile: debounce edits, run tectonic off-thread.
         self._worker: _CompileWorker | None = None
         self._compile_pending = False
+        self._dl_worker: _DownloadWorker | None = None
         self._auto_timer = QTimer(self)
         self._auto_timer.setSingleShot(True)
         self._auto_timer.setInterval(900)
@@ -111,6 +125,7 @@ class SlideWindow(QMainWindow):
         self._build_toolbar()
         self._build_ui()
         self._reload_all()
+        self._maybe_autodownload_packages()
 
     # ---------------- menus ----------------
     def _build_menus(self):
@@ -124,6 +139,9 @@ class SlideWindow(QMainWindow):
         m_file.addSeparator()
         m_file.addAction("Export LaTeX (.tex)…", self._export_tex)
         m_file.addAction("Compile to PDF", self._compile).setShortcut("Ctrl+R")
+        m_file.addSeparator()
+        m_file.addAction("Download LaTeX packages (offline)…",
+                         self._download_packages)
         m_file.addSeparator()
         m_file.addAction("Quit", self.close).setShortcut("Ctrl+Q")
 
@@ -251,16 +269,25 @@ class SlideWindow(QMainWindow):
         self.nav.slidesReordered.connect(self._on_reorder)
         self.nav.slideMenuRequested.connect(self._slide_context_menu)
 
+        # Vertical toolbar for slide operations on the active slide.
+        slide_tb = QToolBar()
+        slide_tb.setOrientation(Qt.Vertical)
+        slide_tb.setIconSize(QSize(24, 24))
+        slide_tb.addAction(icons.slide_add(), "Add slide", self._add_slide)
+        slide_tb.addAction(icons.slide_remove(), "Remove active slide",
+                           self._del_slide)
+        slide_tb.addAction(icons.move_up(), "Move slide up",
+                           lambda: self._move_slide(-1))
+        slide_tb.addAction(icons.move_down(), "Move slide down",
+                           lambda: self._move_slide(1))
+
         nav_panel = QWidget()
         nv = QVBoxLayout(nav_panel); nv.setContentsMargins(4, 4, 4, 4)
         nv.addWidget(QLabel("Slides"))
-        nv.addWidget(self.nav)
-        row = QHBoxLayout()
-        b_add = QPushButton("+ Slide"); b_add.clicked.connect(self._add_slide)
-        b_del = QPushButton("−"); b_del.clicked.connect(self._del_slide)
-        b_del.setMaximumWidth(34)
-        row.addWidget(b_add); row.addWidget(b_del)
-        nv.addLayout(row)
+        nav_row = QHBoxLayout()
+        nav_row.addWidget(slide_tb)
+        nav_row.addWidget(self.nav)
+        nv.addLayout(nav_row)
 
         self.scene = SlideScene(self.deck.aspect)
         self.scene.selectionChanged.connect(self._on_selection)
@@ -397,15 +424,58 @@ class SlideWindow(QMainWindow):
             self._compile_pending = False
             self._start_compile()
 
+    # ---------------- offline package download ----------------
+    def _maybe_autodownload_packages(self):
+        """On first launch, pre-fetch the TeX packages in the background so
+        compiling is fast and works offline — done by default, once."""
+        settings = QSettings("kherveDOC", "KherveSlide")
+        if settings.value("offline_packages_done", False, type=bool):
+            return
+        if not tectonic_available():
+            return
+        self._download_packages(auto=True)
+
+    def _download_packages(self, auto=False):
+        if self._dl_worker is not None:
+            return
+        if not tectonic_available():
+            QMessageBox.warning(self, "Download", "tectonic is not available.")
+            return
+        self.console.appendPlainText(
+            "Pre-downloading LaTeX packages for fast offline compiling…")
+        if not auto:
+            self.right_tabs.setCurrentWidget(self.console)
+        self.statusBar().showMessage("Downloading LaTeX packages…")
+        self._dl_worker = _DownloadWorker()
+        self._dl_worker.line.connect(self.console.appendPlainText)
+        self._dl_worker.done.connect(self._on_download_done)
+        self._dl_worker.finished.connect(self._on_dl_finished)
+        self._dl_worker.start()
+
+    def _on_download_done(self, ok):
+        self.statusBar().showMessage(
+            "LaTeX packages ready (offline)" if ok else "Package download failed")
+        if ok:
+            QSettings("kherveDOC", "KherveSlide").setValue(
+                "offline_packages_done", True)
+
+    def _on_dl_finished(self):
+        worker = self._dl_worker
+        self._dl_worker = None
+        if worker is not None:
+            worker.deleteLater()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
 
     def closeEvent(self, event):
-        # Don't tear down while a compile thread is still running.
+        # Don't tear down while a worker thread is still running.
         self._auto_timer.stop()
         if self._worker is not None:
             self._worker.wait(4000)
+        if self._dl_worker is not None:
+            self._dl_worker.wait(2000)
         super().closeEvent(event)
 
     # ---------------- in-place editing ----------------
@@ -512,6 +582,14 @@ class SlideWindow(QMainWindow):
         del self.deck.slides[self.current]
         self.current = max(0, self.current - 1)
         self._reload_all()
+
+    def _move_slide(self, delta):
+        j = self.current + delta
+        if 0 <= j < len(self.deck.slides):
+            s = self.deck.slides
+            s[self.current], s[j] = s[j], s[self.current]
+            self.current = j
+            self._reload_all()
 
     def _slide_context_menu(self, row, global_pos):
         if not (0 <= row < len(self.deck.slides)):
@@ -745,7 +823,7 @@ class SlideWindow(QMainWindow):
         t, ok = QInputDialog.getItem(self, "Beamer theme", "Theme:",
                                      _THEMES, cur, True)
         if ok and t:
-            self.deck.theme = t; self._refresh_latex()
+            self.deck.theme = t; self._recompile_now()
 
     def _set_colour_theme(self):
         cur = (_COLOUR_THEMES.index(self.deck.color_theme)
@@ -753,7 +831,7 @@ class SlideWindow(QMainWindow):
         t, ok = QInputDialog.getItem(self, "Colour theme", "Colour theme:",
                                      _COLOUR_THEMES, cur, True)
         if ok:
-            self.deck.color_theme = t; self._refresh_latex()
+            self.deck.color_theme = t; self._recompile_now()
 
     def _set_aspect(self):
         cur = _ASPECTS.index(self.deck.aspect) if self.deck.aspect in _ASPECTS else 0
@@ -762,10 +840,19 @@ class SlideWindow(QMainWindow):
         if ok and t:
             self.deck.aspect = t; self._reload_all()
 
+    def _recompile_now(self):
+        """For theme/decoration changes: update LaTeX, show the PDF tab and
+        compile straight away so the effect is immediately visible."""
+        self._refresh_latex()
+        if tectonic_available():
+            self.right_tabs.setCurrentWidget(self.pdf_view)
+            self._auto_timer.stop()
+            self._start_compile()
+
     def _toggle_decorations(self, on):
         # on = show the beamer theme's title bars / footers (frames not plain)
         self.deck.plain_frames = not on
-        self._refresh_latex()
+        self._recompile_now()
 
     def _pick_slide_bg(self):
         cur = self.slide.bg or "#FFFFFF"

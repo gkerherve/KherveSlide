@@ -988,3 +988,33 @@ def templates_icon() -> QIcon:
     p.drawRect(13, 4, 7, 6); p.drawRect(3, 14, 7, 6); p.drawRect(13, 14, 7, 6)
     p.end()
     return QIcon(px)
+
+
+def slide_remove() -> QIcon:
+    """Slide rectangle with a minus — remove the active slide."""
+    px, p = _new_canvas()
+    page_bg = QColor("#2d2d2d") if _dark else Qt.white
+    p.setPen(QPen(_fg(), 1.6)); p.setBrush(QBrush(page_bg))
+    p.drawRect(3, 6, 18, 12)
+    red = QColor("#ff5555") if _dark else QColor("#c00")
+    p.setPen(QPen(red, 2)); p.drawLine(9, 12, 15, 12)
+    p.end()
+    return QIcon(px)
+
+
+def move_up() -> QIcon:
+    """Upward chevron — move the active slide up."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_accent(), 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.drawPolyline([QPointF(6, 15), QPointF(12, 8), QPointF(18, 15)])
+    p.end()
+    return QIcon(px)
+
+
+def move_down() -> QIcon:
+    """Downward chevron — move the active slide down."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_accent(), 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.drawPolyline([QPointF(6, 9), QPointF(12, 16), QPointF(18, 9)])
+    p.end()
+    return QIcon(px)
