@@ -25,8 +25,8 @@ from PySide6.QtWidgets import (
 
 from . import icons, templates, version_string
 from .canvas import (
-    SlideScene, TextBoxItem, PictureBoxItem, TableBoxItem, make_item,
-    page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
+    SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
+    make_item, page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
 )
 from .compiler import compile_tex, download_tectonic_bundle, tectonic_available
 from .drawing_dialog import DrawingDialog
@@ -243,6 +243,11 @@ class SlideWindow(QMainWindow):
         tb.addSeparator()
         act(icons.templates_icon(), "Templates", self._templates_menu)
         act(icons.compile_pdf(), "Compile", self._compile)
+        tb.addSeparator()
+        act(icons.zoom_out(), "Zoom out", lambda: self.view.zoom_by(1 / 1.25))
+        act(icons.fit_width(), "Fit slide to window",
+            lambda: self.view.fit_to_window())
+        act(icons.zoom_in(), "Zoom in", lambda: self.view.zoom_by(1.25))
 
         # Theme controls — quick access on the toolbar.
         tb.addSeparator()
@@ -356,7 +361,7 @@ class SlideWindow(QMainWindow):
 
         self.scene = SlideScene(self.deck.aspect)
         self.scene.selectionChanged.connect(self._on_selection)
-        self.view = QGraphicsView(self.scene)
+        self.view = SlideView(self.scene)
         # The grey "desk" + white page are painted in SlideScene.drawBackground;
         # we must NOT set a view backgroundBrush here, or the view stops
         # delegating to the scene and the page never gets drawn.
@@ -440,7 +445,8 @@ class SlideWindow(QMainWindow):
                     lambda it=item: self._on_double_click(it))
             self.scene.addItem(item)
             self._items.append(item)
-        self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
+        if self.view.fit_mode:
+            self.view.fit_to_window()
         self._enable_format(False)
         self._loading = False
         self._refresh_latex()
@@ -599,7 +605,8 @@ class SlideWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
+        if self.view.fit_mode:
+            self.view.fit_to_window()
 
     def closeEvent(self, event):
         # Don't tear down while a worker thread is still running.

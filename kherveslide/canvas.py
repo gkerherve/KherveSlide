@@ -16,7 +16,7 @@ from PySide6.QtGui import (
     QTextListFormat, QTextOption,
 )
 from PySide6.QtWidgets import (
-    QGraphicsItem, QGraphicsObject, QGraphicsScene,
+    QGraphicsItem, QGraphicsObject, QGraphicsScene, QGraphicsView,
 )
 
 from .model import Slide, SlideText, SlidePicture, SlideTable
@@ -514,6 +514,45 @@ class SlideScene(QGraphicsScene):
                            (1 - 2 * g) * self.page_w, (1 - 2 * g) * self.page_h)
             painter.setPen(QPen(QColor(120, 160, 210), 0, Qt.DashLine))
             painter.drawRect(guide)
+
+
+class SlideView(QGraphicsView):
+    """Canvas view with mouse-wheel zoom (zoom around the cursor). Plain
+    fit-to-window is the default; scrolling the wheel switches to free
+    zoom, and fit_to_window() snaps back."""
+
+    _MIN = 0.1
+    _MAX = 12.0
+
+    def __init__(self, scene, parent=None):
+        super().__init__(scene, parent)
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
+        self.fit_mode = True
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return
+        factor = 1.15 if delta > 0 else 1 / 1.15
+        scale = self.transform().m11() * factor
+        if scale < self._MIN or scale > self._MAX:
+            event.accept()
+            return
+        self.fit_mode = False
+        self.scale(factor, factor)
+        event.accept()
+
+    def zoom_by(self, factor):
+        scale = self.transform().m11() * factor
+        if self._MIN <= scale <= self._MAX:
+            self.fit_mode = False
+            self.scale(factor, factor)
+
+    def fit_to_window(self):
+        if self.scene() is not None:
+            self.fitInView(self.scene().sceneRect(), Qt.KeepAspectRatio)
+            self.fit_mode = True
 
 
 def render_thumbnail(slide: Slide, deck, width_px: int = 160) -> QPixmap:
