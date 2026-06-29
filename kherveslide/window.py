@@ -41,11 +41,20 @@ from .preview import PdfPreview
 from .serializer import serialize_deck
 
 
-_THEMES = ["default", "Madrid", "Berlin", "Copenhagen", "Frankfurt",
-           "Singapore", "Warsaw", "metropolis", "CambridgeUS", "Boadilla",
-           "Pittsburgh"]
-_COLOUR_THEMES = ["", "default", "beaver", "crane", "dolphin", "seagull",
-                  "wolverine", "orchid", "whale"]
+# The full set of beamer's built-in presentation themes and colour themes
+# (no extra packages needed, so they all work with the bundled engine).
+_THEMES = [
+    "default", "AnnArbor", "Antibes", "Bergen", "Berkeley", "Berlin",
+    "Boadilla", "CambridgeUS", "Copenhagen", "Darmstadt", "Dresden",
+    "Frankfurt", "Goettingen", "Hannover", "Ilmenau", "JuanLesPins",
+    "Luebeck", "Madrid", "Malmoe", "Marburg", "Montpellier", "PaloAlto",
+    "Pittsburgh", "Rochester", "Singapore", "Szeged", "Warsaw",
+]
+_COLOUR_THEMES = [
+    "", "default", "albatross", "beaver", "beetle", "crane", "dolphin",
+    "dove", "fly", "lily", "monarca", "orchid", "rose", "seagull",
+    "seahorse", "spruce", "structure", "whale", "wolverine",
+]
 _ASPECTS = ["169", "1610", "43", "32", "54", "141"]
 
 
