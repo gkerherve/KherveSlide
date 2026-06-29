@@ -23,7 +23,8 @@ from __future__ import annotations
 
 from .model import (
     Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine,
-    blend_over_white,
+    blend_over_white, TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE,
+    TABLE_CAPTION_FG,
 )
 
 
@@ -103,20 +104,29 @@ def _serialize_table(obj: SlideTable) -> str:
     rows = obj.rows or [[""]]
     ncols = max((len(r) for r in rows), default=1)
     sep = "|" if obj.border else ""
-    colspec = sep + sep.join("c" for _ in range(ncols)) + sep
-    hline = "\\hline\n" if obj.border else ""
+    colspec = sep + sep.join("l" for _ in range(ncols)) + sep
+    rule = ("\\arrayrulecolor{ksTblRule}\\hline\n" if obj.border else "")
     body = []
-    for row in rows:
+    for i, row in enumerate(rows):
         cells = list(row) + [""] * (ncols - len(row))
-        body.append("  " + " & ".join(cells) + " \\\\")
-    table = (f"\\begin{{tabular}}{{{colspec}}}\n{hline}"
-             + ("\n" + hline).join(body)
-             + f"\n{hline}\\end{{tabular}}")
-    lead = int(round(obj.font_pt * 1.2))
-    sized = f"\\fontsize{{{obj.font_pt}}}{{{lead}}}\\selectfont"
+        if i == 0 and obj.header:
+            cells = [f"\\textcolor{{ksTblHeadFg}}{{\\textbf{{{c}}}}}"
+                     for c in cells]
+            line = "  \\rowcolor{ksTblHead}" + " & ".join(cells) + " \\\\"
+        else:
+            line = "  " + " & ".join(cells) + " \\\\"
+        body.append(line)
+    table = (f"\\begin{{tabular}}{{{colspec}}}\n{rule}"
+             + ("\n" + rule).join(body)
+             + f"\n{rule}\\end{{tabular}}")
     color = _hex_to_rgb_arg(obj.color)
     if color and color != "000000":
         table = f"\\textcolor[HTML]{{{color}}}{{{table}}}"
+    if obj.caption:
+        table += ("\\\\[2pt]{\\footnotesize\\itshape"
+                  f"\\textcolor{{ksTblCap}}{{{obj.caption}}}}}")
+    lead = int(round(obj.font_pt * 1.2))
+    sized = f"\\fontsize{{{obj.font_pt}}}{{{lead}}}\\selectfont"
     return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
             f"{{{sized} {table}}}\n"
             f"\\end{{textblock}}")
@@ -256,6 +266,13 @@ def serialize_deck(deck: Deck) -> str:
     if any(isinstance(o, SlideLine) for s in deck.slides for o in s.objects):
         lines.append("\\usepackage{tikz}")
         lines.append("\\usetikzlibrary{arrows.meta}")
+    if any(isinstance(o, SlideTable) for s in deck.slides for o in s.objects):
+        lines.append("\\usepackage{colortbl}")
+        for name, hexv in (("ksTblHead", TABLE_HEADER_BG),
+                           ("ksTblHeadFg", TABLE_HEADER_FG),
+                           ("ksTblRule", TABLE_RULE),
+                           ("ksTblCap", TABLE_CAPTION_FG)):
+            lines.append(f"\\definecolor{{{name}}}{{HTML}}{{{_hex_to_rgb_arg(hexv)}}}")
     lines += [
         "\\usepackage[absolute,overlay]{textpos}",
         "\\usepackage{graphicx}",

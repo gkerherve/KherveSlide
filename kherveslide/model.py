@@ -76,7 +76,16 @@ class SlideTable:
     font_pt: int = 18
     color: str = "#000000"
     border: bool = True
+    header: bool = True        # first row styled as a coloured header
+    caption: str = ""          # optional caption shown under the table
     type: str = "SlideTable"
+
+
+# KherveTeX-style table palette (orange header / light rules).
+TABLE_HEADER_BG = "#FCE4D6"
+TABLE_HEADER_FG = "#C55A11"
+TABLE_RULE = "#F4B183"
+TABLE_CAPTION_FG = "#808080"
 
 
 @dataclass
@@ -198,6 +207,8 @@ def _build_object(d: dict) -> SlideObject:
             font_pt=int(d.get("font_pt", 18)),
             color=str(d.get("color", "#000000")),
             border=bool(d.get("border", True)),
+            header=bool(d.get("header", True)),
+            caption=str(d.get("caption", "")),
         )
     if t == "SlideLine":
         return SlideLine(

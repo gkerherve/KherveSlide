@@ -20,7 +20,10 @@ from PySide6.QtWidgets import (
     QGraphicsItem, QGraphicsObject, QGraphicsScene, QGraphicsView,
 )
 
-from .model import Slide, SlideText, SlidePicture, SlideTable, SlideLine
+from .model import (
+    Slide, SlideText, SlidePicture, SlideTable, SlideLine,
+    TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE,
+)
 
 
 def _inline_html(s: str) -> str:
@@ -439,8 +442,13 @@ class TableBoxItem(BoxItem):
         cw = self._rect.width() / ncols
         ch = self._rect.height() / nrows
         painter.fillRect(self._rect, QColor("#FFFFFF"))
+        # Coloured header row (KherveTeX-style orange).
+        if obj.header and nrows >= 1:
+            painter.fillRect(QRectF(self._rect.x(), self._rect.y(),
+                                    self._rect.width(), ch),
+                             QColor(TABLE_HEADER_BG))
         if obj.border:
-            painter.setPen(QPen(QColor(80, 80, 80), 0))
+            painter.setPen(QPen(QColor(TABLE_RULE), 0))
             for i in range(ncols + 1):
                 x = self._rect.x() + i * cw
                 painter.drawLine(QPointF(x, self._rect.y()),
@@ -449,17 +457,22 @@ class TableBoxItem(BoxItem):
                 y = self._rect.y() + j * ch
                 painter.drawLine(QPointF(self._rect.x(), y),
                                  QPointF(self._rect.right(), y))
-        font = QFont("Helvetica")
-        font.setPixelSize(max(6, int(obj.font_pt * self._font_scale)))
-        painter.setFont(font)
-        painter.setPen(QPen(QColor(obj.color or "#000000")))
+        base_font = QFont("Helvetica")
+        base_font.setPixelSize(max(6, int(obj.font_pt * self._font_scale)))
         for r in range(nrows):
+            is_head = obj.header and r == 0
+            font = QFont(base_font)
+            font.setBold(is_head)
+            painter.setFont(font)
+            painter.setPen(QPen(QColor(TABLE_HEADER_FG if is_head
+                                       else (obj.color or "#000000"))))
             for c in range(ncols):
                 text = rows[r][c] if c < len(rows[r]) else ""
                 cell = QRectF(self._rect.x() + c * cw, self._rect.y() + r * ch,
                               cw, ch)
-                painter.drawText(cell.adjusted(3, 1, -3, -1),
-                                 int(Qt.AlignCenter | Qt.TextWordWrap), text)
+                painter.drawText(cell.adjusted(5, 1, -5, -1),
+                                 int(Qt.AlignVCenter | Qt.AlignLeft
+                                     | Qt.TextWordWrap), text)
         self._paint_selection(painter)
 
 

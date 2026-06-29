@@ -212,6 +212,9 @@ class SlideWindow(QMainWindow):
         m_table.addAction("Add column", lambda: self._table_op("add_col"))
         m_table.addAction("Delete row", lambda: self._table_op("del_row"))
         m_table.addAction("Delete column", lambda: self._table_op("del_col"))
+        m_table.addSeparator()
+        m_table.addAction("Toggle header row", lambda: self._table_op("header"))
+        m_table.addAction("Caption…", lambda: self._table_op("caption"))
 
         m_tpl = mb.addMenu("Te&mplates")
         self._m_tpl_new = m_tpl.addMenu("New presentation from template")
@@ -948,6 +951,14 @@ class SlideWindow(QMainWindow):
             for r in rows:
                 if len(r) > 1:
                     r.pop()
+        elif op == "header":
+            item.obj.header = not item.obj.header
+        elif op == "caption":
+            text, ok = QInputDialog.getText(self, "Table caption", "Caption:",
+                                            text=item.obj.caption)
+            if not ok:
+                return
+            item.obj.caption = text
         self._reload_scene()
         if self._items:
             self._items[self.slide.objects.index(item.obj)].setSelected(True)

@@ -295,23 +295,34 @@ def test_table_round_trip():
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
-def test_serialize_table_tabular():
+def test_serialize_table_styled():
     deck = Deck(slides=[Slide(objects=[
         SlideTable(x=0.1, y=0.1, w=0.5, h=0.25,
-                   rows=[["a", "b"], ["c", "d"]])])])
+                   rows=[["a", "b"], ["c", "d"]], caption="cap")])])
     tex = serialize_deck(deck)
     assert "\\begin{textblock}{0.5}(0.1,0.1)" in tex
-    assert "\\begin{tabular}{|c|c|}" in tex
-    assert "a & b \\\\" in tex
-    assert "\\hline" in tex
+    assert "\\begin{tabular}{|l|l|}" in tex
+    assert "\\usepackage{colortbl}" in tex
+    assert "\\rowcolor{ksTblHead}" in tex          # coloured header row
+    assert "\\textcolor{ksTblHeadFg}{\\textbf{a}}" in tex
+    assert "c & d \\\\" in tex                      # body row plain
+    assert "\\arrayrulecolor{ksTblRule}\\hline" in tex
+    assert "\\textcolor{ksTblCap}{cap}" in tex      # caption
 
 
-def test_serialize_table_no_border():
+def test_serialize_table_no_border_no_header():
     deck = Deck(slides=[Slide(objects=[
-        SlideTable(rows=[["x", "y"]], border=False)])])
+        SlideTable(rows=[["x", "y"]], border=False, header=False)])])
     tex = serialize_deck(deck)
-    assert "\\begin{tabular}{cc}" in tex
+    assert "\\begin{tabular}{ll}" in tex
     assert "\\hline" not in tex
+    assert "\\rowcolor" not in tex
+
+
+def test_table_header_caption_round_trip():
+    deck = Deck(slides=[Slide(objects=[
+        SlideTable(header=False, caption="My table")])])
+    assert deck_from_json(deck_to_json(deck)) == deck
 
 
 # --- templates ---
