@@ -34,7 +34,6 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
 from . import icons, themes
-from .model import deck_from_json
 from .window import SlideWindow
 
 
@@ -63,14 +62,7 @@ def main() -> int:
 
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     if args and Path(args[0]).exists():
-        try:
-            win.deck = deck_from_json(Path(args[0]).read_text(encoding="utf-8"))
-            win.path = Path(args[0])
-            win.current = 0
-            win._reload_all()
-            win._reset_history()
-        except Exception:
-            pass
+        win.open_path(args[0])
     return app.exec()
 
 

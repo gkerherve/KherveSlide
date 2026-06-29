@@ -163,6 +163,8 @@ class SlideWindow(QMainWindow):
         m_file = mb.addMenu("&File")
         m_file.addAction("New", self._new_deck).setShortcut("Ctrl+N")
         m_file.addAction("Open…", self._open_deck).setShortcut("Ctrl+O")
+        self._recent_menu = m_file.addMenu("Open recent")
+        self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
         m_file.addSeparator()
         m_file.addAction("Save", self._save_deck).setShortcut("Ctrl+S")
         m_file.addAction("Save As…", self._save_deck_as).setShortcut("Ctrl+Shift+S")
@@ -1295,6 +1297,7 @@ class SlideWindow(QMainWindow):
         if self.path is None:
             return self._save_deck_as()
         self.path.write_text(deck_to_json(self.deck), encoding="utf-8")
+        self._add_recent(self.path)
         self.statusBar().showMessage(f"Saved {self.path}")
 
     def _save_deck_as(self):
@@ -1305,6 +1308,7 @@ class SlideWindow(QMainWindow):
             return
         self.path = Path(path)
         self.path.write_text(deck_to_json(self.deck), encoding="utf-8")
+        self._add_recent(self.path)
         self._update_title()
         self.statusBar().showMessage(f"Saved {path}")
 
@@ -1312,20 +1316,71 @@ class SlideWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self, "Open presentation", "",
             "KherveSlide presentation (*.kslide.json *.json)")
-        if not path:
+        if path:
+            self.open_path(path)
+
+    def open_path(self, path):
+        """Open a presentation file (shared by Open, Open recent, CLI)."""
+        p = Path(path)
+        if not p.exists():
+            QMessageBox.warning(self, "Open", f"File not found:\n{path}")
+            self._forget_recent(p)
             return
         try:
-            self.deck = deck_from_json(Path(path).read_text(encoding="utf-8"))
+            self.deck = deck_from_json(p.read_text(encoding="utf-8"))
         except (ValueError, OSError) as e:
             QMessageBox.warning(self, "Open", str(e))
             return
         if not self.deck.slides:
             self.deck.slides = [Slide()]
-        self.path = Path(path)
+        self.path = p
         self.current = 0
+        self._add_recent(p)
         self._update_title()
         self._reload_all()
         self._reset_history()
+
+    # ---------------- recent files ----------------
+    _RECENT_KEY = "recent_files"
+    _RECENT_MAX = 20
+
+    def _recent_files(self) -> list[str]:
+        val = QSettings("kherveDOC", "KherveSlide").value(self._RECENT_KEY, [])
+        if val is None:
+            return []
+        if isinstance(val, str):
+            val = [val]
+        return [str(p) for p in val]
+
+    def _set_recent_files(self, files):
+        QSettings("kherveDOC", "KherveSlide").setValue(self._RECENT_KEY, files)
+
+    def _add_recent(self, path):
+        p = str(Path(path))
+        files = [f for f in self._recent_files() if f != p]
+        files.insert(0, p)
+        del files[self._RECENT_MAX:]
+        self._set_recent_files(files)
+
+    def _forget_recent(self, path):
+        p = str(Path(path))
+        self._set_recent_files([f for f in self._recent_files() if f != p])
+
+    def _populate_recent_menu(self):
+        m = self._recent_menu
+        m.clear()
+        files = self._recent_files()
+        if not files:
+            act = m.addAction("(no recent files)")
+            act.setEnabled(False)
+            return
+        for p in files:
+            act = m.addAction(Path(p).name)
+            act.setToolTip(p)
+            act.triggered.connect(lambda _=False, path=p: self.open_path(path))
+        m.addSeparator()
+        m.addAction("Clear recent files",
+                    lambda: self._set_recent_files([]))
 
     def _export_tex(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export LaTeX", "",
