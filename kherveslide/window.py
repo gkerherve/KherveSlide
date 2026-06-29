@@ -127,6 +127,7 @@ class SlideWindow(QMainWindow):
         self._update_title()
         self._build_menus()
         self._build_toolbar()
+        self._build_slide_toolbar()
         self._build_ui()
         self._reload_all()
         self._maybe_autodownload_packages()
@@ -205,11 +206,6 @@ class SlideWindow(QMainWindow):
         act(icons.drawing(), "Add drawing", self._add_drawing)
         act(icons.delete_box(), "Delete object", self._delete_selected)
         tb.addSeparator()
-        act(icons.raise_box(), "Raise", lambda: self._zorder("raise"))
-        act(icons.lower_box(), "Lower", lambda: self._zorder("lower"))
-        act(icons.raise_box(), "To front", lambda: self._zorder("front"))
-        act(icons.lower_box(), "To back", lambda: self._zorder("back"))
-        tb.addSeparator()
         act(icons.templates_icon(), "Templates", self._templates_menu)
         act(icons.compile_pdf(), "Compile", self._compile)
 
@@ -271,7 +267,39 @@ class SlideWindow(QMainWindow):
         self.act_pic.triggered.connect(self._pick_image)
         tb.addAction(self.act_pic)
 
+        # Insert-into-text controls: bullet list, numbered list, symbol.
+        tb.addSeparator()
+        tb.addAction(icons.bullet_list(), "Insert bullet list",
+                     self._insert_bullets)
+        tb.addAction(icons.numbered_list(), "Insert numbered list",
+                     self._insert_numbered)
+        tb.addAction(icons.symbol(), "Insert symbol…", self._insert_symbol)
+
         self._enable_format(False)
+
+    def _build_slide_toolbar(self):
+        """Vertical toolbar on the main frame (left edge) for slide and
+        z-order operations — not part of the WYSIWYG tab."""
+        tb = QToolBar("Slides")
+        tb.setIconSize(QSize(24, 24))
+        tb.setMovable(False)
+        self.addToolBar(Qt.LeftToolBarArea, tb)
+        tb.addAction(icons.slide_add(), "Add slide", self._add_slide)
+        tb.addAction(icons.slide_remove(), "Remove active slide",
+                     self._del_slide)
+        tb.addAction(icons.move_up(), "Move slide up",
+                     lambda: self._move_slide(-1))
+        tb.addAction(icons.move_down(), "Move slide down",
+                     lambda: self._move_slide(1))
+        tb.addSeparator()
+        tb.addAction(icons.raise_box(), "Raise object",
+                     lambda: self._zorder("raise"))
+        tb.addAction(icons.lower_box(), "Lower object",
+                     lambda: self._zorder("lower"))
+        tb.addAction(icons.raise_box(), "Bring to front",
+                     lambda: self._zorder("front"))
+        tb.addAction(icons.lower_box(), "Send to back",
+                     lambda: self._zorder("back"))
 
     def _enable_format(self, on, is_text=True, is_pic=False):
         for w in (self.fmt_font, self.act_bold, self.act_italic,
@@ -286,25 +314,10 @@ class SlideWindow(QMainWindow):
         self.nav.slidesReordered.connect(self._on_reorder)
         self.nav.slideMenuRequested.connect(self._slide_context_menu)
 
-        # Vertical toolbar for slide operations on the active slide.
-        slide_tb = QToolBar()
-        slide_tb.setOrientation(Qt.Vertical)
-        slide_tb.setIconSize(QSize(24, 24))
-        slide_tb.addAction(icons.slide_add(), "Add slide", self._add_slide)
-        slide_tb.addAction(icons.slide_remove(), "Remove active slide",
-                           self._del_slide)
-        slide_tb.addAction(icons.move_up(), "Move slide up",
-                           lambda: self._move_slide(-1))
-        slide_tb.addAction(icons.move_down(), "Move slide down",
-                           lambda: self._move_slide(1))
-
         nav_panel = QWidget()
         nv = QVBoxLayout(nav_panel); nv.setContentsMargins(4, 4, 4, 4)
         nv.addWidget(QLabel("Slides"))
-        nav_row = QHBoxLayout()
-        nav_row.addWidget(slide_tb)
-        nav_row.addWidget(self.nav)
-        nv.addLayout(nav_row)
+        nv.addWidget(self.nav)
 
         self.scene = SlideScene(self.deck.aspect)
         self.scene.selectionChanged.connect(self._on_selection)
@@ -538,6 +551,40 @@ class SlideWindow(QMainWindow):
         item.obj.text = text
         item.update()
         item.setSelected(True)
+
+    # ---------------- insert into text ----------------
+    def _insert_into_text(self, latex):
+        """Insert LaTeX where it makes sense: at the cursor if a box is
+        being edited, else into the selected text box, else a new box."""
+        if self._edit_proxy is not None:
+            self._edit_proxy.widget().insertPlainText(latex)
+            return
+        item = self._selected_item()
+        if item is not None and isinstance(item.obj, SlideText):
+            item.obj.text += latex
+            item.update()
+            self._touch_current()
+        else:
+            self.slide.objects.append(SlideText(text=latex))
+            self._reload_scene()
+            self._select_last()
+            self._touch_current()
+
+    def _insert_bullets(self):
+        self._insert_into_text(
+            "\\begin{itemize}\n  \\item First point\n"
+            "  \\item Second point\n\\end{itemize}")
+
+    def _insert_numbered(self):
+        self._insert_into_text(
+            "\\begin{enumerate}\n  \\item First point\n"
+            "  \\item Second point\n\\end{enumerate}")
+
+    def _insert_symbol(self):
+        from .symbol_palette import SymbolPalette
+        dlg = SymbolPalette(self)
+        if dlg.exec() and dlg.chosen:
+            self._insert_into_text(f"${dlg.chosen}$")
 
     def _edit_table_cell(self, item, r, c):
         rows = item.obj.rows
