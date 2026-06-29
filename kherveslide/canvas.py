@@ -516,19 +516,55 @@ class SlideScene(QGraphicsScene):
             painter.drawRect(guide)
 
 
+_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".pdf")
+
+
+def _dropped_image(mime) -> str | None:
+    if mime is not None and mime.hasUrls():
+        for url in mime.urls():
+            if url.isLocalFile() and url.toLocalFile().lower().endswith(_IMAGE_EXTS):
+                return url.toLocalFile()
+    return None
+
+
 class SlideView(QGraphicsView):
-    """Canvas view with mouse-wheel zoom (zoom around the cursor). Plain
-    fit-to-window is the default; scrolling the wheel switches to free
-    zoom, and fit_to_window() snaps back."""
+    """Canvas view with mouse-wheel zoom (zoom around the cursor) and
+    drag-and-drop of image files. Plain fit-to-window is the default;
+    scrolling the wheel switches to free zoom, and fit_to_window() snaps
+    back."""
 
     _MIN = 0.1
     _MAX = 12.0
+
+    imageDropped = Signal(str, QPointF)   # (local path, scene position)
 
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
+        self.setAcceptDrops(True)
         self.fit_mode = True
+
+    def dragEnterEvent(self, event):
+        if _dropped_image(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if _dropped_image(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        path = _dropped_image(event.mimeData())
+        if path:
+            scene_pos = self.mapToScene(event.position().toPoint())
+            self.imageDropped.emit(path, scene_pos)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
 
     def wheelEvent(self, event):
         delta = event.angleDelta().y()

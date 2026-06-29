@@ -367,6 +367,7 @@ class SlideWindow(QMainWindow):
         self.scene = SlideScene(self.deck.aspect)
         self.scene.selectionChanged.connect(self._on_selection)
         self.view = SlideView(self.scene)
+        self.view.imageDropped.connect(self._on_image_dropped)
         # The grey "desk" + white page are painted in SlideScene.drawBackground;
         # we must NOT set a view backgroundBrush here, or the view stops
         # delegating to the scene and the page never gets drawn.
@@ -858,6 +859,25 @@ class SlideWindow(QMainWindow):
             self, "Choose image", "",
             "Images (*.png *.jpg *.jpeg *.pdf *.gif *.bmp)")
         self.slide.objects.append(SlidePicture(path=path or ""))
+        self._reload_scene()
+        self._select_last()
+        self._touch_current()
+
+    def _on_image_dropped(self, path, scene_pos):
+        """An image file was dragged onto the canvas — place a picture box
+        centred on the drop point."""
+        g = self.scene.gap
+        cw = (1 - 2 * g) * self.scene.page_w
+        ch = (1 - 2 * g) * self.scene.page_h
+        ox, oy = g * self.scene.page_w, g * self.scene.page_h
+        w = h = 0.3
+        x = (scene_pos.x() - ox) / cw - w / 2
+        y = (scene_pos.y() - oy) / ch - h / 2
+        x = max(0.0, min(1 - w, x))
+        y = max(0.0, min(1 - h, y))
+        self.slide.objects.append(SlidePicture(
+            x=round(x, 4), y=round(y, 4), w=w, h=h, path=path,
+            keep_aspect=True))
         self._reload_scene()
         self._select_last()
         self._touch_current()
