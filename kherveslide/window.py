@@ -733,10 +733,25 @@ class SlideWindow(QMainWindow):
         self._touch_current()
 
     def _cancel_edit(self):
-        if self._edit_proxy is not None:
-            self.scene.removeItem(self._edit_proxy)
-            self._edit_proxy = None
-            self._edit_commit = None
+        # Removing a still-focused embedded editor aborts Qt, so drop its
+        # focus (and the scene's focus item) and disconnect its signal
+        # first. Clearing _edit_proxy up front also makes any re-entrant
+        # editingFinished a no-op.
+        proxy = self._edit_proxy
+        if proxy is None:
+            return
+        self._edit_proxy = None
+        self._edit_commit = None
+        editor = proxy.widget()
+        if editor is not None:
+            try:
+                editor.editingFinished.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            editor.clearFocus()
+        if self.scene.focusItem() is proxy:
+            self.scene.setFocusItem(None)
+        self.scene.removeItem(proxy)
 
     def _pick_image_for(self, item):
         path, _ = QFileDialog.getOpenFileName(
