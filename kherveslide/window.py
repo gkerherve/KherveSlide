@@ -16,9 +16,10 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, QSize, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
 from PySide6.QtWidgets import (
-    QColorDialog, QFileDialog, QGraphicsView, QHBoxLayout, QInputDialog,
-    QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
-    QSpinBox, QSplitter, QTabWidget, QToolBar, QVBoxLayout, QWidget,
+    QColorDialog, QComboBox, QFileDialog, QGraphicsView, QHBoxLayout,
+    QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
+    QPushButton, QSpinBox, QSplitter, QTabWidget, QToolBar, QVBoxLayout,
+    QWidget,
 )
 
 from . import icons, templates, version_string
@@ -115,6 +116,7 @@ class SlideWindow(QMainWindow):
         self._worker: _CompileWorker | None = None
         self._compile_pending = False
         self._dl_worker: _DownloadWorker | None = None
+        self._theme_cache: dict = {}   # theme name -> preview QPixmap
         self._auto_timer = QTimer(self)
         self._auto_timer.setSingleShot(True)
         self._auto_timer.setInterval(900)
@@ -148,14 +150,9 @@ class SlideWindow(QMainWindow):
         m_deck = mb.addMenu("&Deck")
         m_deck.addAction("Title…", self._set_deck_title)
         m_deck.addAction("Author…", self._set_deck_author)
-        m_deck.addAction("Theme…", self._set_theme)
         m_deck.addAction("Colour theme…", self._set_colour_theme)
         m_deck.addAction("Aspect ratio…", self._set_aspect)
-        m_deck.addSeparator()
-        self.act_decorations = m_deck.addAction("Show theme decorations")
-        self.act_decorations.setCheckable(True)
-        self.act_decorations.setChecked(not self.deck.plain_frames)
-        self.act_decorations.toggled.connect(self._toggle_decorations)
+        # Theme + decorations live on the toolbar (see _build_toolbar).
 
         m_slide = mb.addMenu("&Slide")
         m_slide.addAction("Add slide", self._add_slide)
@@ -213,6 +210,24 @@ class SlideWindow(QMainWindow):
         tb.addSeparator()
         act(icons.templates_icon(), "Templates", self._templates_menu)
         act(icons.compile_pdf(), "Compile", self._compile)
+
+        # Theme controls — quick access on the toolbar.
+        tb.addSeparator()
+        tb.addWidget(QLabel(" Theme "))
+        self.theme_combo = QComboBox()
+        self.theme_combo.setEditable(True)
+        self.theme_combo.addItems(_THEMES)
+        self.theme_combo.setToolTip("Beamer theme")
+        self.theme_combo.currentTextChanged.connect(self._on_theme_combo)
+        tb.addWidget(self.theme_combo)
+        self.act_gallery = QAction("Preview…", self)
+        self.act_gallery.setToolTip("Preview themes visually and pick one")
+        self.act_gallery.triggered.connect(self._open_theme_gallery)
+        tb.addAction(self.act_gallery)
+        self.act_deco = QAction("Decorations", self, checkable=True)
+        self.act_deco.setToolTip("Show the theme's title bars / footers")
+        self.act_deco.toggled.connect(self._toggle_decorations)
+        tb.addAction(self.act_deco)
 
         # Format controls live on the same single horizontal toolbar.
         tb.addSeparator()
@@ -337,9 +352,12 @@ class SlideWindow(QMainWindow):
         return self.deck.slides[self.current]
 
     def _reload_all(self):
-        self.act_decorations.blockSignals(True)
-        self.act_decorations.setChecked(not self.deck.plain_frames)
-        self.act_decorations.blockSignals(False)
+        self.act_deco.blockSignals(True)
+        self.act_deco.setChecked(not self.deck.plain_frames)
+        self.act_deco.blockSignals(False)
+        self.theme_combo.blockSignals(True)
+        self.theme_combo.setCurrentText(self.deck.theme)
+        self.theme_combo.blockSignals(False)
         self.nav.refresh(self.deck, self.current)
         self._reload_scene()
 
@@ -818,12 +836,27 @@ class SlideWindow(QMainWindow):
         if ok:
             self.deck.author = t; self._refresh_latex()
 
-    def _set_theme(self):
-        cur = _THEMES.index(self.deck.theme) if self.deck.theme in _THEMES else 0
-        t, ok = QInputDialog.getItem(self, "Beamer theme", "Theme:",
-                                     _THEMES, cur, True)
-        if ok and t:
-            self.deck.theme = t; self._recompile_now()
+    def _on_theme_combo(self, text):
+        if self._loading or not text:
+            return
+        self.deck.theme = text
+        self._recompile_now()
+
+    def _open_theme_gallery(self):
+        from .theme_gallery import ThemeGallery
+        dlg = ThemeGallery(_THEMES, self.deck.aspect, self.deck.theme, self,
+                           cache=self._theme_cache)
+        if dlg.exec() and dlg.chosen:
+            self.deck.theme = dlg.chosen
+            self.theme_combo.blockSignals(True)
+            self.theme_combo.setCurrentText(dlg.chosen)
+            self.theme_combo.blockSignals(False)
+            # Previews show decorations, so turn them on to match what was seen.
+            self.deck.plain_frames = False
+            self.act_deco.blockSignals(True)
+            self.act_deco.setChecked(True)
+            self.act_deco.blockSignals(False)
+            self._recompile_now()
 
     def _set_colour_theme(self):
         cur = (_COLOUR_THEMES.index(self.deck.color_theme)
