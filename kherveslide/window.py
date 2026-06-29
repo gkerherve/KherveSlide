@@ -10,13 +10,17 @@ the compiler console, kept live as you edit.
 """
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QSize, QThread, QTimer, Qt, Signal
+from PySide6.QtCore import (
+    QByteArray, QMimeData, QPointF, QSettings, QSize, QThread, QTimer, Qt,
+    Signal,
+)
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QTextListFormat
 from PySide6.QtWidgets import (
-    QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
+    QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFileDialog, QFormLayout, QGraphicsView, QHBoxLayout,
     QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
     QPushButton, QSpinBox, QSplitter, QTabWidget, QTextEdit, QToolBar,
@@ -27,6 +31,7 @@ from . import icons, templates, version_string
 from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
     make_item, page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
+    _dropped_image,
 )
 from .compiler import compile_tex, tectonic_available
 from .drawing_dialog import DrawingDialog
@@ -34,6 +39,7 @@ from .latex_view import LatexView
 from .model import (
     Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine,
     blend_over_white, deck_to_json, deck_from_json,
+    object_to_dict, build_object,
     raise_object, lower_object, to_front, to_back,
 )
 from .navigator import SlideNavigator
@@ -182,6 +188,11 @@ class SlideWindow(QMainWindow):
         self.act_undo.setShortcut("Ctrl+Z")
         self.act_redo = m_edit.addAction(icons.redo(), "Redo", self._redo)
         self.act_redo.setShortcut("Ctrl+Y")
+        m_edit.addSeparator()
+        m_edit.addAction("Copy", self._copy_selected).setShortcut("Ctrl+C")
+        m_edit.addAction("Cut", self._cut_selected).setShortcut("Ctrl+X")
+        m_edit.addAction("Paste", self._paste).setShortcut("Ctrl+V")
+        m_edit.addAction("Duplicate", self._duplicate_selected).setShortcut("Ctrl+D")
         m_edit.addSeparator()
         m_edit.addAction("Page setup…", self._page_setup)
 
@@ -391,6 +402,7 @@ class SlideWindow(QMainWindow):
         self.view = SlideView(self.scene)
         self.view.imageDropped.connect(self._on_image_dropped)
         self.view.deleteRequested.connect(self._delete_selected)
+        self.view.contextMenuRequested.connect(self._canvas_context_menu)
         # The grey "desk" + white page are painted in SlideScene.drawBackground;
         # we must NOT set a view backgroundBrush here, or the view stops
         # delegating to the scene and the page never gets drawn.
@@ -1004,6 +1016,140 @@ class SlideWindow(QMainWindow):
                 # during a scene rebuild) — skip it rather than crash.
                 continue
         return None
+
+    # ---------------- clipboard: copy / cut / paste / duplicate ----------
+    _OBJ_MIME = "application/x-kherveslide-objects"
+
+    def _copy_selected(self):
+        item = self._selected_item()
+        if item is None:
+            return
+        data = json.dumps([object_to_dict(item.obj)]).encode("utf-8")
+        md = QMimeData()
+        md.setData(self._OBJ_MIME, QByteArray(data))
+        QApplication.clipboard().setMimeData(md)
+        self.statusBar().showMessage("Copied")
+
+    def _cut_selected(self):
+        if self._selected_item() is not None:
+            self._copy_selected()
+            self._delete_selected()
+
+    def _duplicate_selected(self):
+        item = self._selected_item()
+        if item is None:
+            return
+        self._add_object(build_object(object_to_dict(item.obj)), offset=True)
+
+    def _can_paste(self):
+        md = QApplication.clipboard().mimeData()
+        return bool(md and (md.hasFormat(self._OBJ_MIME) or md.hasImage()
+                            or _dropped_image(md)))
+
+    def _paste(self, scene_pos=None):
+        if not isinstance(scene_pos, QPointF):   # menu/shortcut pass a bool
+            scene_pos = None
+        cb = QApplication.clipboard()
+        md = cb.mimeData()
+        if md.hasFormat(self._OBJ_MIME):
+            try:
+                objs = json.loads(bytes(md.data(self._OBJ_MIME)).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                return
+            last = None
+            for d in objs:
+                last = build_object(d)
+                self._offset(last)
+                self.slide.objects.append(last)
+            self._reload_scene()
+            self._select_last()
+            self._touch_current()
+            return
+        img = cb.image()
+        if img is not None and not img.isNull():
+            path = self._save_clipboard_image(img)
+            if path:
+                if scene_pos is None:
+                    scene_pos = QPointF(self.scene.page_w / 2,
+                                        self.scene.page_h / 2)
+                self._on_image_dropped(path, scene_pos)
+            return
+        path = _dropped_image(md)
+        if path:
+            self._on_image_dropped(
+                path, scene_pos or QPointF(self.scene.page_w / 2,
+                                           self.scene.page_h / 2))
+
+    def _add_object(self, obj, offset=False):
+        if offset:
+            self._offset(obj)
+        self.slide.objects.append(obj)
+        self._reload_scene()
+        self._select_last()
+        self._touch_current()
+
+    @staticmethod
+    def _offset(obj):
+        if hasattr(obj, "x"):
+            obj.x = round(min(0.92, obj.x + 0.03), 4)
+            obj.y = round(min(0.92, obj.y + 0.03), 4)
+
+    def _save_clipboard_image(self, img):
+        base = (self.path.parent if self.path
+                else Path(tempfile.gettempdir()) / "kherveslide_pasted")
+        base.mkdir(parents=True, exist_ok=True)
+        i = 1
+        while True:
+            p = base / f"pasted_{i:03d}.png"
+            if not p.exists():
+                break
+            i += 1
+        img.save(str(p), "PNG")
+        return str(p)
+
+    # ---------------- canvas right-click menu ----------------
+    def _canvas_context_menu(self, global_pos, scene_pos):
+        menu = QMenu(self)
+        item = self._selected_item()
+        if item is not None:
+            menu.addAction("Copy", self._copy_selected)
+            menu.addAction("Cut", self._cut_selected)
+            menu.addAction("Duplicate", self._duplicate_selected)
+            menu.addAction("Delete", self._delete_selected)
+            menu.addSeparator()
+            menu.addAction("Bring to front", lambda: self._zorder("front"))
+            menu.addAction("Send to back", lambda: self._zorder("back"))
+            if isinstance(item.obj, SlidePicture):
+                menu.addSeparator()
+                lock = menu.addAction("Lock aspect ratio")
+                lock.setCheckable(True)
+                lock.setChecked(item.obj.keep_aspect)
+                lock.toggled.connect(self._toggle_pic_lock)
+                menu.addAction("Transparency…", self._set_pic_opacity)
+                menu.addAction("Replace image…", self._pick_image)
+            menu.addSeparator()
+        paste = menu.addAction("Paste", lambda: self._paste(scene_pos))
+        paste.setEnabled(self._can_paste())
+        menu.exec(global_pos)
+
+    def _toggle_pic_lock(self, on):
+        item = self._selected_item()
+        if item is not None and isinstance(item.obj, SlidePicture):
+            item.obj.keep_aspect = on
+            item.update()
+            self._touch_current()
+
+    def _set_pic_opacity(self):
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlidePicture):
+            return
+        pct, ok = QInputDialog.getInt(
+            self, "Transparency", "Opacity (%):",
+            int(round(item.obj.opacity * 100)), 0, 100)
+        if ok:
+            item.obj.opacity = pct / 100.0
+            item.update()
+            self._touch_current()
 
     # ---------------- selection → format toolbar ----------------
     def _on_selection(self):

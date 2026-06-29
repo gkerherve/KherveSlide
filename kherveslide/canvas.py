@@ -202,6 +202,9 @@ class BoxItem(QGraphicsObject):
         self._start_rect = QRectF()
         self._start_pos = QPointF()
 
+    def _aspect_locked(self) -> bool:
+        return False
+
     # -- geometry --------------------------------------------------
     def boundingRect(self) -> QRectF:
         m = HANDLE + 1
@@ -271,6 +274,13 @@ class BoxItem(QGraphicsObject):
             if hd in _TOP:
                 y = self._start_pos.y() + self._start_rect.height() - MIN_PX
             h = MIN_PX
+        # Locked aspect (e.g. pictures): corner drags keep the box ratio.
+        if self._aspect_locked() and hd in (TL, TR, BL, BR) \
+                and self._start_rect.height() > 0:
+            ratio = self._start_rect.width() / self._start_rect.height()
+            h = max(MIN_PX, w / ratio)
+            if hd in _TOP:
+                y = self._start_pos.y() + self._start_rect.height() - h
         self.prepareGeometryChange()
         self._rect = QRectF(0, 0, w, h)
         self.setPos(x, y)
@@ -397,6 +407,9 @@ class PictureBoxItem(BoxItem):
             self._pix = pm if not pm.isNull() else None
         return self._pix
 
+    def _aspect_locked(self):
+        return bool(self.obj.keep_aspect)
+
     def paint(self, painter, option, widget=None):
         pm = self._pixmap()
         if pm is not None:
@@ -406,7 +419,10 @@ class PictureBoxItem(BoxItem):
                                Qt.SmoothTransformation)
             x = self._rect.x() + (self._rect.width() - scaled.width()) / 2
             y = self._rect.y() + (self._rect.height() - scaled.height()) / 2
+            painter.save()
+            painter.setOpacity(max(0.0, min(1.0, self.obj.opacity)))
             painter.drawPixmap(QPointF(x, y), scaled)
+            painter.restore()
         else:
             painter.fillRect(self._rect, QColor(235, 235, 235))
             painter.setPen(QPen(QColor(150, 150, 150)))
@@ -611,6 +627,7 @@ class SlideView(QGraphicsView):
 
     imageDropped = Signal(str, QPointF)   # (local path, scene position)
     deleteRequested = Signal()            # Delete pressed with a selection
+    contextMenuRequested = Signal(object, object)   # (globalPos, scenePos)
 
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
@@ -649,6 +666,11 @@ class SlideView(QGraphicsView):
             event.acceptProposedAction()
         else:
             super().dropEvent(event)
+
+    def contextMenuEvent(self, event):
+        scene_pos = self.mapToScene(event.pos())
+        self.contextMenuRequested.emit(event.globalPos(), scene_pos)
+        event.accept()
 
     def wheelEvent(self, event):
         delta = event.angleDelta().y()

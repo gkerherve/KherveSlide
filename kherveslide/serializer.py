@@ -95,8 +95,11 @@ def _serialize_picture(obj: SlidePicture) -> str:
     else:
         opts = (f"width={_fmt(obj.w)}\\paperwidth,"
                 f"height={_fmt(obj.h)}\\paperheight")
+    graphic = f"\\includegraphics[{opts}]{{{path}}}"
+    if obj.opacity < 1.0:
+        graphic = f"\\transparent{{{_fmt(max(0.0, obj.opacity))}}}{graphic}"
     return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
-            f"\\includegraphics[{opts}]{{{path}}}\n"
+            f"{graphic}\n"
             f"\\end{{textblock}}")
 
 
@@ -269,6 +272,9 @@ def serialize_deck(deck: Deck) -> str:
     if any(isinstance(o, SlideLine) for s in deck.slides for o in s.objects):
         lines.append("\\usepackage{tikz}")
         lines.append("\\usetikzlibrary{arrows.meta}")
+    if any(isinstance(o, SlidePicture) and o.opacity < 1.0
+           for s in deck.slides for o in s.objects):
+        lines.append("\\usepackage{transparent}")
     if any(isinstance(o, SlideTable) for s in deck.slides for o in s.objects):
         lines.append("\\usepackage{colortbl}")
         for name, hexv in (("ksTblHead", TABLE_HEADER_BG),

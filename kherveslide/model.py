@@ -55,7 +55,8 @@ class SlidePicture:
     w: float = 0.3
     h: float = 0.3
     path: str = ""
-    keep_aspect: bool = False
+    keep_aspect: bool = True    # lock aspect ratio by default (no distortion)
+    opacity: float = 1.0        # 0..1 image transparency
     type: str = "SlidePicture"
 
 
@@ -196,7 +197,8 @@ def _build_object(d: dict) -> SlideObject:
             x=float(d.get("x", 0.1)), y=float(d.get("y", 0.1)),
             w=float(d.get("w", 0.3)), h=float(d.get("h", 0.3)),
             path=str(d.get("path", "")),
-            keep_aspect=bool(d.get("keep_aspect", False)),
+            keep_aspect=bool(d.get("keep_aspect", True)),
+            opacity=float(d.get("opacity", 1.0)),
         )
     if t == "SlideTable":
         rows = d.get("rows") or _default_rows()
@@ -220,6 +222,16 @@ def _build_object(d: dict) -> SlideObject:
             arrow_end=bool(d.get("arrow_end", False)),
         )
     raise ValueError(f"Unknown slide object type: {t!r}")
+
+
+def object_to_dict(obj) -> dict:
+    """Serialise a single slide object (for clipboard copy/paste)."""
+    return asdict(obj)
+
+
+def build_object(d: dict) -> SlideObject:
+    """Rebuild a single slide object from its dict (clipboard paste)."""
+    return _build_object(d)
 
 
 def _build_slide(d: dict) -> Slide:

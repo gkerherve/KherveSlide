@@ -179,6 +179,34 @@ def test_background_alpha_round_trip():
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
+# --- picture: opacity + clipboard helpers ---
+
+def test_picture_defaults_locked_aspect():
+    assert SlidePicture().keep_aspect is True
+
+
+def test_serialize_picture_opacity():
+    deck = Deck(slides=[Slide(objects=[
+        SlidePicture(path="img/a.png", opacity=0.4)])])
+    tex = serialize_deck(deck)
+    assert "\\usepackage{transparent}" in tex
+    assert "\\transparent{0.4}" in tex
+
+
+def test_serialize_opaque_picture_no_transparent_pkg():
+    deck = Deck(slides=[Slide(objects=[SlidePicture(path="img/a.png")])])
+    tex = serialize_deck(deck)
+    assert "\\usepackage{transparent}" not in tex
+
+
+def test_object_clipboard_round_trip():
+    from kherveslide.model import object_to_dict, build_object
+    obj = SlideText(text="hi", font_pt=22, bold=True)
+    assert build_object(object_to_dict(obj)) == obj
+    pic = SlidePicture(path="x.png", opacity=0.5, keep_aspect=False)
+    assert build_object(object_to_dict(pic)) == pic
+
+
 # --- lines / arrows ---
 
 def test_line_round_trip():
@@ -259,7 +287,8 @@ def test_serialize_text_styling():
 
 def test_serialize_picture():
     deck = Deck(slides=[Slide(objects=[
-        SlidePicture(x=0.1, y=0.1, w=0.3, h=0.4, path="img/a.png")])])
+        SlidePicture(x=0.1, y=0.1, w=0.3, h=0.4, path="img/a.png",
+                     keep_aspect=False)])])
     tex = serialize_deck(deck)
     expect = ("\\includegraphics[width=0.3\\paperwidth,"
               "height=0.4\\paperheight]{img/a.png}")
