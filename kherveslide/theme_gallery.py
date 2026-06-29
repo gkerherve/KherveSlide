@@ -80,6 +80,17 @@ class _PreviewWorker(QThread):
 
 
 _PREVIEW_W = 300
+_PREVIEW_DIR = Path(__file__).resolve().parent / "theme_previews"
+
+
+def _bundled_preview(theme: str) -> QPixmap | None:
+    """Pre-rendered preview shipped with the app (instant, no compile)."""
+    path = _PREVIEW_DIR / f"{theme}.png"
+    if path.exists():
+        pm = QPixmap(str(path))
+        if not pm.isNull():
+            return pm
+    return None
 
 
 class ThemeGallery(QDialog):
@@ -116,6 +127,10 @@ class ThemeGallery(QDialog):
             item = QListWidgetItem(theme)
             item.setTextAlignment(Qt.AlignHCenter | Qt.AlignBottom)
             item.setSizeHint(QSize(_PREVIEW_W + 20, _PREVIEW_W * 9 // 16 + 36))
+            if theme not in self._cache:
+                pm = _bundled_preview(theme)   # instant: pre-rendered image
+                if pm is not None:
+                    self._cache[theme] = pm
             if theme in self._cache:
                 item.setIcon(QIcon(self._cache[theme]))
             self.list.addItem(item)
