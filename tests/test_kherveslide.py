@@ -4,7 +4,7 @@ import json
 import pytest
 
 from kherveslide.model import (
-    Deck, Slide, SlideText, SlidePicture, SlideTable, ThemeSpec,
+    Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, ThemeSpec,
     deck_to_json, deck_from_json,
     raise_object, lower_object, to_front, to_back,
 )
@@ -177,6 +177,35 @@ def test_serialize_background_uses_blended_colour():
 def test_background_alpha_round_trip():
     deck = Deck(slides=[Slide(bg="#3366CC", bg_alpha=0.4)])
     assert deck_from_json(deck_to_json(deck)) == deck
+
+
+# --- lines / arrows ---
+
+def test_line_round_trip():
+    deck = Deck(slides=[Slide(objects=[
+        SlideLine(x=0.1, y=0.2, w=0.5, h=0.3, color="#FF0000",
+                  width_pt=2.0, arrow_end=True)])])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
+def test_serialize_line_uses_tikz():
+    deck = Deck(slides=[Slide(objects=[SlideLine(arrow_end=True)])])
+    tex = serialize_deck(deck)
+    assert "\\usepackage{tikz}" in tex
+    assert "\\usetikzlibrary{arrows.meta}" in tex
+    assert "\\begin{tikzpicture}[overlay,remember picture]" in tex
+    assert "-{Stealth}" in tex
+    assert "current page.north west" in tex
+
+
+def test_serialize_plain_line_has_no_arrowhead():
+    deck = Deck(slides=[Slide(objects=[SlideLine()])])
+    tex = serialize_deck(deck)
+    assert "Stealth" not in tex
+
+
+def test_no_tikz_without_lines():
+    assert "\\usepackage{tikz}" not in serialize_deck(_sample_deck())
 
 
 # --- theme builder ---

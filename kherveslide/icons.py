@@ -1018,3 +1018,24 @@ def move_down() -> QIcon:
     p.drawPolyline([QPointF(6, 9), QPointF(12, 16), QPointF(18, 9)])
     p.end()
     return QIcon(px)
+
+
+def line_tool() -> QIcon:
+    """A plain diagonal line."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 2.0, Qt.SolidLine, Qt.RoundCap))
+    p.drawLine(4, 20, 20, 4)
+    p.end()
+    return QIcon(px)
+
+
+def arrow_tool() -> QIcon:
+    """A diagonal line with an arrowhead."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_accent(), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.drawLine(4, 20, 17, 7)
+    p.setBrush(QBrush(_accent())); p.setPen(Qt.NoPen)
+    p.drawPolygon(QPolygonF([QPointF(19, 5), QPointF(11, 7),
+                             QPointF(17, 13)]))
+    p.end()
+    return QIcon(px)

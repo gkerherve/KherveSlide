@@ -8,18 +8,19 @@ thumbnails shown in the slide navigator.
 from __future__ import annotations
 
 import html as _html
+import math
 import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QPainter, QPen, QPixmap, QTextDocument,
+    QBrush, QColor, QFont, QPainter, QPen, QPixmap, QPolygonF, QTextDocument,
     QTextListFormat, QTextOption,
 )
 from PySide6.QtWidgets import (
     QGraphicsItem, QGraphicsObject, QGraphicsScene, QGraphicsView,
 )
 
-from .model import Slide, SlideText, SlidePicture, SlideTable
+from .model import Slide, SlideText, SlidePicture, SlideTable, SlideLine
 
 
 def _inline_html(s: str) -> str:
@@ -462,11 +463,61 @@ class TableBoxItem(BoxItem):
         self._paint_selection(painter)
 
 
+class LineBoxItem(BoxItem):
+    """A line / arrow along the box diagonal (top-left to bottom-right)."""
+
+    def __init__(self, obj, page_w, page_h, gap=0.0, font_scale=FONT_SCALE):
+        super().__init__(obj, page_w, page_h, gap, font_scale)
+        self._set_exact_rect()
+
+    def _set_exact_rect(self):
+        # Lines aren't floored to MIN_PX, so a flat line stays flat and the
+        # canvas matches the serialized geometry exactly.
+        cw, ch, _, _ = self._content()
+        self.prepareGeometryChange()
+        self._rect = QRectF(0, 0, self.obj.w * cw, self.obj.h * ch)
+
+    def sync_from_model(self):
+        super().sync_from_model()
+        self._set_exact_rect()
+
+    def _arrowhead(self, painter, frm, to, wpx):
+        ang = math.atan2(to.y() - frm.y(), to.x() - frm.x())
+        size = max(8.0, wpx * 4)
+        a1, a2 = ang + math.radians(150), ang - math.radians(150)
+        poly = QPolygonF([
+            to,
+            QPointF(to.x() + size * math.cos(a1), to.y() + size * math.sin(a1)),
+            QPointF(to.x() + size * math.cos(a2), to.y() + size * math.sin(a2)),
+        ])
+        painter.setBrush(QColor(self.obj.color or "#000000"))
+        painter.setPen(Qt.NoPen)
+        painter.drawPolygon(poly)
+
+    def paint(self, painter, option, widget=None):
+        obj: SlideLine = self.obj
+        p1 = QPointF(0, 0)
+        p2 = QPointF(self._rect.width(), self._rect.height())
+        wpx = max(1.0, obj.width_pt * self._font_scale)
+        pen = QPen(QColor(obj.color or "#000000"))
+        pen.setWidthF(wpx)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.drawLine(p1, p2)
+        if obj.arrow_end:
+            self._arrowhead(painter, p1, p2, wpx)
+        if obj.arrow_start:
+            self._arrowhead(painter, p2, p1, wpx)
+        self._paint_selection(painter)
+
+
 def make_item(obj, page_w, page_h, gap=0.0, font_scale=FONT_SCALE) -> BoxItem:
     if isinstance(obj, SlideText):
         return TextBoxItem(obj, page_w, page_h, gap, font_scale)
     if isinstance(obj, SlideTable):
         return TableBoxItem(obj, page_w, page_h, gap, font_scale)
+    if isinstance(obj, SlideLine):
+        return LineBoxItem(obj, page_w, page_h, gap, font_scale)
     return PictureBoxItem(obj, page_w, page_h, gap, font_scale)
 
 

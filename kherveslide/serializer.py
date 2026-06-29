@@ -22,7 +22,8 @@ layout; the user composes the slide entirely from boxes.
 from __future__ import annotations
 
 from .model import (
-    Deck, Slide, SlideText, SlidePicture, SlideTable, blend_over_white,
+    Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine,
+    blend_over_white,
 )
 
 
@@ -178,7 +179,31 @@ def _theme_spec_lines(spec) -> list[str]:
     return lines
 
 
-def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0) -> str:
+def _serialize_line(obj: SlideLine, gap: float, idx: int) -> str:
+    span = 1 - 2 * gap
+    px1, py1 = gap + obj.x * span, gap + obj.y * span
+    px2, py2 = gap + (obj.x + obj.w) * span, gap + (obj.y + obj.h) * span
+    colour = _hex_to_rgb_arg(obj.color) or "000000"
+    if obj.arrow_start and obj.arrow_end:
+        arrow = ", {Stealth}-{Stealth}"
+    elif obj.arrow_end:
+        arrow = ", -{Stealth}"
+    elif obj.arrow_start:
+        arrow = ", {Stealth}-"
+    else:
+        arrow = ""
+    nw = "current page.north west"
+    return (
+        f"\\definecolor{{ksline{idx}}}{{HTML}}{{{colour}}}\n"
+        f"\\begin{{tikzpicture}}[overlay,remember picture]\n"
+        f"\\draw[line width={_fmt(obj.width_pt)}pt,color=ksline{idx}{arrow}] "
+        f"([xshift={_fmt(px1)}\\paperwidth,yshift=-{_fmt(py1)}\\paperheight]{nw}) -- "
+        f"([xshift={_fmt(px2)}\\paperwidth,yshift=-{_fmt(py2)}\\paperheight]{nw});\n"
+        f"\\end{{tikzpicture}}")
+
+
+def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
+                     counter: list | None = None) -> str:
     parts = ["\\begin{frame}[plain]" if plain else "\\begin{frame}"]
     bg = _hex_to_rgb_arg(blend_over_white(slide.bg, slide.bg_alpha))
     if bg:
@@ -192,11 +217,16 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0) -> str:
             f"\\colorbox[HTML]{{{bg}}}{{\\rule{{0pt}}{{\\paperheight}}"
             "\\hspace{\\paperwidth}}\n"
             "\\end{textblock}")
+    if counter is None:
+        counter = [0]
     for obj in slide.objects:
         if isinstance(obj, SlideText):
             parts.append(_serialize_text(obj))
         elif isinstance(obj, SlideTable):
             parts.append(_serialize_table(obj))
+        elif isinstance(obj, SlideLine):
+            parts.append(_serialize_line(obj, gap, counter[0]))
+            counter[0] += 1
         elif isinstance(obj, SlidePicture):
             block = _serialize_picture(obj)
             if block:
@@ -223,6 +253,9 @@ def serialize_deck(deck: Deck) -> str:
     lines += _theme_spec_lines(getattr(deck, "theme_spec", None))
     # lmodern: scalable fonts for the arbitrary \fontsize sizes the boxes use.
     lines.append("\\usepackage{lmodern}")
+    if any(isinstance(o, SlideLine) for s in deck.slides for o in s.objects):
+        lines.append("\\usepackage{tikz}")
+        lines.append("\\usetikzlibrary{arrows.meta}")
     lines += [
         "\\usepackage[absolute,overlay]{textpos}",
         "\\usepackage{graphicx}",
@@ -243,7 +276,8 @@ def serialize_deck(deck: Deck) -> str:
     if deck.author:
         lines.append(f"\\author{{{deck.author}}}")
     lines.append("\\begin{document}")
+    counter = [0]
     for slide in deck.slides:
-        lines.append(_serialize_slide(slide, deck.plain_frames, g))
+        lines.append(_serialize_slide(slide, deck.plain_frames, g, counter))
     lines.append("\\end{document}")
     return "\n".join(lines) + "\n"

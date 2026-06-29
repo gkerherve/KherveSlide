@@ -79,7 +79,22 @@ class SlideTable:
     type: str = "SlideTable"
 
 
-SlideObject = Union[SlideText, SlidePicture, SlideTable]
+@dataclass
+class SlideLine:
+    """A straight line / arrow drawn along the diagonal of its box (from
+    the top-left corner to the bottom-right). Arrowheads optional."""
+    x: float = 0.3
+    y: float = 0.4
+    w: float = 0.4
+    h: float = 0.0
+    color: str = "#000000"
+    width_pt: float = 1.5
+    arrow_start: bool = False
+    arrow_end: bool = False
+    type: str = "SlideLine"
+
+
+SlideObject = Union[SlideText, SlidePicture, SlideTable, SlideLine]
 
 
 # ---------------- Slide + deck ----------------
@@ -183,6 +198,15 @@ def _build_object(d: dict) -> SlideObject:
             font_pt=int(d.get("font_pt", 18)),
             color=str(d.get("color", "#000000")),
             border=bool(d.get("border", True)),
+        )
+    if t == "SlideLine":
+        return SlideLine(
+            x=float(d.get("x", 0.3)), y=float(d.get("y", 0.4)),
+            w=float(d.get("w", 0.4)), h=float(d.get("h", 0.0)),
+            color=str(d.get("color", "#000000")),
+            width_pt=float(d.get("width_pt", 1.5)),
+            arrow_start=bool(d.get("arrow_start", False)),
+            arrow_end=bool(d.get("arrow_end", False)),
         )
     raise ValueError(f"Unknown slide object type: {t!r}")
 

@@ -32,8 +32,8 @@ from .compiler import compile_tex, download_tectonic_bundle, tectonic_available
 from .drawing_dialog import DrawingDialog
 from .latex_view import LatexView
 from .model import (
-    Deck, Slide, SlideText, SlidePicture, SlideTable, blend_over_white,
-    deck_to_json, deck_from_json,
+    Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine,
+    blend_over_white, deck_to_json, deck_from_json,
     raise_object, lower_object, to_front, to_back,
 )
 from .navigator import SlideNavigator
@@ -345,6 +345,22 @@ class SlideWindow(QMainWindow):
                      lambda: self._zorder("front"))
         tb.addAction(icons.lower_box(), "Send to back",
                      lambda: self._zorder("back"))
+        tb.addSeparator()
+        tb.addAction(icons.line_tool(), "Add line", self._add_line)
+        tb.addAction(icons.arrow_tool(), "Add arrow", self._add_arrow)
+        tb.addAction(icons.image_box(), "Add image", self._add_picture)
+
+    def _add_line(self):
+        self.slide.objects.append(SlideLine())
+        self._reload_scene()
+        self._select_last()
+        self._touch_current()
+
+    def _add_arrow(self):
+        self.slide.objects.append(SlideLine(arrow_end=True))
+        self._reload_scene()
+        self._select_last()
+        self._touch_current()
 
     def _enable_format(self, on, is_text=True, is_pic=False):
         for w in (self.fmt_font, self.act_bold, self.act_italic,
