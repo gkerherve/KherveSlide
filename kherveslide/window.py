@@ -14,19 +14,19 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QSize, QThread, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
+from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QTextListFormat
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFileDialog, QFormLayout, QGraphicsView, QHBoxLayout,
     QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
-    QPushButton, QSpinBox, QSplitter, QTabWidget, QToolBar, QVBoxLayout,
-    QWidget,
+    QPushButton, QSpinBox, QSplitter, QTabWidget, QTextEdit, QToolBar,
+    QVBoxLayout, QWidget,
 )
 
 from . import icons, templates, version_string
 from .canvas import (
     SlideScene, TextBoxItem, PictureBoxItem, TableBoxItem, make_item,
-    page_size_px, FONT_SCALE,
+    page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
 )
 from .compiler import compile_tex, download_tectonic_bundle, tectonic_available
 from .drawing_dialog import DrawingDialog
@@ -89,8 +89,9 @@ class _DownloadWorker(QThread):
         self.done.emit(ok)
 
 
-class _InlineEditor(QPlainTextEdit):
-    """A text box editor that floats over the object being edited and
+class _InlineEditor(QTextEdit):
+    """A rich text-box editor that floats over the object being edited:
+    bullet/numbered lists show as real lists (not \\item source), and it
     commits when it loses focus (or Escape is pressed)."""
 
     editingFinished = Signal()
@@ -616,18 +617,17 @@ class SlideWindow(QMainWindow):
         elif isinstance(item, PictureBoxItem):
             self._pick_image_for(item)
 
-    def _begin_inline_edit(self, rect, initial, *, font_pt, bold=False,
-                           italic=False, commit):
-        """Float a text editor over *rect*; on focus-out call commit(text)."""
+    def _begin_inline_edit(self, rect, initial, *, font_pt, commit):
+        """Float a *rich* editor over *rect* (lists show as real bullets,
+        not \\item source); on focus-out call commit(latex)."""
         self._cancel_edit()
         editor = _InlineEditor()
-        editor.setPlainText(initial)
         f = QFont("Helvetica")
         f.setPixelSize(max(8, int(font_pt * self._font_scale)))
-        f.setBold(bold); f.setItalic(italic)
         editor.setFont(f)
+        editor.setHtml(latex_to_html(initial))
         editor.setStyleSheet(
-            "QPlainTextEdit { background: rgba(255,255,255,235);"
+            "QTextEdit { background: rgba(255,255,255,235);"
             " border: 1px solid #2878dc; }")
         proxy = self.scene.addWidget(editor)
         proxy.setGeometry(rect)
@@ -638,10 +638,13 @@ class SlideWindow(QMainWindow):
         editor.setFocus()
         editor.selectAll()
 
+    def _edit_text(self):
+        """The rich editor's current content, converted back to LaTeX."""
+        return document_to_latex(self._edit_proxy.widget().document())
+
     def _edit_text_item(self, item):
         self._begin_inline_edit(
             item.scene_rect(), item.obj.text, font_pt=item.obj.font_pt,
-            bold=item.obj.bold, italic=item.obj.italic,
             commit=lambda t: self._commit_obj_text(item, t))
 
     def _commit_obj_text(self, item, text):
@@ -668,14 +671,22 @@ class SlideWindow(QMainWindow):
             self._touch_current()
 
     def _insert_bullets(self):
-        self._insert_into_text(
-            "\\begin{itemize}\n  \\item First point\n"
-            "  \\item Second point\n\\end{itemize}")
+        self._make_list(QTextListFormat.ListDisc,
+                        "\\begin{itemize}\n  \\item First point\n"
+                        "  \\item Second point\n\\end{itemize}")
 
     def _insert_numbered(self):
-        self._insert_into_text(
-            "\\begin{enumerate}\n  \\item First point\n"
-            "  \\item Second point\n\\end{enumerate}")
+        self._make_list(QTextListFormat.ListDecimal,
+                        "\\begin{enumerate}\n  \\item First point\n"
+                        "  \\item Second point\n\\end{enumerate}")
+
+    def _make_list(self, style, template):
+        # When editing a box, turn the current line into a real list (so
+        # you type items and see bullets); otherwise drop in a new box.
+        if self._edit_proxy is not None:
+            self._edit_proxy.widget().textCursor().createList(style)
+        else:
+            self._insert_into_text(template)
 
     def _insert_symbol(self):
         from .symbol_palette import SymbolPalette
@@ -700,7 +711,7 @@ class SlideWindow(QMainWindow):
             return
         proxy = self._edit_proxy
         commit = self._edit_commit
-        text = proxy.widget().toPlainText()
+        text = document_to_latex(proxy.widget().document())
         # Clear state first so the removal's focus change can't re-enter.
         self._edit_proxy = None
         self._edit_commit = None

@@ -12,7 +12,8 @@ import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QPainter, QPen, QPixmap, QTextDocument, QTextOption,
+    QBrush, QColor, QFont, QPainter, QPen, QPixmap, QTextDocument,
+    QTextListFormat, QTextOption,
 )
 from PySide6.QtWidgets import (
     QGraphicsItem, QGraphicsObject, QGraphicsScene,
@@ -66,6 +67,63 @@ def latex_to_html(text: str) -> str:
         out.append(f"<div>{_inline_html(s)}</div>" if s else "<br>")
     flush()
     return "".join(out) or "&nbsp;"
+
+
+def _block_latex(block) -> str:
+    """One QTextBlock -> LaTeX, wrapping bold/italic runs."""
+    parts = []
+    it = block.begin()
+    seen = False
+    while not it.atEnd():
+        frag = it.fragment()
+        if frag.isValid():
+            seen = True
+            t = frag.text()
+            f = frag.charFormat().font()
+            if f.italic():
+                t = f"\\textit{{{t}}}"
+            if f.bold():
+                t = f"\\textbf{{{t}}}"
+            parts.append(t)
+        it += 1
+    return "".join(parts) if seen else block.text()
+
+
+def document_to_latex(doc: QTextDocument) -> str:
+    """Inverse of :func:`latex_to_html`: turn the rich edited document back
+    into LaTeX — bullet/numbered lists become itemize/enumerate, bold and
+    italic runs become \\textbf/\\textit. Other text passes through, so
+    inline maths like ``$x^2$`` survives a round-trip."""
+    lines: list[str] = []
+    env: str | None = None
+    block = doc.begin()
+    while block.isValid():
+        tl = block.textList()
+        text = _block_latex(block)
+        if tl is not None:
+            style = tl.format().style()
+            new_env = ("enumerate"
+                       if style in (QTextListFormat.ListDecimal,
+                                    QTextListFormat.ListLowerAlpha,
+                                    QTextListFormat.ListUpperAlpha,
+                                    QTextListFormat.ListLowerRoman,
+                                    QTextListFormat.ListUpperRoman)
+                       else "itemize")
+            if env != new_env:
+                if env:
+                    lines.append(f"\\end{{{env}}}")
+                lines.append(f"\\begin{{{new_env}}}")
+                env = new_env
+            lines.append(f"  \\item {text}")
+        else:
+            if env:
+                lines.append(f"\\end{{{env}}}")
+                env = None
+            lines.append(text)
+        block = block.next()
+    if env:
+        lines.append(f"\\end{{{env}}}")
+    return "\n".join(lines).strip("\n")
 
 
 SCENE_H = 720.0                 # slide height in scene units (px)

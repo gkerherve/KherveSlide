@@ -321,3 +321,20 @@ def test_latex_to_html_inline_formatting():
     from kherveslide.canvas import latex_to_html
     assert "<b>Hi</b>" in latex_to_html("\\textbf{Hi}")
     assert "<i>yo</i>" in latex_to_html("\\textit{yo}")
+
+
+def test_rich_edit_round_trip_keeps_lists():
+    # Editing renders bullets (not \item); committing turns them back into
+    # itemize. Needs a Qt app for QTextDocument.
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QTextDocument
+    from kherveslide.canvas import latex_to_html, document_to_latex
+    doc = QTextDocument()
+    doc.setHtml(latex_to_html("\\begin{itemize}\n\\item First\n"
+                              "\\item Second\n\\end{itemize}"))
+    out = document_to_latex(doc)
+    assert "\\begin{itemize}" in out
+    assert out.count("\\item") == 2
+    assert "\\end{itemize}" in out
+    assert "First" in out and "Second" in out
