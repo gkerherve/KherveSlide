@@ -821,16 +821,15 @@ class SlideWindow(QMainWindow):
         self._touch_current()
 
     def _add_equation(self):
-        latex, ok = QInputDialog.getText(
-            self, "Insert equation",
-            "LaTeX (without the $ … $ — e.g.  E = mc^2):")
-        if not ok or not latex.strip():
-            return
-        obj = SlideText(text=f"${latex.strip()}$", font_pt=28, align="center")
-        self.slide.objects.append(obj)
-        self._reload_scene()
-        self._select_last()
-        self._touch_current()
+        from .equation_editor import EquationEditorDialog
+        dlg = EquationEditorDialog(self)
+        if dlg.exec() and dlg.latex():
+            obj = SlideText(text=f"${dlg.latex()}$", font_pt=28,
+                            align="center")
+            self.slide.objects.append(obj)
+            self._reload_scene()
+            self._select_last()
+            self._touch_current()
 
     def _add_drawing(self):
         images_dir = (self.path.parent if self.path
