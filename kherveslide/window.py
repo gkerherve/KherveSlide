@@ -56,6 +56,10 @@ _COLOUR_THEMES = [
     "seahorse", "spruce", "structure", "whale", "wolverine",
 ]
 _ASPECTS = ["169", "1610", "43", "32", "54", "141"]
+_ASPECT_LABELS = {
+    "169": "16:9", "1610": "16:10", "43": "4:3",
+    "32": "3:2", "54": "5:4", "141": "1.41:1",
+}
 
 
 class _CompileWorker(QThread):
@@ -177,7 +181,7 @@ class SlideWindow(QMainWindow):
         self.act_redo = m_edit.addAction(icons.redo(), "Redo", self._redo)
         self.act_redo.setShortcut("Ctrl+Y")
         m_edit.addSeparator()
-        m_edit.addAction("Page setup (size & gap)…", self._page_setup)
+        m_edit.addAction("Page setup…", self._page_setup)
 
         m_pres = mb.addMenu("&Presentation")
         m_pres.addAction("Title…", self._set_deck_title)
@@ -1034,8 +1038,11 @@ class SlideWindow(QMainWindow):
         dlg = QDialog(self)
         dlg.setWindowTitle("Page setup")
         form = QFormLayout(dlg)
-        aspect = QComboBox(); aspect.addItems(_ASPECTS)
-        aspect.setCurrentText(self.deck.aspect)
+        aspect = QComboBox()
+        for code in _ASPECTS:
+            aspect.addItem(_ASPECT_LABELS.get(code, code), code)
+        cur = _ASPECTS.index(self.deck.aspect) if self.deck.aspect in _ASPECTS else 0
+        aspect.setCurrentIndex(cur)
         custom = QCheckBox("Use custom size instead of aspect ratio")
         is_custom = self.deck.page_w_cm > 0 and self.deck.page_h_cm > 0
         custom.setChecked(is_custom)
@@ -1055,7 +1062,7 @@ class SlideWindow(QMainWindow):
         form.addRow(bb)
         if not dlg.exec():
             return
-        self.deck.aspect = aspect.currentText()
+        self.deck.aspect = aspect.currentData()
         if custom.isChecked():
             self.deck.page_w_cm = w_cm.value()
             self.deck.page_h_cm = h_cm.value()
