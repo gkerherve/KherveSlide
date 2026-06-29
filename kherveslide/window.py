@@ -16,7 +16,8 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, QSize, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
 from PySide6.QtWidgets import (
-    QColorDialog, QComboBox, QFileDialog, QGraphicsView, QHBoxLayout,
+    QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
+    QDoubleSpinBox, QFileDialog, QFormLayout, QGraphicsView, QHBoxLayout,
     QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
     QPushButton, QSpinBox, QSplitter, QTabWidget, QToolBar, QVBoxLayout,
     QWidget,
@@ -25,7 +26,7 @@ from PySide6.QtWidgets import (
 from . import icons, templates, version_string
 from .canvas import (
     SlideScene, TextBoxItem, PictureBoxItem, TableBoxItem, make_item,
-    scene_width, FONT_SCALE,
+    page_size_px, FONT_SCALE,
 )
 from .compiler import compile_tex, download_tectonic_bundle, tectonic_available
 from .drawing_dialog import DrawingDialog
@@ -111,6 +112,7 @@ class SlideWindow(QMainWindow):
         self._loading = False
         self._edit_proxy = None
         self._edit_commit = None
+        self._font_scale = FONT_SCALE
 
         # Auto-compile: debounce edits, run tectonic off-thread.
         self._worker: _CompileWorker | None = None
@@ -151,7 +153,7 @@ class SlideWindow(QMainWindow):
         m_deck.addAction("Title…", self._set_deck_title)
         m_deck.addAction("Author…", self._set_deck_author)
         m_deck.addAction("Colour theme…", self._set_colour_theme)
-        m_deck.addAction("Aspect ratio…", self._set_aspect)
+        m_deck.addAction("Page setup (size & gap)…", self._page_setup)
         # Theme + decorations live on the toolbar (see _build_toolbar).
 
         m_slide = mb.addMenu("&Slide")
@@ -365,16 +367,17 @@ class SlideWindow(QMainWindow):
         self._cancel_edit()
         self._loading = True
         self._items = []
-        self.scene.set_aspect(self.deck.aspect)
+        pw, ph, self._font_scale = page_size_px(
+            self.deck.aspect, self.deck.page_w_cm, self.deck.page_h_cm)
+        self.scene.set_page(pw, ph, self.deck.gap)
         self.scene.page_color = self.slide.bg or "#FFFFFF"
         # Silence selectionChanged while clearing — otherwise it fires with
         # the just-deleted items still referenced.
         self.scene.blockSignals(True)
         self.scene.clear()
         self.scene.blockSignals(False)
-        sw = scene_width(self.deck.aspect)
         for obj in self.slide.objects:
-            item = make_item(obj, sw)
+            item = make_item(obj, pw, ph, self.deck.gap, self._font_scale)
             item.geometryChanged.connect(self._on_item_geometry)
             if isinstance(item, TableBoxItem):
                 item.cellDoubleClicked.connect(
@@ -510,7 +513,7 @@ class SlideWindow(QMainWindow):
         editor = _InlineEditor()
         editor.setPlainText(initial)
         f = QFont("Helvetica")
-        f.setPixelSize(max(8, int(font_pt * FONT_SCALE)))
+        f.setPixelSize(max(8, int(font_pt * self._font_scale)))
         f.setBold(bold); f.setItalic(italic)
         editor.setFont(f)
         editor.setStyleSheet(
@@ -866,12 +869,41 @@ class SlideWindow(QMainWindow):
         if ok:
             self.deck.color_theme = t; self._recompile_now()
 
-    def _set_aspect(self):
-        cur = _ASPECTS.index(self.deck.aspect) if self.deck.aspect in _ASPECTS else 0
-        t, ok = QInputDialog.getItem(self, "Aspect ratio",
-                                     "Aspect (w:h code):", _ASPECTS, cur, False)
-        if ok and t:
-            self.deck.aspect = t; self._reload_all()
+    def _page_setup(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Page setup")
+        form = QFormLayout(dlg)
+        aspect = QComboBox(); aspect.addItems(_ASPECTS)
+        aspect.setCurrentText(self.deck.aspect)
+        custom = QCheckBox("Use custom size instead of aspect ratio")
+        is_custom = self.deck.page_w_cm > 0 and self.deck.page_h_cm > 0
+        custom.setChecked(is_custom)
+        w_cm = QDoubleSpinBox(); w_cm.setRange(1, 200); w_cm.setSuffix(" cm")
+        w_cm.setValue(self.deck.page_w_cm or 12.8)
+        h_cm = QDoubleSpinBox(); h_cm.setRange(1, 200); h_cm.setSuffix(" cm")
+        h_cm.setValue(self.deck.page_h_cm or 9.6)
+        gap = QDoubleSpinBox(); gap.setRange(0, 45); gap.setSuffix(" %")
+        gap.setValue(self.deck.gap * 100)
+        form.addRow("Aspect ratio", aspect)
+        form.addRow(custom)
+        form.addRow("Width", w_cm)
+        form.addRow("Height", h_cm)
+        form.addRow("Margin / gap", gap)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if not dlg.exec():
+            return
+        self.deck.aspect = aspect.currentText()
+        if custom.isChecked():
+            self.deck.page_w_cm = w_cm.value()
+            self.deck.page_h_cm = h_cm.value()
+        else:
+            self.deck.page_w_cm = 0.0
+            self.deck.page_h_cm = 0.0
+        self.deck.gap = gap.value() / 100.0
+        self._reload_all()
+        self._recompile_now()
 
     def _recompile_now(self):
         """For theme/decoration changes: update LaTeX, show the PDF tab and

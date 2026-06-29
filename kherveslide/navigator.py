@@ -56,7 +56,7 @@ class SlideNavigator(QListWidget):
         self._suppress = True
         self.clear()
         for i, slide in enumerate(deck.slides):
-            pm = render_thumbnail(slide, deck.aspect, THUMB_W)
+            pm = render_thumbnail(slide, deck, THUMB_W)
             item = QListWidgetItem(QIcon(pm), f"  {i + 1}")
             item.setSizeHint(QSize(THUMB_W + 8, pm.height() + 8))
             item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -69,7 +69,7 @@ class SlideNavigator(QListWidget):
         """Re-render just one thumbnail (after editing its slide) without
         disturbing selection or scroll position."""
         if 0 <= index < self.count():
-            pm = render_thumbnail(deck.slides[index], deck.aspect, THUMB_W)
+            pm = render_thumbnail(deck.slides[index], deck, THUMB_W)
             self.item(index).setIcon(QIcon(pm))
 
     def dropEvent(self, event):

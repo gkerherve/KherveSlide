@@ -119,13 +119,17 @@ def _serialize_table(obj: SlideTable) -> str:
             f"\\end{{textblock}}")
 
 
-def _serialize_slide(slide: Slide, plain: bool = True) -> str:
+def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0) -> str:
     parts = ["\\begin{frame}[plain]" if plain else "\\begin{frame}"]
     bg = _hex_to_rgb_arg(slide.bg)
     if bg:
-        # Full-slide coloured panel behind everything else.
+        # Full-slide coloured panel behind everything else. The textpos grid
+        # is inset by the gap, so place this block back at the page corner
+        # (and size it to the full page) in module units.
+        span = 1 / (1 - 2 * gap) if gap < 0.5 else 1.0
+        off = -gap / (1 - 2 * gap) if gap < 0.5 else 0.0
         parts.append(
-            "\\begin{textblock}{1}(0,0)\n"
+            f"\\begin{{textblock}}{{{_fmt(span)}}}({_fmt(off)},{_fmt(off)})\n"
             f"\\colorbox[HTML]{{{bg}}}{{\\rule{{0pt}}{{\\paperheight}}"
             "\\hspace{\\paperwidth}}\n"
             "\\end{textblock}")
@@ -146,18 +150,30 @@ def serialize_deck(deck: Deck) -> str:
     aspect = _ASPECT_OPTS.get(deck.aspect, "aspectratio=169")
     class_opts = f"[{aspect}]" if aspect else ""
 
-    lines = [
-        f"\\documentclass{class_opts}{{beamer}}",
-        f"\\usetheme{{{deck.theme or 'default'}}}",
-    ]
+    custom_size = deck.page_w_cm > 0 and deck.page_h_cm > 0
+    lines = [f"\\documentclass{class_opts}{{beamer}}"]
+    if custom_size:
+        lines.append("\\usepackage{geometry}")
+        lines.append(
+            f"\\geometry{{papersize={{{_fmt(deck.page_w_cm)}cm,"
+            f"{_fmt(deck.page_h_cm)}cm}}}}")
+    lines.append(f"\\usetheme{{{deck.theme or 'default'}}}")
     if deck.color_theme:
         lines.append(f"\\usecolortheme{{{deck.color_theme}}}")
+    # lmodern: scalable fonts for the arbitrary \fontsize sizes the boxes use.
+    lines.append("\\usepackage{lmodern}")
     lines += [
         "\\usepackage[absolute,overlay]{textpos}",
         "\\usepackage{graphicx}",
-        "\\setlength{\\TPHorizModule}{\\paperwidth}",
-        "\\setlength{\\TPVertModule}{\\paperheight}",
-        "\\textblockorigin{0pt}{0pt}",
+    ]
+    # The content "gap": inset the textpos grid so 0..1 maps inside the
+    # page minus the margin, matching the canvas.
+    g = max(0.0, min(0.45, deck.gap))
+    span = _fmt(1 - 2 * g)
+    lines += [
+        f"\\setlength{{\\TPHorizModule}}{{{span}\\paperwidth}}",
+        f"\\setlength{{\\TPVertModule}}{{{span}\\paperheight}}",
+        f"\\textblockorigin{{{_fmt(g)}\\paperwidth}}{{{_fmt(g)}\\paperheight}}",
         "\\setbeamertemplate{navigation symbols}{}",
     ]
     if deck.title:
@@ -166,6 +182,6 @@ def serialize_deck(deck: Deck) -> str:
         lines.append(f"\\author{{{deck.author}}}")
     lines.append("\\begin{document}")
     for slide in deck.slides:
-        lines.append(_serialize_slide(slide, deck.plain_frames))
+        lines.append(_serialize_slide(slide, deck.plain_frames, g))
     lines.append("\\end{document}")
     return "\n".join(lines) + "\n"

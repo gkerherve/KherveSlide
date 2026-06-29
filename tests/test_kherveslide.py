@@ -73,8 +73,9 @@ def test_zorder_bounds_are_noops():
 def test_serialize_uses_textpos_absolute():
     tex = serialize_deck(_sample_deck())
     assert "\\usepackage[absolute,overlay]{textpos}" in tex
-    assert "\\setlength{\\TPHorizModule}{\\paperwidth}" in tex
-    assert "\\setlength{\\TPVertModule}{\\paperheight}" in tex
+    # gap=0 -> the full page is the content area (1 * paperwidth/height)
+    assert "\\setlength{\\TPHorizModule}{1\\paperwidth}" in tex
+    assert "\\setlength{\\TPVertModule}{1\\paperheight}" in tex
 
 
 def test_serialize_documentclass_aspect_and_theme():
@@ -96,7 +97,7 @@ def test_serialize_textblock_coordinates():
         SlideText(x=0.25, y=0.5, w=0.4, h=0.1, text="X")])])
     tex = serialize_deck(deck)
     assert "\\begin{textblock}{0.4}(0.25,0.5)" in tex
-    assert "\\textblockorigin{0pt}{0pt}" in tex
+    assert "\\textblockorigin{0\\paperwidth}{0\\paperheight}" in tex
 
 
 def test_serialize_frames_are_plain():
@@ -115,6 +116,42 @@ def test_serialize_decorated_frames_when_not_plain():
 def test_plain_frames_round_trip():
     deck = _sample_deck()
     deck.plain_frames = False
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
+# --- page setup: size + gap ---
+
+def test_serialize_loads_lmodern():
+    assert "\\usepackage{lmodern}" in serialize_deck(_sample_deck())
+
+
+def test_serialize_custom_page_size():
+    deck = Deck(page_w_cm=20, page_h_cm=12, slides=[Slide()])
+    tex = serialize_deck(deck)
+    assert "\\usepackage{geometry}" in tex
+    assert "papersize={20cm,12cm}" in tex
+
+
+def test_serialize_no_geometry_without_custom_size():
+    assert "\\usepackage{geometry}" not in serialize_deck(_sample_deck())
+
+
+def test_serialize_gap_insets_textpos():
+    deck = Deck(gap=0.1, slides=[Slide()])
+    tex = serialize_deck(deck)
+    assert "\\setlength{\\TPHorizModule}{0.8\\paperwidth}" in tex
+    assert "\\textblockorigin{0.1\\paperwidth}{0.1\\paperheight}" in tex
+
+
+def test_serialize_zero_gap_is_full_page():
+    tex = serialize_deck(_sample_deck())
+    assert "\\setlength{\\TPHorizModule}{1\\paperwidth}" in tex
+    assert "\\textblockorigin{0\\paperwidth}{0\\paperheight}" in tex
+
+
+def test_page_fields_round_trip():
+    deck = _sample_deck()
+    deck.page_w_cm, deck.page_h_cm, deck.gap = 25.0, 14.0, 0.08
     assert deck_from_json(deck_to_json(deck)) == deck
 
 

@@ -40,20 +40,44 @@ def scene_width(aspect: str) -> float:
     return SCENE_H * _ASPECT_RATIO.get(aspect, 16 / 9)
 
 
+_CM_TO_PT = 72.27 / 2.54
+_BEAMER_H_PT = 272.8        # beamer slide height (~96 mm) for the presets
+
+
+def page_size_px(aspect: str, w_cm: float = 0.0, h_cm: float = 0.0):
+    """Return (page_w_px, page_h_px, font_scale). Height is fixed at
+    SCENE_H; width follows the aspect or custom cm size. font_scale turns
+    a pt font size into canvas pixels for the page's real height."""
+    if w_cm > 0 and h_cm > 0:
+        ratio = w_cm / h_cm
+        h_pt = h_cm * _CM_TO_PT
+    else:
+        ratio = _ASPECT_RATIO.get(aspect, 16 / 9)
+        h_pt = _BEAMER_H_PT
+    return SCENE_H * ratio, SCENE_H, SCENE_H / h_pt
+
+
 class BoxItem(QGraphicsObject):
     """A movable, eight-handle-resizable rectangle bound to a model
-    object. Position is the item's scene pos; size is the local rect
-    ``(0, 0, w, h)``. Subclasses paint the content."""
+    object. Coordinates are 0..1 within the page's content area (page
+    minus the deck's gap); this maps them to scene pixels. Subclasses
+    paint the content."""
 
     geometryChanged = Signal()
     doubleClicked = Signal()
 
-    def __init__(self, obj, scene_w: float):
+    def __init__(self, obj, page_w: float, page_h: float, gap: float = 0.0,
+                 font_scale: float = FONT_SCALE):
         super().__init__()
         self.obj = obj
-        self._rect = QRectF(0, 0, max(MIN_PX, obj.w * scene_w),
-                            max(MIN_PX, obj.h * SCENE_H))
-        self.setPos(obj.x * scene_w, obj.y * SCENE_H)
+        self._pw = page_w
+        self._ph = page_h
+        self._gap = gap
+        self._font_scale = font_scale
+        cw, ch, ox, oy = self._content()
+        self._rect = QRectF(0, 0, max(MIN_PX, obj.w * cw),
+                            max(MIN_PX, obj.h * ch))
+        self.setPos(ox + obj.x * cw, oy + obj.y * ch)
         self.setFlags(
             QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemIsSelectable
@@ -157,35 +181,37 @@ class BoxItem(QGraphicsObject):
         return QRectF(self.pos().x(), self.pos().y(),
                       self._rect.width(), self._rect.height())
 
+    def _content(self):
+        """Content area in scene px: (width, height, origin_x, origin_y)."""
+        g = self._gap
+        return ((1 - 2 * g) * self._pw, (1 - 2 * g) * self._ph,
+                g * self._pw, g * self._ph)
+
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionChange and self.scene():
-            sw = scene_width(self._aspect())
-            nx = min(max(0.0, value.x()), sw - self._rect.width())
-            ny = min(max(0.0, value.y()), SCENE_H - self._rect.height())
+            # Keep the box on the page (it may sit within the gap margin).
+            nx = min(max(0.0, value.x()), self._pw - self._rect.width())
+            ny = min(max(0.0, value.y()), self._ph - self._rect.height())
             return QPointF(nx, ny)
         if change == QGraphicsItem.ItemPositionHasChanged:
             self._write_geometry()
             self.geometryChanged.emit()
         return super().itemChange(change, value)
 
-    def _aspect(self) -> str:
-        sc = self.scene()
-        return getattr(sc, "aspect", "169") if sc else "169"
-
     def _write_geometry(self) -> None:
-        sw = scene_width(self._aspect())
-        self.obj.x = round(self.pos().x() / sw, 4)
-        self.obj.y = round(self.pos().y() / SCENE_H, 4)
-        self.obj.w = round(self._rect.width() / sw, 4)
-        self.obj.h = round(self._rect.height() / SCENE_H, 4)
+        cw, ch, ox, oy = self._content()
+        self.obj.x = round((self.pos().x() - ox) / cw, 4)
+        self.obj.y = round((self.pos().y() - oy) / ch, 4)
+        self.obj.w = round(self._rect.width() / cw, 4)
+        self.obj.h = round(self._rect.height() / ch, 4)
 
     def sync_from_model(self) -> None:
         """Re-read geometry from the model (after spinbox edits)."""
-        sw = scene_width(self._aspect())
+        cw, ch, ox, oy = self._content()
         self.prepareGeometryChange()
-        self._rect = QRectF(0, 0, max(MIN_PX, self.obj.w * sw),
-                            max(MIN_PX, self.obj.h * SCENE_H))
-        self.setPos(self.obj.x * sw, self.obj.y * SCENE_H)
+        self._rect = QRectF(0, 0, max(MIN_PX, self.obj.w * cw),
+                            max(MIN_PX, self.obj.h * ch))
+        self.setPos(ox + self.obj.x * cw, oy + self.obj.y * ch)
         self.update()
 
     # -- painting helpers -----------------------------------------
@@ -210,7 +236,7 @@ class TextBoxItem(BoxItem):
         if obj.fill:
             painter.fillRect(self._rect, QColor(obj.fill))
         font = QFont("Helvetica")
-        font.setPixelSize(max(6, int(obj.font_pt * FONT_SCALE)))
+        font.setPixelSize(max(6, int(obj.font_pt * self._font_scale)))
         font.setBold(obj.bold)
         font.setItalic(obj.italic)
         painter.setFont(font)
@@ -224,8 +250,8 @@ class TextBoxItem(BoxItem):
 
 
 class PictureBoxItem(BoxItem):
-    def __init__(self, obj, scene_w):
-        super().__init__(obj, scene_w)
+    def __init__(self, obj, page_w, page_h, gap=0.0, font_scale=FONT_SCALE):
+        super().__init__(obj, page_w, page_h, gap, font_scale)
         self._pix: QPixmap | None = None
         self._pix_path = None
 
@@ -301,7 +327,7 @@ class TableBoxItem(BoxItem):
                 painter.drawLine(QPointF(self._rect.x(), y),
                                  QPointF(self._rect.right(), y))
         font = QFont("Helvetica")
-        font.setPixelSize(max(6, int(obj.font_pt * FONT_SCALE)))
+        font.setPixelSize(max(6, int(obj.font_pt * self._font_scale)))
         painter.setFont(font)
         painter.setPen(QPen(QColor(obj.color or "#000000")))
         for r in range(nrows):
@@ -314,12 +340,12 @@ class TableBoxItem(BoxItem):
         self._paint_selection(painter)
 
 
-def make_item(obj, scene_w: float) -> BoxItem:
+def make_item(obj, page_w, page_h, gap=0.0, font_scale=FONT_SCALE) -> BoxItem:
     if isinstance(obj, SlideText):
-        return TextBoxItem(obj, scene_w)
+        return TextBoxItem(obj, page_w, page_h, gap, font_scale)
     if isinstance(obj, SlideTable):
-        return TableBoxItem(obj, scene_w)
-    return PictureBoxItem(obj, scene_w)
+        return TableBoxItem(obj, page_w, page_h, gap, font_scale)
+    return PictureBoxItem(obj, page_w, page_h, gap, font_scale)
 
 
 class SlideScene(QGraphicsScene):
@@ -327,13 +353,24 @@ class SlideScene(QGraphicsScene):
         super().__init__()
         self.aspect = aspect
         self.page_color = "#FFFFFF"   # current slide background
+        self.gap = 0.0
+        self.page_w = scene_width(aspect)
+        self.page_h = SCENE_H
         self._set_rect()
 
     def _set_rect(self):
-        self.setSceneRect(0, 0, scene_width(self.aspect), SCENE_H)
+        self.setSceneRect(0, 0, self.page_w, self.page_h)
 
     def set_aspect(self, aspect):
         self.aspect = aspect
+        self.page_w = scene_width(aspect)
+        self.page_h = SCENE_H
+        self._set_rect()
+
+    def set_page(self, page_w, page_h, gap):
+        self.page_w = page_w
+        self.page_h = page_h
+        self.gap = gap
         self._set_rect()
 
     def drawBackground(self, painter, rect):
@@ -348,20 +385,27 @@ class SlideScene(QGraphicsScene):
         painter.fillRect(r, QColor(self.page_color or "#FFFFFF"))
         painter.setPen(QPen(QColor(150, 150, 150), 0))
         painter.drawRect(r)
+        if self.gap > 0:
+            # Dashed guide showing the content "safe area".
+            g = self.gap
+            guide = QRectF(g * self.page_w, g * self.page_h,
+                           (1 - 2 * g) * self.page_w, (1 - 2 * g) * self.page_h)
+            painter.setPen(QPen(QColor(120, 160, 210), 0, Qt.DashLine))
+            painter.drawRect(guide)
 
 
-def render_thumbnail(slide: Slide, aspect: str, width_px: int = 160) -> QPixmap:
+def render_thumbnail(slide: Slide, deck, width_px: int = 160) -> QPixmap:
     """Render *slide* to a small pixmap for the navigator — reuses the
     same item painting as the live canvas so the thumbnail matches."""
-    sw = scene_width(aspect)
-    scene = SlideScene(aspect)
-    if slide.bg:
-        scene.setBackgroundBrush(QColor(slide.bg))
+    pw, ph, fs = page_size_px(deck.aspect, deck.page_w_cm, deck.page_h_cm)
+    scene = SlideScene(deck.aspect)
+    scene.set_page(pw, ph, deck.gap)
+    scene.page_color = slide.bg or "#FFFFFF"
     for obj in slide.objects:
-        item = make_item(obj, sw)
+        item = make_item(obj, pw, ph, deck.gap, fs)
         item.setSelected(False)
         scene.addItem(item)
-    height_px = int(width_px * SCENE_H / sw)
+    height_px = int(width_px * ph / pw)
     pm = QPixmap(width_px, height_px)
     pm.fill(QColor("#FFFFFF"))
     painter = QPainter(pm)

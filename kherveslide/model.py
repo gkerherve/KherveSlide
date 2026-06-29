@@ -105,6 +105,14 @@ class Deck:
     # never overlap absolutely-positioned boxes). Turn this off to let the
     # chosen beamer theme show its full decoration.
     plain_frames: bool = True
+    # Custom page size in cm (both > 0 overrides the aspect ratio). 0 = use
+    # the aspect preset (beamer's default ~12.8 x 9.6 cm for 16:9).
+    page_w_cm: float = 0.0
+    page_h_cm: float = 0.0
+    # Uniform content margin ("gap") as a fraction of the page (0..0.45).
+    # Object coordinates are 0..1 within the page minus this gap, so every
+    # box keeps the same breathing room from the slide edge.
+    gap: float = 0.0
     type: str = "Deck"
 
 
@@ -172,6 +180,9 @@ def _build_deck(d: dict) -> Deck:
         aspect=str(d.get("aspect", "169")),
         template=str(d.get("template", "Blank")),
         plain_frames=bool(d.get("plain_frames", True)),
+        page_w_cm=float(d.get("page_w_cm", 0.0)),
+        page_h_cm=float(d.get("page_h_cm", 0.0)),
+        gap=float(d.get("gap", 0.0)),
     )
 
 
