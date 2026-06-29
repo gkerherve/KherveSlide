@@ -368,6 +368,7 @@ class SlideWindow(QMainWindow):
         self.scene.selectionChanged.connect(self._on_selection)
         self.view = SlideView(self.scene)
         self.view.imageDropped.connect(self._on_image_dropped)
+        self.view.deleteRequested.connect(self._delete_selected)
         # The grey "desk" + white page are painted in SlideScene.drawBackground;
         # we must NOT set a view backgroundBrush here, or the view stops
         # delegating to the scene and the page never gets drawn.

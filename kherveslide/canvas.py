@@ -537,6 +537,7 @@ class SlideView(QGraphicsView):
     _MAX = 12.0
 
     imageDropped = Signal(str, QPointF)   # (local path, scene position)
+    deleteRequested = Signal()            # Delete pressed with a selection
 
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
@@ -544,6 +545,16 @@ class SlideView(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
         self.setAcceptDrops(True)
         self.fit_mode = True
+
+    def keyPressEvent(self, event):
+        # Delete the selected object. While editing text the embedded editor
+        # has focus (not the view), so this never eats the editor's Delete.
+        if event.key() == Qt.Key_Delete and self.scene() \
+                and self.scene().selectedItems():
+            self.deleteRequested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def dragEnterEvent(self, event):
         if _dropped_image(event.mimeData()):
