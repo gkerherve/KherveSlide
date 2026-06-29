@@ -128,6 +128,16 @@ class SlideWindow(QMainWindow):
         self._compile_pending = False
         self._dl_worker: _DownloadWorker | None = None
         self._theme_cache: dict = {}   # theme name -> preview QPixmap
+
+        # Undo/redo: a debounced snapshot history of the whole presentation
+        # (it is fully JSON-serialisable, so every action is captured).
+        self._history: list[str] = []
+        self._hist_index = -1
+        self._restoring = False
+        self._undo_timer = QTimer(self)
+        self._undo_timer.setSingleShot(True)
+        self._undo_timer.setInterval(350)
+        self._undo_timer.timeout.connect(self._capture_state)
         self._auto_timer = QTimer(self)
         self._auto_timer.setSingleShot(True)
         self._auto_timer.setInterval(900)
@@ -139,6 +149,7 @@ class SlideWindow(QMainWindow):
         self._build_slide_toolbar()
         self._build_ui()
         self._reload_all()
+        self._reset_history()
         self._maybe_autodownload_packages()
 
     # ---------------- menus ----------------
@@ -159,12 +170,19 @@ class SlideWindow(QMainWindow):
         m_file.addSeparator()
         m_file.addAction("Quit", self.close).setShortcut("Ctrl+Q")
 
-        m_deck = mb.addMenu("&Deck")
-        m_deck.addAction("Title…", self._set_deck_title)
-        m_deck.addAction("Author…", self._set_deck_author)
-        m_deck.addAction("Colour theme…", self._set_colour_theme)
-        m_deck.addAction("Page setup (size & gap)…", self._page_setup)
-        self.act_nav = m_deck.addAction("Navigation symbols (prev / next)")
+        m_edit = mb.addMenu("&Edit")
+        self.act_undo = m_edit.addAction(icons.undo(), "Undo", self._undo)
+        self.act_undo.setShortcut("Ctrl+Z")
+        self.act_redo = m_edit.addAction(icons.redo(), "Redo", self._redo)
+        self.act_redo.setShortcut("Ctrl+Y")
+        m_edit.addSeparator()
+        m_edit.addAction("Page setup (size & gap)…", self._page_setup)
+
+        m_pres = mb.addMenu("&Presentation")
+        m_pres.addAction("Title…", self._set_deck_title)
+        m_pres.addAction("Author…", self._set_deck_author)
+        m_pres.addAction("Colour theme…", self._set_colour_theme)
+        self.act_nav = m_pres.addAction("Navigation symbols (prev / next)")
         self.act_nav.setCheckable(True)
         self.act_nav.setChecked(self.deck.nav_symbols)
         self.act_nav.toggled.connect(self._toggle_nav_symbols)
@@ -190,10 +208,10 @@ class SlideWindow(QMainWindow):
         m_table.addAction("Delete column", lambda: self._table_op("del_col"))
 
         m_tpl = mb.addMenu("Te&mplates")
-        self._m_tpl_new = m_tpl.addMenu("New deck from template")
+        self._m_tpl_new = m_tpl.addMenu("New presentation from template")
         self._m_tpl_new.aboutToShow.connect(self._populate_templates_menu)
         m_tpl.addSeparator()
-        m_tpl.addAction("Save current deck as template…", self._save_as_template)
+        m_tpl.addAction("Save current presentation as template…", self._save_as_template)
         m_tpl.addAction("Rename template…", self._rename_template)
         m_tpl.addAction("Delete template…", self._delete_template)
 
@@ -210,6 +228,9 @@ class SlideWindow(QMainWindow):
         act(icons.file_open(), "Open", self._open_deck)
         act(icons.file_save(), "Save", self._save_deck)
         act(icons.export_pdf(), "Export .tex", self._export_tex)
+        tb.addSeparator()
+        tb.addAction(self.act_undo)
+        tb.addAction(self.act_redo)
         tb.addSeparator()
         act(icons.slide_add(), "Add slide", self._add_slide)
         act(icons.text_box(), "Add text box", self._add_text)
@@ -424,6 +445,64 @@ class SlideWindow(QMainWindow):
     def _refresh_latex(self):
         self.latex_view.set_source(serialize_deck(self.deck))
         self._schedule_compile()
+        if not self._loading and not self._restoring:
+            self._undo_timer.start()   # debounced snapshot for undo
+
+    # ---------------- undo / redo ----------------
+    def _reset_history(self):
+        self._history = [deck_to_json(self.deck)]
+        self._hist_index = 0
+        self._update_undo_actions()
+
+    def _capture_state(self):
+        if self._restoring:
+            return
+        cur = deck_to_json(self.deck)
+        if self._history and cur == self._history[self._hist_index]:
+            return
+        del self._history[self._hist_index + 1:]      # drop redo tail
+        self._history.append(cur)
+        if len(self._history) > 200:                  # cap memory
+            self._history.pop(0)
+        self._hist_index = len(self._history) - 1
+        self._update_undo_actions()
+
+    def _flush_pending_capture(self):
+        if self._undo_timer.isActive():
+            self._undo_timer.stop()
+            self._capture_state()
+
+    def _undo(self):
+        self._flush_pending_capture()
+        if self._hist_index > 0:
+            self._hist_index -= 1
+            self._restore(self._history[self._hist_index])
+
+    def _redo(self):
+        self._flush_pending_capture()
+        if self._hist_index < len(self._history) - 1:
+            self._hist_index += 1
+            self._restore(self._history[self._hist_index])
+
+    def _restore(self, snapshot):
+        self._restoring = True
+        try:
+            self.deck = deck_from_json(snapshot)
+            if not self.deck.slides:
+                self.deck.slides = [Slide()]
+            self.current = min(self.current, len(self.deck.slides) - 1)
+            self._reload_all()
+        finally:
+            self._restoring = False
+        self._update_undo_actions()
+        if tectonic_available():
+            self._auto_timer.stop()
+            self._start_compile()
+
+    def _update_undo_actions(self):
+        if hasattr(self, "act_undo"):
+            self.act_undo.setEnabled(self._hist_index > 0)
+            self.act_redo.setEnabled(self._hist_index < len(self._history) - 1)
 
     def _update_title(self):
         name = self.path.name if self.path else "Untitled"
@@ -1014,6 +1093,7 @@ class SlideWindow(QMainWindow):
         self.path = None
         self._update_title()
         self._reload_all()
+        self._reset_history()
 
     def _templates_menu(self):
         choices = (["New from: " + n for n in self.store.all_names()]
@@ -1091,6 +1171,7 @@ class SlideWindow(QMainWindow):
         self.path = None
         self._update_title()
         self._reload_all()
+        self._reset_history()
 
     def _save_deck(self):
         if self.path is None:
@@ -1100,7 +1181,8 @@ class SlideWindow(QMainWindow):
 
     def _save_deck_as(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save deck as", "", "KherveSlide deck (*.kslide.json)")
+            self, "Save presentation as", "",
+            "KherveSlide presentation (*.kslide.json)")
         if not path:
             return
         self.path = Path(path)
@@ -1110,7 +1192,8 @@ class SlideWindow(QMainWindow):
 
     def _open_deck(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open deck", "", "KherveSlide deck (*.kslide.json *.json)")
+            self, "Open presentation", "",
+            "KherveSlide presentation (*.kslide.json *.json)")
         if not path:
             return
         try:
@@ -1124,6 +1207,7 @@ class SlideWindow(QMainWindow):
         self.current = 0
         self._update_title()
         self._reload_all()
+        self._reset_history()
 
     def _export_tex(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export LaTeX", "",

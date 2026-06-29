@@ -57,6 +57,15 @@ Prefix the commit subject with `v0.XX:` when it includes a version bump.
   the icons invisible in KherveTeX).
 - Tests in `tests/` cover model + serializer + templates. Any change to
   those modules must come with matching tests in the same commit.
+- **Every user action must be undoable.** Undo/redo is a debounced
+  snapshot history of the whole presentation (`SlideWindow._capture_state`
+  pushes `deck_to_json(self.deck)`), driven from `_refresh_latex`. So any
+  new action that mutates the presentation **must** funnel through the
+  normal change path (`_touch_current` / `_reload_all` / `_refresh_latex`)
+  so it is captured automatically — never mutate `self.deck` and repaint
+  without going through one of those. Do not add a parallel "skip undo"
+  path. The user-facing terminology is **"presentation"**, never "deck"
+  (deck remains the internal class name only).
 
 ## Layout
 
