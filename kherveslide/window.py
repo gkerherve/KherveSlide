@@ -187,6 +187,7 @@ class SlideWindow(QMainWindow):
         m_pres.addAction("Title…", self._set_deck_title)
         m_pres.addAction("Author…", self._set_deck_author)
         m_pres.addAction("Colour theme…", self._set_colour_theme)
+        m_pres.addAction("Theme builder (custom theme)…", self._open_theme_builder)
         self.act_nav = m_pres.addAction("Navigation symbols (prev / next)")
         self.act_nav.setCheckable(True)
         self.act_nav.setChecked(self.deck.nav_symbols)
@@ -1090,6 +1091,19 @@ class SlideWindow(QMainWindow):
     def _toggle_nav_symbols(self, on):
         self.deck.nav_symbols = on
         self._recompile_now()
+
+    def _open_theme_builder(self):
+        from .theme_builder import ThemeBuilderDialog
+        dlg = ThemeBuilderDialog(self.deck.theme_spec, self)
+        if dlg.exec() and dlg.result_spec is not None:
+            self.deck.theme_spec = dlg.result_spec
+            if dlg.result_spec.enabled:
+                # Custom themes touch decorated elements — show them.
+                self.deck.plain_frames = False
+                self.act_deco.blockSignals(True)
+                self.act_deco.setChecked(True)
+                self.act_deco.blockSignals(False)
+            self._recompile_now()
 
     def _pick_slide_bg(self):
         cur = QColor(self.slide.bg or "#FFFFFF")

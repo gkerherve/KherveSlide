@@ -4,7 +4,7 @@ import json
 import pytest
 
 from kherveslide.model import (
-    Deck, Slide, SlideText, SlidePicture, SlideTable,
+    Deck, Slide, SlideText, SlidePicture, SlideTable, ThemeSpec,
     deck_to_json, deck_from_json,
     raise_object, lower_object, to_front, to_back,
 )
@@ -176,6 +176,35 @@ def test_serialize_background_uses_blended_colour():
 
 def test_background_alpha_round_trip():
     deck = Deck(slides=[Slide(bg="#3366CC", bg_alpha=0.4)])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
+# --- theme builder ---
+
+def test_theme_spec_disabled_emits_nothing():
+    deck = Deck(slides=[Slide()], theme_spec=ThemeSpec(enabled=False,
+                                                       inner="circles"))
+    assert "\\useinnertheme" not in serialize_deck(deck)
+
+
+def test_theme_spec_emits_subthemes_and_colours():
+    spec = ThemeSpec(enabled=True, inner="circles", outer="miniframes",
+                     fonts="serif", bullets="square", structure="#CC3300",
+                     title_bg="#003366", frametitle_size="Large")
+    tex = serialize_deck(Deck(slides=[Slide()], theme_spec=spec))
+    assert "\\useinnertheme{circles}" in tex
+    assert "\\useoutertheme{miniframes}" in tex
+    assert "\\usefonttheme{serif}" in tex
+    assert "\\setbeamertemplate{itemize items}[square]" in tex
+    assert "\\setbeamercolor{structure}{fg=" in tex
+    assert "\\definecolor{ksth0}{HTML}{CC3300}" in tex
+    assert "\\setbeamerfont{frametitle}{size=\\Large}" in tex
+
+
+def test_theme_spec_round_trip():
+    deck = Deck(slides=[Slide()],
+                theme_spec=ThemeSpec(enabled=True, outer="split",
+                                     structure="#123456"))
     assert deck_from_json(deck_to_json(deck)) == deck
 
 

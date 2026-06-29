@@ -121,6 +121,63 @@ def _serialize_table(obj: SlideTable) -> str:
             f"\\end{{textblock}}")
 
 
+_SIZE_MACRO = {"small": "\\small", "normal": "\\normalsize",
+               "large": "\\large", "Large": "\\Large", "huge": "\\huge"}
+
+
+def _theme_spec_lines(spec) -> list[str]:
+    """The preamble lines for a user-built theme — sub-themes, bullet
+    style, colours (via \\definecolor) and the frametitle font."""
+    if spec is None or not getattr(spec, "enabled", False):
+        return []
+    lines: list[str] = []
+    if spec.inner:
+        lines.append(f"\\useinnertheme{{{spec.inner}}}")
+    if spec.outer:
+        lines.append(f"\\useoutertheme{{{spec.outer}}}")
+    if spec.fonts:
+        lines.append(f"\\usefonttheme{{{spec.fonts}}}")
+    if spec.bullets:
+        lines.append(f"\\setbeamertemplate{{itemize items}}[{spec.bullets}]")
+
+    # Colours: one \definecolor per value, then merged \setbeamercolor.
+    counter = [0]
+
+    def cname(hex_color):
+        h = _hex_to_rgb_arg(hex_color)
+        if not h:
+            return None
+        n = f"ksth{counter[0]}"
+        counter[0] += 1
+        lines.append(f"\\definecolor{{{n}}}{{HTML}}{{{h}}}")
+        return n
+
+    def set_color(element, fg=None, bg=None):
+        keys = []
+        if fg:
+            c = cname(fg)
+            if c:
+                keys.append(f"fg={c}")
+        if bg:
+            c = cname(bg)
+            if c:
+                keys.append(f"bg={c}")
+        if keys:
+            lines.append(
+                f"\\setbeamercolor{{{element}}}{{{','.join(keys)}}}")
+
+    set_color("structure", fg=spec.structure)
+    set_color("normal text", fg=spec.text_fg)
+    set_color("background canvas", bg=spec.canvas_bg)
+    set_color("frametitle", fg=spec.title_fg, bg=spec.title_bg)
+    set_color("title", fg=spec.title_fg)
+    set_color("block title", bg=spec.block_bg)
+    if spec.frametitle_size in _SIZE_MACRO:
+        lines.append(
+            f"\\setbeamerfont{{frametitle}}{{size={_SIZE_MACRO[spec.frametitle_size]}}}")
+    return lines
+
+
 def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0) -> str:
     parts = ["\\begin{frame}[plain]" if plain else "\\begin{frame}"]
     bg = _hex_to_rgb_arg(blend_over_white(slide.bg, slide.bg_alpha))
@@ -162,6 +219,8 @@ def serialize_deck(deck: Deck) -> str:
     lines.append(f"\\usetheme{{{deck.theme or 'default'}}}")
     if deck.color_theme:
         lines.append(f"\\usecolortheme{{{deck.color_theme}}}")
+    # User-built theme overrides, layered on top of the base theme.
+    lines += _theme_spec_lines(getattr(deck, "theme_spec", None))
     # lmodern: scalable fonts for the arbitrary \fontsize sizes the boxes use.
     lines.append("\\usepackage{lmodern}")
     lines += [

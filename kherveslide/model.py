@@ -94,6 +94,26 @@ class Slide:
 
 
 @dataclass
+class ThemeSpec:
+    """A user-built beamer theme layered on top of the base \\usetheme:
+    inner/outer/font sub-themes, bullet style, key colours and the
+    frametitle font size. Empty fields are left to the base theme."""
+    enabled: bool = False
+    inner: str = ""            # default|circles|rectangles|rounded|inmargin
+    outer: str = ""            # default|infolines|miniframes|smoothbars|…|tree
+    fonts: str = ""            # default|serif|professionalfonts|structurebold|…
+    bullets: str = ""          # default|circle|square|ball|triangle
+    structure: str = ""        # hex — drives many derived beamer colours
+    text_fg: str = ""          # normal text
+    canvas_bg: str = ""        # slide background canvas
+    title_fg: str = ""         # frametitle / title foreground
+    title_bg: str = ""         # frametitle background
+    block_bg: str = ""         # block title background
+    frametitle_size: str = ""  # small|normal|large|Large|huge
+    type: str = "ThemeSpec"
+
+
+@dataclass
 class Deck:
     slides: list[Slide] = field(default_factory=list)
     title: str = "Presentation"
@@ -118,6 +138,8 @@ class Deck:
     # wanted on a designed slide and their hyperlink annotations poke just
     # below the page edge, which makes xdvipdfmx warn on every page.
     nav_symbols: bool = False
+    # User-built theme overrides (see ThemeSpec). Applied when enabled.
+    theme_spec: ThemeSpec = field(default_factory=ThemeSpec)
     type: str = "Deck"
 
 
@@ -208,6 +230,24 @@ def _build_deck(d: dict) -> Deck:
         page_h_cm=float(d.get("page_h_cm", 0.0)),
         gap=float(d.get("gap", 0.0)),
         nav_symbols=bool(d.get("nav_symbols", False)),
+        theme_spec=_build_theme_spec(d.get("theme_spec", {})),
+    )
+
+
+def _build_theme_spec(d: dict) -> ThemeSpec:
+    return ThemeSpec(
+        enabled=bool(d.get("enabled", False)),
+        inner=str(d.get("inner", "")),
+        outer=str(d.get("outer", "")),
+        fonts=str(d.get("fonts", "")),
+        bullets=str(d.get("bullets", "")),
+        structure=str(d.get("structure", "")),
+        text_fg=str(d.get("text_fg", "")),
+        canvas_bg=str(d.get("canvas_bg", "")),
+        title_fg=str(d.get("title_fg", "")),
+        title_bg=str(d.get("title_bg", "")),
+        block_bg=str(d.get("block_bg", "")),
+        frametitle_size=str(d.get("frametitle_size", "")),
     )
 
 
