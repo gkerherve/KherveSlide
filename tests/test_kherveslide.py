@@ -269,3 +269,23 @@ def test_slide_layouts_instantiate():
 
 def test_slide_layout_unknown_falls_back_to_blank():
     assert templates.instantiate_slide_layout("nope").objects == []
+
+
+# --- canvas LaTeX -> HTML preview ---
+
+def test_latex_to_html_itemize_is_bullet_list():
+    from kherveslide.canvas import latex_to_html
+    h = latex_to_html("\\begin{itemize}\n\\item A\n\\item B\n\\end{itemize}")
+    assert "<ul>" in h and h.count("<li>") == 2
+
+
+def test_latex_to_html_enumerate_is_numbered_list():
+    from kherveslide.canvas import latex_to_html
+    h = latex_to_html("\\begin{enumerate}\n\\item X\n\\end{enumerate}")
+    assert "<ol>" in h
+
+
+def test_latex_to_html_inline_formatting():
+    from kherveslide.canvas import latex_to_html
+    assert "<b>Hi</b>" in latex_to_html("\\textbf{Hi}")
+    assert "<i>yo</i>" in latex_to_html("\\textit{yo}")

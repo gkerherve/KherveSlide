@@ -7,13 +7,65 @@ thumbnails shown in the slide navigator.
 """
 from __future__ import annotations
 
+import html as _html
+import re
+
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtGui import (
+    QBrush, QColor, QFont, QPainter, QPen, QPixmap, QTextDocument, QTextOption,
+)
 from PySide6.QtWidgets import (
     QGraphicsItem, QGraphicsObject, QGraphicsScene,
 )
 
 from .model import Slide, SlideText, SlidePicture, SlideTable
+
+
+def _inline_html(s: str) -> str:
+    """Best-effort LaTeX inline → HTML for the canvas preview."""
+    s = _html.escape(s)
+    s = re.sub(r"\\textbf\{([^}]*)\}", r"<b>\1</b>", s)
+    s = re.sub(r"\\textit\{([^}]*)\}", r"<i>\1</i>", s)
+    s = re.sub(r"\\emph\{([^}]*)\}", r"<i>\1</i>", s)
+    s = re.sub(r"\$([^$]*)\$", r"\1", s)          # show maths source, no $
+    s = s.replace("\\textbar{}", "|").replace("\\textbar", "|")
+    s = s.replace("\\\\", "<br>")
+    s = s.replace("\\&", "&amp;").replace("\\%", "%").replace("\\_", "_")
+    s = s.replace("\\#", "#").replace("\\{", "{").replace("\\}", "}")
+    return s
+
+
+def latex_to_html(text: str) -> str:
+    """Render a text box's LaTeX-ish content as HTML so itemize/enumerate
+    look like real bullet / numbered lists on the canvas."""
+    out: list[str] = []
+    buf: list[str] = []
+    env: str | None = None
+
+    def flush():
+        nonlocal buf, env
+        if env and buf:
+            tag = "ol" if env == "enumerate" else "ul"
+            out.append(f"<{tag}>" + "".join(f"<li>{x}</li>" for x in buf)
+                       + f"</{tag}>")
+        buf = []
+
+    for raw in (text or "").split("\n"):
+        s = raw.strip()
+        mb = re.match(r"\\begin\{(itemize|enumerate)\}", s)
+        if mb:
+            flush(); env = mb.group(1); buf = []
+            continue
+        if re.match(r"\\end\{(itemize|enumerate)\}", s):
+            flush(); env = None
+            continue
+        if s.startswith("\\item"):
+            buf.append(_inline_html(s[len("\\item"):].strip()))
+            continue
+        flush(); env = None
+        out.append(f"<div>{_inline_html(s)}</div>" if s else "<br>")
+    flush()
+    return "".join(out) or "&nbsp;"
 
 
 SCENE_H = 720.0                 # slide height in scene units (px)
@@ -235,17 +287,29 @@ class TextBoxItem(BoxItem):
         obj: SlideText = self.obj
         if obj.fill:
             painter.fillRect(self._rect, QColor(obj.fill))
+
         font = QFont("Helvetica")
         font.setPixelSize(max(6, int(obj.font_pt * self._font_scale)))
         font.setBold(obj.bold)
         font.setItalic(obj.italic)
-        painter.setFont(font)
-        painter.setPen(QPen(QColor(obj.color or "#000000")))
-        flag = {"center": Qt.AlignHCenter, "right": Qt.AlignRight}.get(
+
+        doc = QTextDocument()
+        doc.setDefaultFont(font)
+        align = {"center": Qt.AlignHCenter, "right": Qt.AlignRight}.get(
             obj.align, Qt.AlignLeft)
-        painter.drawText(self._rect.adjusted(4, 2, -4, -2),
-                         int(flag | Qt.AlignTop | Qt.TextWordWrap),
-                         obj.text or "")
+        opt = QTextOption(align)
+        opt.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        doc.setDefaultTextOption(opt)
+        colour = obj.color or "#000000"
+        doc.setHtml(f'<div style="color:{colour}">{latex_to_html(obj.text)}</div>')
+        inner = self._rect.adjusted(6, 3, -6, -3)
+        doc.setTextWidth(inner.width())
+
+        painter.save()
+        painter.translate(inner.topLeft())
+        painter.setClipRect(QRectF(0, 0, inner.width(), inner.height()))
+        doc.drawContents(painter)
+        painter.restore()
         self._paint_selection(painter)
 
 
