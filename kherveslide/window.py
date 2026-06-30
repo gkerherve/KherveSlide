@@ -432,7 +432,7 @@ class SlideWindow(QMainWindow):
         m_insert = mb.addMenu("&Insert")
         m_insert.addAction("Text box", self._add_text)
         m_insert.addAction("Picture", self._add_picture)
-        m_insert.addAction("Table", self._add_table)
+        m_insert.addAction("Table…", self._insert_table_picker)
         m_insert.addAction("Equation…", self._add_equation)
         m_insert.addAction("Drawing…", self._add_drawing)
 
@@ -448,6 +448,9 @@ class SlideWindow(QMainWindow):
                     lambda _checked=False, k=key: self._add_shape(k))
 
         m_table = mb.addMenu("&Table")
+        m_table.addAction("Insert table…", self._insert_table_picker)
+        m_table.addAction("Table design…", self._table_design_dialog)
+        m_table.addSeparator()
         m_table.addAction("Add row", lambda: self._table_op("add_row"))
         m_table.addAction("Add column", lambda: self._table_op("add_col"))
         m_table.addAction("Delete row", lambda: self._table_op("del_row"))
@@ -1484,12 +1487,49 @@ class SlideWindow(QMainWindow):
         self._touch_current()
 
     def _add_table(self):
-        obj = SlideTable()
+        self._insert_table(2, 2)
+
+    def _insert_table(self, rows, cols, style=None):
+        from .table_styles import apply_table_style
+        obj = SlideTable(rows=[["" for _ in range(cols)] for _ in range(rows)])
+        if style is not None:
+            apply_table_style(obj, style)
         self._place_stacked(obj)
         self.slide.objects.append(obj)
         self._reload_scene()
         self._select_last()
         self._touch_current()
+
+    def _insert_table_picker(self):
+        """Pop up the hover-to-size grid (PowerPoint-style)."""
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QMenu, QWidgetAction
+        from .table_styles import TableGridPicker
+        menu = QMenu(self)
+        picker = TableGridPicker()
+        act = QWidgetAction(menu)
+        act.setDefaultWidget(picker)
+        menu.addAction(act)
+        menu.addSeparator()
+        menu.addAction("Table design…", self._table_design_dialog)
+        picker.picked.connect(
+            lambda r, c: (menu.close(), self._insert_table(r, c)))
+        menu.exec(QCursor.pos())
+
+    def _table_design_dialog(self):
+        from .table_styles import TableStyleGallery, apply_table_style
+        item = self._selected_item()
+        target = (item.obj if item is not None
+                  and isinstance(item.obj, SlideTable) else None)
+        dlg = TableStyleGallery(self)
+        if dlg.exec() and dlg.chosen is not None:
+            if target is None:
+                self._insert_table(3, 3, dlg.chosen)
+            else:
+                apply_table_style(target, dlg.chosen)
+                self._reload_scene()
+                self._select_object(target)
+                self._touch_current()
 
     def _add_equation(self):
         from .equation_editor import EquationEditorDialog
@@ -1769,6 +1809,7 @@ class SlideWindow(QMainWindow):
                 menu.addAction("Line / arrow properties…",
                                self._line_props_dialog)
             elif isinstance(item.obj, SlideTable):
+                menu.addAction("Table design…", self._table_design_dialog)
                 menu.addAction("Table properties…", self._table_props_dialog)
             else:
                 menu.addAction("Box style (border / fill)…",

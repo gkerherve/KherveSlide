@@ -798,6 +798,32 @@ def test_table_full_fields_round_trip():
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
+def test_table_style_gallery_applies_fields():
+    from kherveslide.table_styles import TABLE_STYLES, apply_table_style
+    from kherveslide.model import SlideTable
+    st = next(s for s in TABLE_STYLES if s["name"] == "Blue banded")
+    t = SlideTable(rows=[["a", "b"], ["c", "d"], ["e", "f"]])
+    apply_table_style(t, st)
+    assert t.header_bg == "#2E75B6" and t.striped is True
+    assert t.grid == "horizontal" and t.border is True
+    tex = serialize_deck(Deck(slides=[Slide(objects=[t])], nav_symbols=False))
+    assert "\\definecolor{ksTH2E75B6}" in tex      # header colour emitted
+
+
+def test_insert_table_dimensions(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    from kherveslide.model import SlideTable
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.clear()
+    w._insert_table(4, 3)
+    t = w.slide.objects[-1]
+    assert isinstance(t, SlideTable)
+    assert len(t.rows) == 4 and all(len(r) == 3 for r in t.rows)
+
+
 def test_table_legacy_border_migrates_to_grid():
     from kherveslide.model import build_object
     o = build_object({"type": "SlideTable", "rows": [["x"]], "border": False})
