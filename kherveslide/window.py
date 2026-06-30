@@ -69,6 +69,9 @@ _COLOUR_THEMES = [
     "dove", "fly", "lily", "monarca", "orchid", "rose", "seagull",
     "seahorse", "spruce", "structure", "whale", "wolverine",
 ]
+# Shown in the theme combo when a theme-builder custom theme is active, so
+# it no longer reads as the plain base theme (e.g. "Warsaw").
+_CUSTOM_LABEL = "Custom (theme builder)"
 _ASPECTS = ["169", "1610", "43", "32", "54", "141"]
 _ASPECT_LABELS = {
     "169": "16:9", "1610": "16:10", "43": "4:3",
@@ -393,8 +396,10 @@ class SlideWindow(QMainWindow):
         tb.addWidget(QLabel(" Theme "))
         self.theme_combo = QComboBox()
         self.theme_combo.setEditable(True)
+        self.theme_combo.addItem(_CUSTOM_LABEL)
         self.theme_combo.addItems(_THEMES)
-        self.theme_combo.setToolTip("Beamer theme")
+        self.theme_combo.setToolTip("Beamer theme (pick 'Custom' to open "
+                                    "the theme builder)")
         self.theme_combo.currentTextChanged.connect(self._on_theme_combo)
         tb.addWidget(self.theme_combo)
         self.act_gallery = QAction("Preview…", self)
@@ -621,7 +626,9 @@ class SlideWindow(QMainWindow):
         mode = getattr(self.deck, "page_number", "none")
         self._pgnum_actions.get(mode, self._pgnum_actions["none"]).setChecked(True)
         self.theme_combo.blockSignals(True)
-        self.theme_combo.setCurrentText(self.deck.theme)
+        custom_on = getattr(self.deck.theme_spec, "enabled", False)
+        self.theme_combo.setCurrentText(
+            _CUSTOM_LABEL if custom_on else self.deck.theme)
         self.theme_combo.blockSignals(False)
         self.nav.refresh(self.deck, self.current)
         self._reload_scene()
@@ -1463,7 +1470,13 @@ class SlideWindow(QMainWindow):
     def _on_theme_combo(self, text):
         if self._loading or not text:
             return
+        if text == _CUSTOM_LABEL:
+            self._open_theme_builder()
+            return
+        # Picking a built-in theme replaces any custom theme-builder layer.
         self.deck.theme = text
+        if self.deck.theme_spec.enabled:
+            self.deck.theme_spec.enabled = False
         self._recompile_now()
 
     def _open_theme_gallery(self):
@@ -1472,6 +1485,7 @@ class SlideWindow(QMainWindow):
                            cache=self._theme_cache)
         if dlg.exec() and dlg.chosen:
             self.deck.theme = dlg.chosen
+            self.deck.theme_spec.enabled = False   # built-in replaces custom
             self.theme_combo.blockSignals(True)
             self.theme_combo.setCurrentText(dlg.chosen)
             self.theme_combo.blockSignals(False)
@@ -1567,6 +1581,10 @@ class SlideWindow(QMainWindow):
                                  self.deck.color_theme, self.deck.aspect, self)
         if dlg.exec() and dlg.result_spec is not None:
             self.deck.theme_spec = dlg.result_spec
+            self.theme_combo.blockSignals(True)
+            self.theme_combo.setCurrentText(
+                _CUSTOM_LABEL if dlg.result_spec.enabled else self.deck.theme)
+            self.theme_combo.blockSignals(False)
             if dlg.result_spec.enabled:
                 # Custom themes touch decorated elements — show them.
                 self.deck.plain_frames = False

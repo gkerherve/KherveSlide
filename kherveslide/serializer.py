@@ -293,6 +293,27 @@ def _theme_spec_lines(spec) -> list[str]:
     if spec.frametitle_size in _SIZE_MACRO:
         lines.append(
             f"\\setbeamerfont{{frametitle}}{{size={_SIZE_MACRO[spec.frametitle_size]}}}")
+
+    # Decorative rules (lines). They borrow the structure colour unless the
+    # user picked a dedicated rule colour.
+    if getattr(spec, "title_rule", False) or getattr(spec, "footline_rule", False):
+        rc = _hex_to_rgb_arg(getattr(spec, "rule_color", "") or "")
+        if rc:
+            lines.append(f"\\definecolor{{ksRule}}{{HTML}}{{{rc}}}")
+            rule_color = "ksRule"
+        else:
+            rule_color = "structure"
+        w = _fmt(max(0.2, getattr(spec, "rule_width", 1.5)))
+        if spec.title_rule:
+            # Appended after the frame title, spanning the title's width.
+            lines.append(
+                "\\addtobeamertemplate{frametitle}{}{%\n"
+                f"\\vskip2pt{{\\color{{{rule_color}}}\\hrule height {w}pt}}}}")
+        if spec.footline_rule:
+            lines.append(
+                "\\setbeamertemplate{footline}{%\n"
+                f"\\hbox{{\\color{{{rule_color}}}\\rule{{\\paperwidth}}{{{w}pt}}}}"
+                "\\vskip0pt}")
     return lines
 
 

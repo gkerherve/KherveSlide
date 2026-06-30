@@ -152,6 +152,11 @@ class ThemeSpec:
     title_bg: str = ""         # frametitle background
     block_bg: str = ""         # block title background
     frametitle_size: str = ""  # small|normal|large|Large|huge
+    # Decorative rules (lines).
+    title_rule: bool = False   # a rule under the frame title
+    footline_rule: bool = False  # a coloured bar along the bottom edge
+    rule_color: str = ""       # hex for the rules; "" = use structure colour
+    rule_width: float = 1.5    # rule thickness in pt
     type: str = "ThemeSpec"
 
 
@@ -338,6 +343,10 @@ def _build_theme_spec(d: dict) -> ThemeSpec:
         title_bg=str(d.get("title_bg", "")),
         block_bg=str(d.get("block_bg", "")),
         frametitle_size=str(d.get("frametitle_size", "")),
+        title_rule=bool(d.get("title_rule", False)),
+        footline_rule=bool(d.get("footline_rule", False)),
+        rule_color=str(d.get("rule_color", "")),
+        rule_width=float(d.get("rule_width", 1.5)),
     )
 
 

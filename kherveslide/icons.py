@@ -57,10 +57,11 @@ def _glyph_icon(letter: str, *, bold=False, italic=False, underline=False,
 
 
 def app_icon() -> QIcon:
-    """Application icon: white 'KT' monogram on a rounded accent-blue square.
+    """Application icon on a rounded accent-blue square.
 
-    Rendered at several sizes so the taskbar, title bar, and Alt-Tab all
-    get a sharp copy.
+    Large sizes show a big "K" with "slide" in small type beneath it; the
+    mini sizes (taskbar / title bar) collapse to a "KS" monogram so it
+    stays legible. Rendered at several sizes for crisp scaling.
     """
     icon = QIcon()
     for sz in (16, 24, 32, 48, 64, 128, 256):
@@ -69,18 +70,27 @@ def app_icon() -> QIcon:
         p = QPainter(px)
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setRenderHint(QPainter.TextAntialiasing, True)
-        # Rounded-rect background in accent blue.
         radius = sz * 0.18
         p.setPen(Qt.NoPen)
         p.setBrush(QColor("#1a6dd8"))
         p.drawRoundedRect(QRectF(0, 0, sz, sz), radius, radius)
-        # White "KT" text, sized to fill the square.
-        f = QFont("Georgia")
-        f.setPixelSize(int(sz * 0.52))
-        f.setBold(True)
-        p.setFont(f)
         p.setPen(QColor("#ffffff"))
-        p.drawText(QRectF(0, 0, sz, sz), Qt.AlignCenter, "KT")
+        if sz <= 32:
+            # Mini: compact "KS" monogram.
+            f = QFont("Georgia"); f.setPixelSize(int(sz * 0.56)); f.setBold(True)
+            p.setFont(f)
+            p.drawText(QRectF(0, 0, sz, sz), Qt.AlignCenter, "KS")
+        else:
+            # Large: big "K" over small "slide".
+            fk = QFont("Georgia"); fk.setPixelSize(int(sz * 0.62)); fk.setBold(True)
+            p.setFont(fk)
+            p.drawText(QRectF(0, -sz * 0.08, sz, sz),
+                       Qt.AlignHCenter | Qt.AlignVCenter, "K")
+            fs = QFont("Helvetica"); fs.setPixelSize(int(sz * 0.20))
+            fs.setBold(True)
+            p.setFont(fs)
+            p.drawText(QRectF(0, sz * 0.62, sz, sz * 0.34),
+                       Qt.AlignHCenter | Qt.AlignTop, "slide")
         p.end()
         icon.addPixmap(px)
     return icon

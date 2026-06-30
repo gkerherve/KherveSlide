@@ -567,6 +567,41 @@ def test_slide_layout_unknown_falls_back_to_blank():
     assert templates.instantiate_slide_layout("nope").objects == []
 
 
+# --- theme builder: decorative rules ---
+
+def test_theme_builder_title_rule_emits_template():
+    deck = Deck(slides=[Slide()],
+                theme_spec=ThemeSpec(enabled=True, title_rule=True,
+                                     structure="#ED7D31"))
+    tex = serialize_deck(deck)
+    assert "\\addtobeamertemplate{frametitle}" in tex
+
+
+def test_theme_builder_footline_rule_uses_rule_colour():
+    deck = Deck(slides=[Slide()],
+                theme_spec=ThemeSpec(enabled=True, footline_rule=True,
+                                     rule_color="#123456"))
+    tex = serialize_deck(deck)
+    assert "\\setbeamertemplate{footline}" in tex
+    assert "ksRule" in tex
+    assert "123456" in tex
+
+
+def test_disabled_theme_spec_emits_no_rules():
+    deck = Deck(slides=[Slide()],
+                theme_spec=ThemeSpec(enabled=False, title_rule=True))
+    tex = serialize_deck(deck)
+    assert "addtobeamertemplate" not in tex
+
+
+def test_theme_spec_rules_round_trip():
+    deck = Deck(slides=[Slide()],
+                theme_spec=ThemeSpec(enabled=True, title_rule=True,
+                                     footline_rule=True, rule_color="#abcdef",
+                                     rule_width=2.0))
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
 # --- app appearance themes ---
 
 def test_orange_theme_present_and_light():

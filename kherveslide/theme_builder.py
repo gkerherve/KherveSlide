@@ -14,7 +14,8 @@ from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
-    QFormLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QWidget,
 )
 
 from .compiler import compile_tex, tectonic_available
@@ -41,6 +42,7 @@ _COLOURS = [
     ("title_fg", "Title text"),
     ("title_bg", "Title bar"),
     ("block_bg", "Block title bar"),
+    ("rule_color", "Line colour"),
 ]
 
 
@@ -134,6 +136,24 @@ class ThemeBuilderDialog(QDialog):
         reset = QPushButton("Reset colours to inherit")
         reset.clicked.connect(self._reset_colours)
         v.addWidget(reset)
+
+        v.addWidget(QLabel("<b>Lines</b> (use the Line colour above)"))
+        self._title_rule = QCheckBox("Rule under the frame title")
+        self._title_rule.setChecked(getattr(spec, "title_rule", False))
+        self._title_rule.toggled.connect(self._schedule)
+        v.addWidget(self._title_rule)
+        self._footline_rule = QCheckBox("Footer line along the bottom")
+        self._footline_rule.setChecked(getattr(spec, "footline_rule", False))
+        self._footline_rule.toggled.connect(self._schedule)
+        v.addWidget(self._footline_rule)
+        wform = QFormLayout()
+        self._rule_w = QDoubleSpinBox()
+        self._rule_w.setRange(0.2, 10.0)
+        self._rule_w.setSingleStep(0.5)
+        self._rule_w.setValue(getattr(spec, "rule_width", 1.5) or 1.5)
+        self._rule_w.valueChanged.connect(self._schedule)
+        wform.addRow("Line thickness (pt)", self._rule_w)
+        v.addLayout(wform)
         v.addStretch(1)
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -197,6 +217,9 @@ class ThemeBuilderDialog(QDialog):
             fonts=self._fonts.currentData(),
             bullets=self._bullets.currentData(),
             frametitle_size=self._size.currentData(),
+            title_rule=self._title_rule.isChecked(),
+            footline_rule=self._footline_rule.isChecked(),
+            rule_width=self._rule_w.value(),
             **self._colours,
         )
 
