@@ -332,11 +332,43 @@ class SlideWindow(QMainWindow):
             self._theme_group.addAction(a)
             self._theme_actions[name] = a
 
+        # One Theme menu for everything that shapes the slide's look: the
+        # presentation theme (whole look) AND the colour theme (colours
+        # only), plus the gallery, the custom builder and decorations.
+        m_theme = mb.addMenu("&Theme")
+        m_ptheme = m_theme.addMenu("Presentation theme (whole look)")
+        self._ptheme_group = QActionGroup(self)
+        self._ptheme_actions = {}
+        for name in _THEMES:
+            a = m_ptheme.addAction(name)
+            a.setCheckable(True)
+            a.triggered.connect(
+                lambda _=False, n=name: self.theme_combo.setCurrentText(n))
+            self._ptheme_group.addAction(a)
+            self._ptheme_actions[name] = a
+        m_ctheme = m_theme.addMenu("Colour theme (colours only)")
+        self._ctheme_group = QActionGroup(self)
+        self._ctheme_actions = {}
+        for name in _COLOUR_THEMES:
+            a = m_ctheme.addAction(name or "(theme default)")
+            a.setCheckable(True)
+            a.triggered.connect(lambda _=False, n=name: self._set_colour_theme(n))
+            self._ctheme_group.addAction(a)
+            self._ctheme_actions[name] = a
+        m_ptheme.aboutToShow.connect(self._sync_theme_menus)
+        m_ctheme.aboutToShow.connect(self._sync_theme_menus)
+        m_theme.addSeparator()
+        m_theme.addAction("Preview themes…", self._open_theme_gallery)
+        m_theme.addAction("Custom theme builder…", self._open_theme_builder)
+        m_theme.addSeparator()
+        self.act_deco = QAction("Show theme decorations", self, checkable=True)
+        self.act_deco.setToolTip("Show the theme's title bars / footers")
+        self.act_deco.toggled.connect(self._toggle_decorations)
+        m_theme.addAction(self.act_deco)
+
         m_pres = mb.addMenu("&Presentation")
         m_pres.addAction("Title…", self._set_deck_title)
         m_pres.addAction("Author…", self._set_deck_author)
-        m_pres.addAction("Colour theme…", self._set_colour_theme)
-        m_pres.addAction("Theme builder (custom theme)…", self._open_theme_builder)
         self.act_nav = m_pres.addAction("Navigation symbols (prev / next)")
         self.act_nav.setCheckable(True)
         self.act_nav.setChecked(self.deck.nav_symbols)
@@ -415,22 +447,18 @@ class SlideWindow(QMainWindow):
             lambda: self.view.fit_to_window())
         act(icons.zoom_in, "Zoom in", lambda: self.view.zoom_by(1.25))
         tb.addSeparator()
+        # Quick theme switch; the full set (colour theme, gallery, builder,
+        # decorations) lives in the Theme menu. act_deco is created there.
         tb.addWidget(QLabel(" Theme "))
         self.theme_combo = QComboBox()
         self.theme_combo.setEditable(True)
         self.theme_combo.addItem(_CUSTOM_LABEL)
         self.theme_combo.addItems(_THEMES)
-        self.theme_combo.setToolTip("Beamer theme (pick 'Custom' to open "
-                                    "the theme builder)")
+        self.theme_combo.setToolTip("Presentation theme — the whole look. "
+                                    "Colours, gallery and the builder are in "
+                                    "the Theme menu.")
         self.theme_combo.currentTextChanged.connect(self._on_theme_combo)
         tb.addWidget(self.theme_combo)
-        self.act_gallery = QAction("Preview…", self)
-        self.act_gallery.setToolTip("Preview themes visually and pick one")
-        self.act_gallery.triggered.connect(self._open_theme_gallery)
-        tb.addAction(self.act_gallery)
-        self.act_deco = QAction("Decorations", self, checkable=True)
-        self.act_deco.setToolTip("Show the theme's title bars / footers")
-        self.act_deco.toggled.connect(self._toggle_decorations)
         tb.addAction(self.act_deco)
 
         # Formatting controls continue on the same single horizontal bar.
@@ -1597,13 +1625,18 @@ class SlideWindow(QMainWindow):
             self.act_deco.blockSignals(False)
             self._recompile_now()
 
-    def _set_colour_theme(self):
-        cur = (_COLOUR_THEMES.index(self.deck.color_theme)
-               if self.deck.color_theme in _COLOUR_THEMES else 0)
-        t, ok = QInputDialog.getItem(self, "Colour theme", "Colour theme:",
-                                     _COLOUR_THEMES, cur, True)
-        if ok:
-            self.deck.color_theme = t; self._recompile_now()
+    def _set_colour_theme(self, name):
+        self.deck.color_theme = name
+        self._recompile_now()
+
+    def _sync_theme_menus(self):
+        """Tick the active entries in the Theme menu's submenus."""
+        base = self.deck.theme
+        if base in self._ptheme_actions:
+            self._ptheme_actions[base].setChecked(True)
+        col = self.deck.color_theme
+        if col in self._ctheme_actions:
+            self._ctheme_actions[col].setChecked(True)
 
     def _page_setup(self):
         dlg = QDialog(self)
