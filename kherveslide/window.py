@@ -439,10 +439,20 @@ class SlideWindow(QMainWindow):
         ftb.addWidget(self.fmt_font)
 
         self.act_bold = QAction(icons.bold(), "Bold", self, checkable=True)
-        self.act_bold.triggered.connect(self._apply_text_format)
+        self.act_bold.setToolTip("Bold — the selection while editing, "
+                                 "else the whole box")
+        self.act_bold.triggered.connect(self._on_bold)
         self.act_italic = QAction(icons.italic(), "Italic", self, checkable=True)
-        self.act_italic.triggered.connect(self._apply_text_format)
+        self.act_italic.setToolTip("Italic — the selection while editing, "
+                                   "else the whole box")
+        self.act_italic.triggered.connect(self._on_italic)
         ftb.addAction(self.act_bold); ftb.addAction(self.act_italic)
+        # NoFocus so clicking them mid-edit doesn't blur (and commit) the
+        # in-place editor — they then format just the selected run.
+        for a in (self.act_bold, self.act_italic):
+            btn = ftb.widgetForAction(a)
+            if btn is not None:
+                btn.setFocusPolicy(Qt.NoFocus)
         self._themed_icons += [(self.act_bold, icons.bold),
                                (self.act_italic, icons.italic)]
         ftb.addSeparator()
@@ -1450,15 +1460,40 @@ class SlideWindow(QMainWindow):
         self._touch_current()
 
     def _apply_text_format(self):
+        # Font-size only; bold/italic go through _on_bold / _on_italic so
+        # they can target the selection while editing.
         if self._loading:
             return
         item = self._selected_item()
         if item is None or not isinstance(item.obj, SlideText):
             return
-        obj = item.obj
-        obj.font_pt = self.fmt_font.value()
-        obj.bold = self.act_bold.isChecked()
-        obj.italic = self.act_italic.isChecked()
+        item.obj.font_pt = self.fmt_font.value()
+        item.update()
+        self._touch_current()
+
+    def _on_bold(self, *_):
+        self._toggle_run_or_box("bold")
+
+    def _on_italic(self, *_):
+        self._toggle_run_or_box("italic")
+
+    def _toggle_run_or_box(self, kind):
+        if self._loading:
+            return
+        # While a box is being edited, format just the selected run; the
+        # toolbar buttons are NoFocus so the editor isn't committed first.
+        if self._edit_proxy is not None:
+            editor = self._edit_proxy.widget()
+            (editor.toggle_bold if kind == "bold" else editor.toggle_italic)()
+            return
+        # Otherwise toggle the style for the whole box.
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlideText):
+            return
+        if kind == "bold":
+            item.obj.bold = self.act_bold.isChecked()
+        else:
+            item.obj.italic = self.act_italic.isChecked()
         item.update()
         self._touch_current()
 

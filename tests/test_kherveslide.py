@@ -713,6 +713,32 @@ def test_inline_editor_claims_editing_shortcuts():
     assert Qt.Key_N not in _InlineEditor._GRAB_KEYS
 
 
+def test_toolbar_bold_targets_selection_while_editing(monkeypatch):
+    # Clicking the toolbar Bold button mid-edit must bold only the selected
+    # run, not the whole box (the box-level flag stays off).
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QTextCursor
+    from kherveslide import window
+    from kherveslide.model import SlideText
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.append(SlideText(text="alpha beta gamma", locked=False))
+    w._reload_scene()
+    item = w._items[-1]
+    item.setSelected(True)                  # enables the format toolbar
+    w._edit_text_item(item)
+    ed = w._edit_proxy.widget()
+    cur = ed.textCursor()
+    cur.setPosition(6)
+    cur.setPosition(10, QTextCursor.KeepAnchor)   # select "beta"
+    ed.setTextCursor(cur)
+    w.act_bold.trigger()                    # click the toolbar Bold button
+    w._finish_edit()
+    assert item.obj.text == "alpha \\textbf{beta} gamma"
+    assert item.obj.bold is False
+
+
 def test_inline_editor_bolds_only_the_selection():
     # One text box can mix styles: bolding a selection wraps just that run.
     from PySide6.QtWidgets import QApplication
