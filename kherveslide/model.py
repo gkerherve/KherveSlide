@@ -46,6 +46,10 @@ class SlideText:
     border_color: str = ""
     border_width: float = 1.0     # pt
     corner: str = "sharp"         # sharp | rounded
+    border_style: str = "solid"   # solid | dashed | dotted
+    fill_opacity: float = 1.0     # 0..1 (fill transparency)
+    shadow: bool = False          # drop shadow behind the box
+    corner_radius: float = 4.0    # pt, used when corner == rounded
     # Locked: beamer places the box in the standard flow (you can't drag it).
     # Unlocked: free absolute positioning at (x, y) via textpos.
     locked: bool = True
@@ -77,6 +81,10 @@ class SlidePicture:
     border_color: str = ""      # box frame colour ("" = none)
     border_width: float = 1.0
     corner: str = "sharp"
+    border_style: str = "solid"
+    fill_opacity: float = 1.0
+    shadow: bool = False
+    corner_radius: float = 4.0
     locked: bool = True         # see SlideText.locked
     type: str = "SlidePicture"
 
@@ -121,6 +129,10 @@ class SlideTable:
     border_color: str = ""     # box frame colour ("" = none)
     border_width: float = 1.0
     corner: str = "sharp"
+    border_style: str = "solid"
+    fill_opacity: float = 1.0
+    shadow: bool = False
+    corner_radius: float = 4.0
     locked: bool = True        # see SlideText.locked
     type: str = "SlideTable"
 
@@ -276,6 +288,10 @@ def _build_object(d: dict) -> SlideObject:
             border_color=str(d.get("border_color", "")),
             border_width=float(d.get("border_width", 1.0)),
             corner=str(d.get("corner", "sharp")),
+            border_style=str(d.get("border_style", "solid")),
+            fill_opacity=float(d.get("fill_opacity", 1.0)),
+            shadow=bool(d.get("shadow", False)),
+            corner_radius=float(d.get("corner_radius", 4.0)),
             locked=bool(d.get("locked", True)),
             block=str(d.get("block", "")),
             block_title=str(d.get("block_title", "")),
@@ -296,6 +312,10 @@ def _build_object(d: dict) -> SlideObject:
             border_color=str(d.get("border_color", "")),
             border_width=float(d.get("border_width", 1.0)),
             corner=str(d.get("corner", "sharp")),
+            border_style=str(d.get("border_style", "solid")),
+            fill_opacity=float(d.get("fill_opacity", 1.0)),
+            shadow=bool(d.get("shadow", False)),
+            corner_radius=float(d.get("corner_radius", 4.0)),
             locked=bool(d.get("locked", True)),
         )
     if t == "SlideTable":
@@ -324,6 +344,10 @@ def _build_object(d: dict) -> SlideObject:
             border_color=str(d.get("border_color", "")),
             border_width=float(d.get("border_width", 1.0)),
             corner=str(d.get("corner", "sharp")),
+            border_style=str(d.get("border_style", "solid")),
+            fill_opacity=float(d.get("fill_opacity", 1.0)),
+            shadow=bool(d.get("shadow", False)),
+            corner_radius=float(d.get("corner_radius", 4.0)),
             locked=bool(d.get("locked", True)),
         )
     if t == "SlideLine":

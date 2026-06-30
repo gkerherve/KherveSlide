@@ -1833,46 +1833,39 @@ class SlideWindow(QMainWindow):
         state = {"fill": getattr(o, "fill", ""),
                  "border_color": getattr(o, "border_color", "")}
 
-        def colour_btn(key):
-            btn = QPushButton()
-
-            def refresh():
-                v = state[key]
-                btn.setText(v or "(none)")
-                btn.setStyleSheet(f"background:{v};" if v else "")
-
-            def pick():
-                from PySide6.QtGui import QColor as _QC
-                c = QColorDialog.getColor(_QC(state[key] or "#ffffff"), self)
-                if c.isValid():
-                    state[key] = c.name(); refresh()
-
-            btn.clicked.connect(pick)
-            btn.setToolTip("Click to choose; right-click clears")
-            btn.setContextMenuPolicy(Qt.CustomContextMenu)
-            btn.customContextMenuRequested.connect(
-                lambda _p, k=key, rf=None: (state.__setitem__(key, ""), refresh()))
-            refresh()
-            return btn
-
-        fill_btn = colour_btn("fill")
-        border_btn = colour_btn("border_color")
-        form.addRow("Fill colour", fill_btn)
-        form.addRow("Border colour", border_btn)
+        form.addRow("Fill colour", self._colour_button(state, "fill"))
+        fill_op = QDoubleSpinBox(); fill_op.setRange(0.0, 1.0)
+        fill_op.setSingleStep(0.05); fill_op.setValue(getattr(o, "fill_opacity", 1.0))
+        form.addRow("Fill opacity", fill_op)
+        form.addRow("Border colour",
+                    self._colour_button(state, "border_color"))
         width = QDoubleSpinBox(); width.setRange(0.0, 12.0); width.setSingleStep(0.5)
         width.setValue(getattr(o, "border_width", 1.0))
         form.addRow("Border width (pt)", width)
+        bstyle = QComboBox(); bstyle.addItems(["solid", "dashed", "dotted"])
+        bstyle.setCurrentText(getattr(o, "border_style", "solid"))
+        form.addRow("Border style", bstyle)
         corner = QComboBox(); corner.addItems(["sharp", "rounded"])
         corner.setCurrentText(getattr(o, "corner", "sharp"))
         form.addRow("Corners", corner)
+        radius = QDoubleSpinBox(); radius.setRange(0.0, 40.0); radius.setSingleStep(1.0)
+        radius.setValue(getattr(o, "corner_radius", 4.0))
+        form.addRow("Corner radius (pt)", radius)
+        shadow = QCheckBox("Drop shadow")
+        shadow.setChecked(getattr(o, "shadow", False))
+        form.addRow(shadow)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
         form.addRow(bb)
         if dlg.exec():
             o.fill = state["fill"]
+            o.fill_opacity = fill_op.value()
             o.border_color = state["border_color"]
             o.border_width = width.value()
+            o.border_style = bstyle.currentText()
             o.corner = corner.currentText()
+            o.corner_radius = radius.value()
+            o.shadow = shadow.isChecked()
             item.update()
             self._touch_current()
 

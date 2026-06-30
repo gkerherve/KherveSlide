@@ -617,6 +617,22 @@ def test_block_text_wraps_in_beamer_block():
     assert "\\end{alertblock}" in tex
 
 
+def test_box_style_full_options():
+    t = SlideText(text="x", locked=False, fill="#ffd966", fill_opacity=0.6,
+                  border_color="#1f4e79", border_width=2.0,
+                  border_style="dashed", corner="rounded", corner_radius=8.0,
+                  shadow=True)
+    tex = serialize_deck(Deck(slides=[Slide(objects=[t])], nav_symbols=False))
+    assert "dashed" in tex
+    assert "fill opacity=0.6" in tex
+    assert "rounded corners=8pt" in tex
+    assert "drop shadow" in tex
+    assert "\\usetikzlibrary{shadows}" in tex
+    # the new fields survive a round trip
+    deck = Deck(slides=[Slide(objects=[t])])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
 def test_beamer_placed_block_honours_width():
     # A narrow beamer-placed block is wrapped in a sized minipage so it is
     # exactly as wide as its box; a full-width one is not.

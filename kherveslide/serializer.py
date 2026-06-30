@@ -136,11 +136,20 @@ def _frame_wrap(inner: str, obj, text_width: str | None = None) -> str:
         pre.append(f"\\definecolor{{ksBorder}}{{HTML}}{{{bc}}}")
         w = _fmt(max(0.2, getattr(obj, "border_width", 1.0)))
         opts += [f"draw=ksBorder", f"line width={w}pt"]
+        st = {"dashed": "dashed", "dotted": "dotted"}.get(
+            getattr(obj, "border_style", "solid"))
+        if st:
+            opts.append(st)
     if fc:
         pre.append(f"\\definecolor{{ksBoxFill}}{{HTML}}{{{fc}}}")
         opts.append("fill=ksBoxFill")
+        fo = getattr(obj, "fill_opacity", 1.0)
+        if fo < 1.0:
+            opts.append(f"fill opacity={_fmt(fo)}")
     if getattr(obj, "corner", "sharp") == "rounded":
-        opts.append("rounded corners=4pt")
+        opts.append(f"rounded corners={_fmt(getattr(obj, 'corner_radius', 4.0))}pt")
+    if getattr(obj, "shadow", False):
+        opts.append("drop shadow")
     if text_width:
         opts.append(f"text width={text_width}")
     return ("".join(pre) + "\\begin{tikzpicture}\n"
@@ -811,11 +820,15 @@ def serialize_deck(deck: Deck) -> str:
                      for s in deck.slides for o in s.objects)
     needs_opacity = any(isinstance(o, SlidePicture) and o.opacity < 1.0
                         for s in deck.slides for o in s.objects)
+    needs_shadow = any(getattr(o, "shadow", False)
+                       for s in deck.slides for o in s.objects)
     if needs_tikz or needs_opacity:
         # tikz also drives image opacity (a node with opacity= tints it).
         lines.append("\\usepackage{tikz}")
     if needs_tikz:
         lines.append("\\usetikzlibrary{arrows.meta}")
+        if needs_shadow:
+            lines.append("\\usetikzlibrary{shadows}")
     if any(isinstance(o, SlidePicture) and _has_crop(o)
            for s in deck.slides for o in s.objects):
         # adjustbox supplies \adjincludegraphics with \width-relative trim.

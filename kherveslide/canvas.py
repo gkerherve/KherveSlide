@@ -448,26 +448,47 @@ class BoxItem(QGraphicsObject):
         self._paint_lock(painter)
 
     def _paint_decoration(self, painter, border_only=False):
-        """Box fill + border rectangle (sharp or rounded), shared by every
-        box type. No-op unless a fill or border colour is set."""
+        """Box fill + border rectangle (sharp/rounded) with optional dash
+        style, fill opacity and drop shadow. No-op unless a fill or border
+        colour is set."""
         o = self.obj
         fill = "" if border_only else getattr(o, "fill", "")
         bc = getattr(o, "border_color", "")
         bw = getattr(o, "border_width", 1.0)
         rounded = getattr(o, "corner", "sharp") == "rounded"
+        rad = getattr(o, "corner_radius", 4.0) * self._font_scale * 0.5
         if not fill and not bc:
             return
         painter.save()
-        painter.setRenderHint(QPainter.Antialiasing, rounded)
-        painter.setBrush(QColor(fill) if fill else Qt.NoBrush)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        def _draw():
+            if rounded:
+                painter.drawRoundedRect(self._rect, rad, rad)
+            else:
+                painter.drawRect(self._rect)
+
+        if getattr(o, "shadow", False):
+            painter.save()
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(0, 0, 0, 55))
+            painter.translate(3, 3)
+            _draw()
+            painter.restore()
+        if fill:
+            c = QColor(fill)
+            c.setAlphaF(max(0.0, min(1.0, getattr(o, "fill_opacity", 1.0))))
+            painter.setBrush(c)
+        else:
+            painter.setBrush(Qt.NoBrush)
         if bc and bw > 0:
-            painter.setPen(QPen(QColor(bc), max(1.0, bw * 1.5)))
+            pen = QPen(QColor(bc), max(1.0, bw * 1.5))
+            pen.setStyle(_PEN_STYLE.get(getattr(o, "border_style", "solid"),
+                                        Qt.SolidLine))
+            painter.setPen(pen)
         else:
             painter.setPen(Qt.NoPen)
-        if rounded:
-            painter.drawRoundedRect(self._rect, 10, 10)
-        else:
-            painter.drawRect(self._rect)
+        _draw()
         painter.restore()
 
     def _paint_lock(self, painter):
