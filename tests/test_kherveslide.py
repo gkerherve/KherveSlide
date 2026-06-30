@@ -697,6 +697,22 @@ def test_math_only_detects_pure_equations():
     assert _math_only("") is None
 
 
+def test_inline_editor_claims_editing_shortcuts():
+    # Ctrl+B etc. must reach the editor, not fire the window's menu actions
+    # (the navigator toggle also lives on Ctrl+B).
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+    from kherveslide.window import _InlineEditor
+    ed = _InlineEditor()
+    for key in (Qt.Key_B, Qt.Key_I, Qt.Key_C, Qt.Key_V):
+        ev = QKeyEvent(QEvent.Type.ShortcutOverride, key, Qt.ControlModifier)
+        assert ed.event(ev) is True and ev.isAccepted()
+    # Unrelated combos (e.g. Ctrl+N = New) are left for the menus.
+    assert Qt.Key_N not in _InlineEditor._GRAB_KEYS
+
+
 def test_inline_editor_bolds_only_the_selection():
     # One text box can mix styles: bolding a selection wraps just that run.
     from PySide6.QtWidgets import QApplication

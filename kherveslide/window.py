@@ -18,8 +18,8 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import (
-    QByteArray, QMimeData, QPointF, QSettings, QSize, QThread, QTimer, Qt,
-    Signal,
+    QByteArray, QEvent, QMimeData, QPointF, QSettings, QSize, QThread, QTimer,
+    Qt, Signal,
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QFont, QTextCharFormat, QTextListFormat,
@@ -127,6 +127,21 @@ class _InlineEditor(QTextEdit):
         self._speller = spellcheck.SpellHighlighter(self.document())
         self._speller.enabled = (self.spellcheck_enabled
                                  and spellcheck.available())
+
+    # Editing shortcuts (bold/italic, clipboard, undo, select-all) that the
+    # window's menu actions also claim. While the editor has focus it must
+    # win them, so accept the ShortcutOverride — otherwise e.g. Ctrl+B just
+    # toggles the slide navigator and never reaches the editor.
+    _GRAB_KEYS = {Qt.Key_B, Qt.Key_I, Qt.Key_C, Qt.Key_X, Qt.Key_V,
+                  Qt.Key_Z, Qt.Key_Y, Qt.Key_A}
+
+    def event(self, e):
+        if (e.type() == QEvent.ShortcutOverride
+                and (e.modifiers() & Qt.ControlModifier)
+                and e.key() in self._GRAB_KEYS):
+            e.accept()
+            return True
+        return super().event(e)
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
