@@ -269,6 +269,7 @@ class SlideWindow(QMainWindow):
         self._loading = False
         self._edit_proxy = None
         self._edit_commit = None
+        self._edit_hidden_item = None
         self._font_scale = FONT_SCALE
 
         # Auto-compile: debounce edits, run tectonic off-thread.
@@ -1251,25 +1252,47 @@ class SlideWindow(QMainWindow):
             img.save(out, "PNG")
             self.statusBar().showMessage(f"Exported image to {out}")
 
-    def _begin_inline_edit(self, rect, initial, *, font_pt, commit):
+    def _begin_inline_edit(self, rect, initial, *, font_pt, commit,
+                           hide_item=None, bg="#ffffff"):
         """Float a *rich* editor over *rect* (lists show as real bullets,
-        not \\item source); on focus-out call commit(latex)."""
+        not \\item source); on focus-out call commit(latex). The box being
+        edited is hidden meanwhile so its own (possibly overflowing) painted
+        text doesn't show doubled behind the editor."""
         self._cancel_edit()
         editor = _InlineEditor()
         f = canvas_font(max(8, int(font_pt * self._font_scale)))
         editor.setFont(f)
         editor.setHtml(latex_to_html(initial))
+        # Opaque background (matching the box fill if any) so nothing bleeds
+        # through from underneath the editor.
         editor.setStyleSheet(
-            "QTextEdit { background: rgba(255,255,255,235);"
+            f"QTextEdit {{ background: {bg or '#ffffff'};"
             " border: 1px solid #2878dc; }")
         proxy = self.scene.addWidget(editor)
         proxy.setGeometry(rect)
         proxy.setZValue(1e6)
         self._edit_proxy = proxy
         self._edit_commit = commit
+        self._edit_hidden_item = hide_item
+        if hide_item is not None:
+            try:
+                hide_item._editing = True      # suppress its own text paint
+                hide_item.update()
+            except RuntimeError:
+                self._edit_hidden_item = None
         editor.editingFinished.connect(self._finish_edit)
         editor.setFocus()
         editor.selectAll()
+
+    def _restore_hidden_item(self):
+        item = getattr(self, "_edit_hidden_item", None)
+        self._edit_hidden_item = None
+        if item is not None:
+            try:
+                item._editing = False
+                item.update()
+            except RuntimeError:
+                pass
 
     def _edit_text(self):
         """The rich editor's current content, converted back to LaTeX."""
@@ -1278,7 +1301,8 @@ class SlideWindow(QMainWindow):
     def _edit_text_item(self, item):
         self._begin_inline_edit(
             item.scene_rect(), item.obj.text, font_pt=item.obj.font_pt,
-            commit=lambda t: self._commit_obj_text(item, t))
+            commit=lambda t: self._commit_obj_text(item, t),
+            hide_item=item, bg=getattr(item.obj, "fill", "") or "#ffffff")
 
     def _commit_obj_text(self, item, text):
         item.obj.text = text
@@ -1349,6 +1373,7 @@ class SlideWindow(QMainWindow):
         self._edit_proxy = None
         self._edit_commit = None
         self.scene.removeItem(proxy)
+        self._restore_hidden_item()
         if commit is not None:
             commit(text)
         self._touch_current()
@@ -1373,6 +1398,7 @@ class SlideWindow(QMainWindow):
         if self.scene.focusItem() is proxy:
             self.scene.setFocusItem(None)
         self.scene.removeItem(proxy)
+        self._restore_hidden_item()
 
     def _pick_image_for(self, item):
         path, _ = QFileDialog.getOpenFileName(

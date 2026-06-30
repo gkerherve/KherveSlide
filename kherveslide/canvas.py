@@ -557,6 +557,13 @@ class TextBoxItem(BoxItem):
 
     def paint(self, painter, option, widget=None):
         obj: SlideText = self.obj
+        # While this box is being edited, the floating editor shows its
+        # content — don't also paint the box's own (overflowing) text, or it
+        # appears doubled outside the box. Keep the selection chrome so the
+        # handles still frame it.
+        if getattr(self, "_editing", False):
+            self._paint_selection(painter)
+            return
         self._paint_decoration(painter)
 
         # A pure math box ($…$, \[…\]) is rendered as real maths, like the

@@ -1328,6 +1328,25 @@ def test_picture_editor_remove_background():
     assert out.pixelColor(20, 15).alpha() == 255    # red kept
 
 
+def test_editing_suppresses_box_paint_but_keeps_selection(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    from kherveslide.model import SlideText
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.append(SlideText(text="one\ntwo\nthree", locked=False))
+    w._reload_scene()
+    item = w._items[-1]
+    item.setSelected(True)
+    w._edit_text_item(item)
+    # the box stops painting its own (overflowing) text but stays selected
+    assert getattr(item, "_editing", False) is True
+    assert item.isSelected()
+    w._finish_edit()
+    assert getattr(w._items[-1], "_editing", False) is False
+
+
 def test_toolbar_bold_targets_selection_while_editing(monkeypatch):
     # Clicking the toolbar Bold button mid-edit must bold only the selected
     # run, not the whole box (the box-level flag stays off).
