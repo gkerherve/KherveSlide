@@ -1610,10 +1610,12 @@ class SlideWindow(QMainWindow):
 
     def _open_theme_gallery(self):
         from .theme_gallery import ThemeGallery
-        dlg = ThemeGallery(_THEMES, self.deck.aspect, self.deck.theme, self,
+        dlg = ThemeGallery(_THEMES, _COLOUR_THEMES, self.deck.aspect,
+                           self.deck.theme, self.deck.color_theme, self,
                            cache=self._theme_cache)
         if dlg.exec() and dlg.chosen:
             self.deck.theme = dlg.chosen
+            self.deck.color_theme = dlg.chosen_color
             self.deck.theme_spec.enabled = False   # built-in replaces custom
             self.theme_combo.blockSignals(True)
             self.theme_combo.setCurrentText(dlg.chosen)
