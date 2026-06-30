@@ -209,6 +209,10 @@ class _InlineEditor(QTextEdit):
 
 
 class SlideWindow(QMainWindow):
+    # Extra windows opened via File ▸ New window, kept referenced so they
+    # aren't garbage-collected while open.
+    _extra_windows: list = []
+
     def __init__(self, parent=None, *, dark=False, theme=None):
         super().__init__(parent)
         self.setWindowIcon(icons.app_icon())
@@ -263,6 +267,8 @@ class SlideWindow(QMainWindow):
         mb = self.menuBar()
         m_file = mb.addMenu("&File")
         m_file.addAction("New", self._new_deck).setShortcut("Ctrl+N")
+        m_file.addAction("New window", self._new_window).setShortcut(
+            "Ctrl+Shift+N")
         m_file.addAction("Open…", self._open_deck).setShortcut("Ctrl+O")
         self._recent_menu = m_file.addMenu("Open recent")
         self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
@@ -334,7 +340,7 @@ class SlideWindow(QMainWindow):
         self.act_nav = m_pres.addAction("Navigation symbols (prev / next)")
         self.act_nav.setCheckable(True)
         self.act_nav.setChecked(self.deck.nav_symbols)
-        self.act_nav.toggled.connect(self._toggle_nav_symbols)
+        self.act_nav.toggled.connect(self._set_nav_symbols)
 
         m_pgnum = m_pres.addMenu("Slide numbers")
         self._pgnum_group = QActionGroup(self)
@@ -595,12 +601,18 @@ class SlideWindow(QMainWindow):
         self.f_deck_author = QLineEdit()
         self.f_deck_author.setPlaceholderText("Author")
         self.f_deck_author.editingFinished.connect(self._apply_deck_author)
+        self.chk_nav = QCheckBox("Nav ▾▴")
+        self.chk_nav.setToolTip("Show beamer's prev/next navigation symbols "
+                                "at the bottom-right of every slide")
+        self.chk_nav.setChecked(self.deck.nav_symbols)
+        self.chk_nav.toggled.connect(self._set_nav_symbols)
         hl.addWidget(QLabel("Frame:"))
         hl.addWidget(self.f_frame_title, 3)
         hl.addWidget(QLabel("Title:"))
         hl.addWidget(self.f_deck_title, 2)
         hl.addWidget(QLabel("Author:"))
         hl.addWidget(self.f_deck_author, 2)
+        hl.addWidget(self.chk_nav)
 
         canvas_box = QWidget()
         cv = QVBoxLayout(canvas_box)
@@ -653,9 +665,10 @@ class SlideWindow(QMainWindow):
         self.act_deco.blockSignals(True)
         self.act_deco.setChecked(not self.deck.plain_frames)
         self.act_deco.blockSignals(False)
-        self.act_nav.blockSignals(True)
-        self.act_nav.setChecked(self.deck.nav_symbols)
-        self.act_nav.blockSignals(False)
+        for w in (self.act_nav, self.chk_nav):
+            w.blockSignals(True)
+            w.setChecked(self.deck.nav_symbols)
+            w.blockSignals(False)
         mode = getattr(self.deck, "page_number", "none")
         self._pgnum_actions.get(mode, self._pgnum_actions["none"]).setChecked(True)
         self.theme_combo.blockSignals(True)
@@ -899,6 +912,8 @@ class SlideWindow(QMainWindow):
             self._worker.wait(4000)
         if self._dl_worker is not None:
             self._dl_worker.wait(2000)
+        if self in SlideWindow._extra_windows:
+            SlideWindow._extra_windows.remove(self)
         super().closeEvent(event)
 
     # ---------------- in-place editing ----------------
@@ -1643,8 +1658,12 @@ class SlideWindow(QMainWindow):
         self.deck.plain_frames = not on
         self._recompile_now()
 
-    def _toggle_nav_symbols(self, on):
+    def _set_nav_symbols(self, on):
         self.deck.nav_symbols = on
+        for w in (self.act_nav, self.chk_nav):   # keep menu + tick box in sync
+            w.blockSignals(True)
+            w.setChecked(on)
+            w.blockSignals(False)
         self._recompile_now()
 
     def _set_page_number(self, mode):
@@ -1889,6 +1908,16 @@ class SlideWindow(QMainWindow):
         self._update_title()
         self._reload_all()
         self._reset_history()
+
+    def _new_window(self):
+        """Open a second, independent KherveSlide window (e.g. to work on
+        another presentation, or copy objects between decks)."""
+        win = SlideWindow(dark=self._dark, theme=self._theme)
+        # Hold a reference so the new window isn't garbage-collected, and
+        # offset it a little so it doesn't land exactly on top of this one.
+        SlideWindow._extra_windows.append(win)
+        win.move(self.x() + 40, self.y() + 40)
+        win.show()
 
     def _save_deck(self):
         if self.path is None:

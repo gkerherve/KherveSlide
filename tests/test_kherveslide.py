@@ -713,6 +713,20 @@ def test_inline_editor_claims_editing_shortcuts():
     assert Qt.Key_N not in _InlineEditor._GRAB_KEYS
 
 
+def test_nav_tickbox_and_menu_stay_in_sync(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w._set_nav_symbols(False)
+    assert w.deck.nav_symbols is False
+    assert not w.chk_nav.isChecked() and not w.act_nav.isChecked()
+    w._set_nav_symbols(True)
+    assert w.deck.nav_symbols is True
+    assert w.chk_nav.isChecked() and w.act_nav.isChecked()
+
+
 def test_paste_image_fills_selected_picture_box(monkeypatch):
     # A clipboard image pasted while a picture box is selected fills that
     # box instead of creating a new floating image.
