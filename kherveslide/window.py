@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from . import icons, spellcheck, templates, version_string
+from . import icons, spellcheck, templates, themes, version_string
 from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
     make_item, page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
@@ -227,6 +227,10 @@ class SlideWindow(QMainWindow):
         self._auto_timer.setInterval(900)
         self._auto_timer.timeout.connect(self._start_compile)
 
+        self._theme_name = QSettings("kherveDOC", "KherveSlide").value(
+            "theme_name", "Light")
+        # (action, icon-factory) pairs so a theme switch can recolour icons.
+        self._themed_icons: list = []
         self._update_title()
         self._build_menus()
         self._build_toolbar()
@@ -264,6 +268,8 @@ class SlideWindow(QMainWindow):
         self.act_undo.setShortcut("Ctrl+Z")
         self.act_redo = m_edit.addAction(icons.redo(), "Redo", self._redo)
         self.act_redo.setShortcut("Ctrl+Y")
+        self._themed_icons += [(self.act_undo, icons.undo),
+                               (self.act_redo, icons.redo)]
         m_edit.addSeparator()
         m_edit.addAction("Copy", self._copy_selected).setShortcut("Ctrl+C")
         m_edit.addAction("Cut", self._cut_selected).setShortcut("Ctrl+X")
@@ -290,6 +296,17 @@ class SlideWindow(QMainWindow):
                 "Install pyspellchecker to enable spell checking.")
         _InlineEditor.spellcheck_enabled = spell_on
         self.act_spell.toggled.connect(self._toggle_spellcheck)
+
+        m_appear = m_view.addMenu("Appearance")
+        self._theme_group = QActionGroup(self)
+        self._theme_actions = {}
+        for name in themes.THEME_NAMES:
+            a = m_appear.addAction(name)
+            a.setCheckable(True)
+            a.setChecked(name == self._theme_name)
+            a.triggered.connect(lambda _=False, n=name: self._apply_named_theme(n))
+            self._theme_group.addAction(a)
+            self._theme_actions[name] = a
 
         m_pres = mb.addMenu("&Presentation")
         m_pres.addAction("Title…", self._set_deck_title)
@@ -351,25 +368,27 @@ class SlideWindow(QMainWindow):
         tb = QToolBar("Main"); tb.setMovable(False); self.addToolBar(tb)
         tb.setIconSize(QSize(24, 24))
 
-        def act(icon, text, slot):
-            a = QAction(icon, text, self); a.setToolTip(text)
-            a.triggered.connect(slot); tb.addAction(a); return a
+        def act(factory, text, slot):
+            a = QAction(factory(), text, self); a.setToolTip(text)
+            a.triggered.connect(slot); tb.addAction(a)
+            self._themed_icons.append((a, factory))
+            return a
 
-        act(icons.file_new(), "New", self._new_deck)
-        act(icons.file_open(), "Open", self._open_deck)
-        act(icons.file_save(), "Save", self._save_deck)
+        act(icons.file_new, "New", self._new_deck)
+        act(icons.file_open, "Open", self._open_deck)
+        act(icons.file_save, "Save", self._save_deck)
         tb.addSeparator()
         tb.addAction(self.act_undo)
         tb.addAction(self.act_redo)
         tb.addSeparator()
-        act(icons.templates_icon(), "Templates", self._templates_menu)
-        act(icons.compile_pdf(), "Compile", self._compile)
-        act(icons.export_pdf(), "Export PDF", self._export_pdf)
+        act(icons.templates_icon, "Templates", self._templates_menu)
+        act(icons.compile_pdf, "Compile", self._compile)
+        act(icons.export_pdf, "Export PDF", self._export_pdf)
         tb.addSeparator()
-        act(icons.zoom_out(), "Zoom out", lambda: self.view.zoom_by(1 / 1.25))
-        act(icons.fit_width(), "Fit slide to window",
+        act(icons.zoom_out, "Zoom out", lambda: self.view.zoom_by(1 / 1.25))
+        act(icons.fit_width, "Fit slide to window",
             lambda: self.view.fit_to_window())
-        act(icons.zoom_in(), "Zoom in", lambda: self.view.zoom_by(1.25))
+        act(icons.zoom_in, "Zoom in", lambda: self.view.zoom_by(1.25))
         tb.addSeparator()
         tb.addWidget(QLabel(" Theme "))
         self.theme_combo = QComboBox()
@@ -403,37 +422,45 @@ class SlideWindow(QMainWindow):
         self.act_italic = QAction(icons.italic(), "Italic", self, checkable=True)
         self.act_italic.triggered.connect(self._apply_text_format)
         ftb.addAction(self.act_bold); ftb.addAction(self.act_italic)
+        self._themed_icons += [(self.act_bold, icons.bold),
+                               (self.act_italic, icons.italic)]
         ftb.addSeparator()
 
         self._align_group = QActionGroup(self)
         self._align_actions = {}
-        for key, icon, tip in (("left", icons.align_left(), "Align left"),
-                               ("center", icons.align_center(), "Centre"),
-                               ("right", icons.align_right(), "Align right")):
-            a = QAction(icon, tip, self, checkable=True)
+        for key, factory, tip in (("left", icons.align_left, "Align left"),
+                                  ("center", icons.align_center, "Centre"),
+                                  ("right", icons.align_right, "Align right")):
+            a = QAction(factory(), tip, self, checkable=True)
             a.triggered.connect(lambda _=False, k=key: self._set_align(k))
             self._align_group.addAction(a); ftb.addAction(a)
             self._align_actions[key] = a
+            self._themed_icons.append((a, factory))
         ftb.addSeparator()
 
-        self.act_textcolor = QAction(icons._glyph_icon("A", color=QColor("#1a6dd8")),
-                                     "Text colour", self)
+        tc_factory = lambda: icons._glyph_icon("A", color=QColor("#1a6dd8"))
+        fill_factory = lambda: icons._glyph_icon("█", color=QColor("#d96b00"))
+        self.act_textcolor = QAction(tc_factory(), "Text colour", self)
         self.act_textcolor.triggered.connect(lambda: self._pick_obj_color("color"))
-        self.act_fill = QAction(icons._glyph_icon("█", color=QColor("#d96b00")),
-                                "Fill colour", self)
+        self.act_fill = QAction(fill_factory(), "Fill colour", self)
         self.act_fill.triggered.connect(lambda: self._pick_obj_color("fill"))
         ftb.addAction(self.act_textcolor); ftb.addAction(self.act_fill)
+        self._themed_icons += [(self.act_textcolor, tc_factory),
+                               (self.act_fill, fill_factory)]
         ftb.addSeparator()
 
-        ftb.addAction(icons.bullet_list(), "Insert bullet list",
-                      self._insert_bullets)
-        ftb.addAction(icons.numbered_list(), "Insert numbered list",
-                      self._insert_numbered)
+        a_bul = ftb.addAction(icons.bullet_list(), "Insert bullet list",
+                              self._insert_bullets)
+        a_num = ftb.addAction(icons.numbered_list(), "Insert numbered list",
+                              self._insert_numbered)
+        self._themed_icons += [(a_bul, icons.bullet_list),
+                               (a_num, icons.numbered_list)]
         ftb.addSeparator()
 
         self.act_pic = QAction(icons.image_box(), "Replace image…", self)
         self.act_pic.triggered.connect(self._pick_image)
         ftb.addAction(self.act_pic)
+        self._themed_icons.append((self.act_pic, icons.image_box))
 
         self._enable_format(False)
 
@@ -444,37 +471,35 @@ class SlideWindow(QMainWindow):
         tb.setIconSize(QSize(24, 24))
         tb.setMovable(False)
         self.addToolBar(Qt.LeftToolBarArea, tb)
+
+        def vact(factory, text, slot):
+            a = tb.addAction(factory(), text, slot)
+            self._themed_icons.append((a, factory))
+            return a
+
         # Slides
-        tb.addAction(icons.slide_add(), "Add slide", self._add_slide)
-        tb.addAction(icons.slide_remove(), "Remove active slide",
-                     self._del_slide)
-        tb.addAction(icons.move_up(), "Move slide up",
-                     lambda: self._move_slide(-1))
-        tb.addAction(icons.move_down(), "Move slide down",
-                     lambda: self._move_slide(1))
+        vact(icons.slide_add, "Add slide", self._add_slide)
+        vact(icons.slide_remove, "Remove active slide", self._del_slide)
+        vact(icons.move_up, "Move slide up", lambda: self._move_slide(-1))
+        vact(icons.move_down, "Move slide down", lambda: self._move_slide(1))
         tb.addSeparator()
         # Insert objects (moved here from the horizontal toolbar)
-        tb.addAction(icons.text_box(), "Add text box", self._add_text)
-        tb.addAction(icons.image_box(), "Add image", self._add_picture)
-        tb.addAction(icons.table(), "Add table", self._add_table)
-        tb.addAction(icons.math_block(), "Add equation", self._add_equation)
-        tb.addAction(icons.symbol(), "Insert symbol…", self._insert_symbol)
-        tb.addAction(icons.drawing(), "Add drawing", self._add_drawing)
-        tb.addAction(icons.line_tool(), "Add line", self._add_line)
-        tb.addAction(icons.arrow_tool(), "Add arrow", self._add_arrow)
+        vact(icons.text_box, "Add text box", self._add_text)
+        vact(icons.image_box, "Add image", self._add_picture)
+        vact(icons.table, "Add table", self._add_table)
+        vact(icons.math_block, "Add equation", self._add_equation)
+        vact(icons.symbol, "Insert symbol…", self._insert_symbol)
+        vact(icons.drawing, "Add drawing", self._add_drawing)
+        vact(icons.line_tool, "Add line", self._add_line)
+        vact(icons.arrow_tool, "Add arrow", self._add_arrow)
         tb.addSeparator()
         # Z-order
-        tb.addAction(icons.raise_box(), "Raise object",
-                     lambda: self._zorder("raise"))
-        tb.addAction(icons.lower_box(), "Lower object",
-                     lambda: self._zorder("lower"))
-        tb.addAction(icons.to_front(), "Bring to front",
-                     lambda: self._zorder("front"))
-        tb.addAction(icons.to_back(), "Send to back",
-                     lambda: self._zorder("back"))
+        vact(icons.raise_box, "Raise object", lambda: self._zorder("raise"))
+        vact(icons.lower_box, "Lower object", lambda: self._zorder("lower"))
+        vact(icons.to_front, "Bring to front", lambda: self._zorder("front"))
+        vact(icons.to_back, "Send to back", lambda: self._zorder("back"))
         tb.addSeparator()
-        tb.addAction(icons.delete_box(), "Delete object",
-                     self._delete_selected)
+        vact(icons.delete_box, "Delete object", self._delete_selected)
 
     def _add_line(self):
         self.slide.objects.append(SlideLine())
@@ -1662,6 +1687,30 @@ class SlideWindow(QMainWindow):
         _InlineEditor.spellcheck_enabled = on
         QSettings("kherveDOC", "KherveSlide").setValue(
             "spellcheck_enabled", on)
+
+    def _refresh_icons(self):
+        """Recolour every toolbar/menu icon for the current light/dark theme."""
+        for action, factory in self._themed_icons:
+            try:
+                action.setIcon(factory())
+            except RuntimeError:
+                pass            # action was deleted
+
+    def _apply_named_theme(self, name):
+        """Switch the application's appearance theme live and remember it."""
+        app = QApplication.instance()
+        t = themes.apply_theme(app, name)
+        self._theme = t
+        self._theme_name = name
+        self._dark = themes.is_dark(name)
+        icons.set_dark(self._dark)
+        self._refresh_icons()
+        self.latex_view.set_dark(self._dark, t)
+        QSettings("kherveDOC", "KherveSlide").setValue("theme_name", name)
+        act = self._theme_actions.get(name)
+        if act is not None and not act.isChecked():
+            act.setChecked(True)
+        self.statusBar().showMessage(f"Theme: {name}", 3000)
 
     def _open_file_location(self):
         if self.path is None:

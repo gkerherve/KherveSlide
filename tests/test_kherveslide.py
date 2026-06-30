@@ -567,6 +567,22 @@ def test_slide_layout_unknown_falls_back_to_blank():
     assert templates.instantiate_slide_layout("nope").objects == []
 
 
+# --- app appearance themes ---
+
+def test_orange_theme_present_and_light():
+    from kherveslide import themes
+    assert "Orange" in themes.THEME_NAMES
+    assert themes.is_dark("Orange") is False
+    assert themes.THEMES["Orange"]["accent"].lower() == "#ed7d31"
+
+
+def test_all_themes_share_the_same_keys():
+    from kherveslide import themes
+    expected = set(themes.THEMES["Light"])
+    for name, t in themes.THEMES.items():
+        assert set(t) == expected, f"{name} has mismatched keys"
+
+
 # --- LaTeX source highlighter ---
 
 def test_latex_highlighter_distinguishes_tokens():
