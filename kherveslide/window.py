@@ -301,6 +301,7 @@ class SlideWindow(QMainWindow):
         m_edit.addAction("Paste", self._paste).setShortcut("Ctrl+V")
         m_edit.addAction("Duplicate", self._duplicate_selected).setShortcut("Ctrl+D")
         m_edit.addSeparator()
+        m_edit.addAction("Check spelling…", self._check_spelling).setShortcut("F7")
         m_edit.addAction("Page setup…", self._page_setup)
 
         m_view = mb.addMenu("&View")
@@ -1846,6 +1847,28 @@ class SlideWindow(QMainWindow):
         _InlineEditor.spellcheck_enabled = on
         QSettings("kherveDOC", "KherveSlide").setValue(
             "spellcheck_enabled", on)
+
+    def _check_spelling(self):
+        from . import spellcheck
+        if not spellcheck.available():
+            QMessageBox.information(
+                self, "Spell check",
+                "Install pyspellchecker to enable spell checking:\n"
+                "  pip install pyspellchecker")
+            return
+        self._cancel_edit()
+        from .spellcheck_dialog import SpellCheckDialog
+        dlg = SpellCheckDialog(self.deck, self, on_changed=lambda: None)
+        if not dlg.has_issues():
+            QMessageBox.information(self, "Spell check",
+                                    "No misspellings found.")
+            return
+        dlg.exec()
+        if dlg.changed:
+            self._reload_all()
+            self._touch_current()
+            self.statusBar().showMessage(
+                f"Spell check: {dlg.changed} word(s) changed")
 
     def _refresh_icons(self):
         """Recolour every toolbar/menu icon for the current light/dark theme."""

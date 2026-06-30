@@ -50,6 +50,36 @@ def add_word(word: str) -> None:
     QSettings(*_SETTINGS).setValue(_PERSONAL_KEY, sorted(words))
 
 
+_CMD_RE = re.compile(r"\\[A-Za-z@]+\*?")
+_MATH_RE = re.compile(r"\$[^$]*\$")
+
+
+def _strip_latex(text: str) -> str:
+    """Drop LaTeX commands, maths and braces so only prose words remain —
+    keeps \\textbf, itemize, \\frac… out of the spell check."""
+    t = _MATH_RE.sub(" ", text or "")
+    t = _CMD_RE.sub(" ", t)
+    return re.sub(r"[{}\\%&$]", " ", t)
+
+
+def misspelled_words(text: str) -> list[str]:
+    """Unique misspelled prose words in a text box's LaTeX, in order."""
+    sc = _get_checker()
+    if sc is None:
+        return []
+    personal = _personal()
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in _WORD_RE.finditer(_strip_latex(text)):
+        w = m.group(0)
+        if len(w) < 2 or w.lower() in personal or w in seen:
+            continue
+        if sc.unknown([w.lower()]):
+            seen.add(w)
+            out.append(w)
+    return out
+
+
 def is_misspelled(word: str) -> bool:
     sc = _get_checker()
     if sc is None or len(word) < 2:

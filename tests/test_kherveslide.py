@@ -310,6 +310,18 @@ def test_serialize_opaque_picture_no_tikz():
 
 # --- spell check (optional pyspellchecker) ---
 
+def test_spellcheck_misspelled_words_ignores_latex():
+    from kherveslide import spellcheck
+    if not spellcheck.available():
+        pytest.skip("pyspellchecker not installed")
+    # \textbf, itemize, item etc. are LaTeX, not prose — must not be flagged;
+    # the genuine typo "teh" must be.
+    text = "\\begin{itemize}\\item \\textbf{teh} cat $x^2$\\end{itemize}"
+    words = spellcheck.misspelled_words(text)
+    assert "teh" in words
+    assert "textbf" not in words and "itemize" not in words
+
+
 def test_spellcheck_flags_and_suggests():
     from kherveslide import spellcheck
     if not spellcheck.available():
