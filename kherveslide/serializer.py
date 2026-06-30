@@ -224,6 +224,18 @@ def _flow_object(obj) -> str | None:
     """A locked object's representation in the standard beamer flow (beamer
     places it). Returns None for objects that have no flow form."""
     if isinstance(obj, SlideText):
+        # A beamer-placed block honours its box width: when narrower than
+        # the text column it is wrapped in a centred minipage so the block
+        # is exactly as wide as it looks on the canvas. Plain (non-block)
+        # text still flows full width.
+        block = getattr(obj, "block", "")
+        if block in _BLOCK_ENVS:
+            w = max(0.15, min(1.0, obj.w))
+            if w < 0.97:
+                return ("\\par\\begin{center}\n"
+                        f"\\begin{{minipage}}{{{_fmt(w)}\\textwidth}}\n"
+                        f"{_text_inner(obj)}\n"
+                        "\\end{minipage}\n\\end{center}\\medskip")
         # Leading \par: without it beamer swallows the first styled
         # paragraph when several are stacked in a [t] frame.
         return "\\par " + _text_inner(obj) + "\\medskip"

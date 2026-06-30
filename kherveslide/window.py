@@ -484,23 +484,25 @@ class SlideWindow(QMainWindow):
         # Per-box beamer placement (the whole theme lives in the Slide Theme
         # menu now). Sets the selected box's locked property.
         tb.addWidget(QLabel(" Box "))
-        self.placement_combo = QComboBox()
-        # data = (locked, block). Free is unlocked; the rest are beamer-placed,
-        # the block ones wrap the text in a coloured beamer block.
-        for label, data in (("Free (you place it)", (False, "")),
-                            ("Beamer-placed", (True, "")),
-                            ("Block", (True, "block")),
-                            ("Alert block", (True, "alertblock")),
-                            ("Example block", (True, "exampleblock"))):
-            self.placement_combo.addItem(label, data)
-        self.placement_combo.setToolTip(
-            "What this box is: Free (you place it), Beamer-placed (standard "
-            "flow), or a coloured beamer block. Set a block's title from the "
-            "right-click menu.")
-        self.placement_combo.currentIndexChanged.connect(
-            self._on_placement_combo)
-        self.placement_combo.setEnabled(False)   # until a box is selected
-        tb.addWidget(self.placement_combo)
+        self.type_combo = QComboBox()
+        # data = box-type key. Selecting one changes the selected box's type
+        # in place; switching to Image/Table keeps the box geometry but
+        # replaces the content. Locking lives on the corner badge / right-click.
+        for label, kind in (("Text", "text"),
+                            ("Block", "block"),
+                            ("Alert block", "alertblock"),
+                            ("Example block", "exampleblock"),
+                            ("Equation", "equation"),
+                            ("Image", "image"),
+                            ("Table", "table")):
+            self.type_combo.addItem(label, kind)
+        self.type_combo.setToolTip(
+            "What this box is. Switching to Image or Table keeps the box's "
+            "position and size but replaces its content. Lock / unlock with "
+            "the corner badge or the right-click menu.")
+        self.type_combo.currentIndexChanged.connect(self._on_type_combo)
+        self.type_combo.setEnabled(False)   # until a box is selected
+        tb.addWidget(self.type_combo)
 
         # Formatting controls continue on the same single horizontal bar.
         tb.addSeparator()
@@ -1816,19 +1818,19 @@ class SlideWindow(QMainWindow):
         if self._loading:
             return
         item = self._selected_item()
-        self.placement_combo.setEnabled(item is not None)
+        # Lines have no editable "type"; everything else uses the combo.
+        is_line = item is not None and isinstance(item.obj, SlideLine)
+        self.type_combo.setEnabled(item is not None and not is_line)
         if item is None:
             self._enable_format(False)
             return
         obj = item.obj
-        # Reflect this box's placement / block kind in the toolbar combo.
-        locked = getattr(obj, "locked", True)
-        block = getattr(obj, "block", "")
-        want = (locked, block if isinstance(obj, SlideText) else "")
+        # Reflect this box's type in the toolbar combo.
+        want = self._obj_kind(obj)
         self._loading = True
-        for i in range(self.placement_combo.count()):
-            if self.placement_combo.itemData(i) == want:
-                self.placement_combo.setCurrentIndex(i)
+        for i in range(self.type_combo.count()):
+            if self.type_combo.itemData(i) == want:
+                self.type_combo.setCurrentIndex(i)
                 break
         self._loading = False
         is_text = isinstance(obj, SlideText)
@@ -1932,30 +1934,88 @@ class SlideWindow(QMainWindow):
             self.deck.theme_spec.enabled = False
         self._recompile_now()
 
-    def _on_placement_combo(self):
-        """Toolbar combo → set the selected box's beamer placement / block."""
+    @staticmethod
+    def _obj_kind(obj) -> str:
+        """The toolbar-combo key describing an object's current type."""
+        if isinstance(obj, SlidePicture):
+            return "image"
+        if isinstance(obj, SlideTable):
+            return "table"
+        if isinstance(obj, SlideText):
+            block = getattr(obj, "block", "")
+            if block in ("block", "alertblock", "exampleblock"):
+                return block
+            if "$" in (obj.text or ""):
+                return "equation"
+            return "text"
+        return "text"
+
+    def _on_type_combo(self):
+        """Toolbar combo → change the selected box's type in place."""
         if self._loading:
             return
         item = self._selected_item()
         if item is None:
             return
-        locked, block = self.placement_combo.currentData()
-        item.obj.locked = locked
-        item._apply_lock()
-        if isinstance(item.obj, SlideText):
-            newly_block = block and not item.obj.block
-            item.obj.block = block
-            if block and not item.obj.block_title:
-                item.obj.block_title = "Block"
+        kind = self.type_combo.currentData()
+        obj = item.obj
+        if self._obj_kind(obj) == kind:
+            return
+
+        # Text-family changes are lossless: keep the same SlideText, just
+        # retag its block / equation styling.
+        if kind in ("text", "block", "alertblock", "exampleblock", "equation") \
+                and isinstance(obj, SlideText):
+            obj.block = "" if kind in ("text", "equation") else kind
+            if obj.block and not obj.block_title:
+                obj.block_title = "Block"
+            if kind == "equation" and "$" not in (obj.text or ""):
+                t = (obj.text or "").strip()
+                obj.text = f"${t}$" if t else "$  $"
+                obj.align = "center"
             item.update()
             self._touch_current()
-            if newly_block:
+            if obj.block:
                 self.statusBar().showMessage(
-                    "Block added — right-click ▸ Block title… to rename it",
-                    6000)
+                    "Block — right-click ▸ Block title… to rename it", 5000)
             return
-        item.update()
+
+        # Cross-type conversion: build a new object of the target kind,
+        # preserving the box's position, size and lock state.
+        new_obj = self._convert_object(kind, obj)
+        if new_obj is None:
+            return
+        idx = self.slide.objects.index(obj)
+        self.slide.objects[idx] = new_obj
+        self._reload_scene()
+        self._select_object(new_obj)
         self._touch_current()
+
+    def _convert_object(self, kind, src):
+        """Return a new object of *kind* carrying *src*'s geometry."""
+        geo = dict(x=src.x, y=src.y, w=src.w, h=src.h,
+                   locked=getattr(src, "locked", True))
+        if kind in ("text", "block", "alertblock", "exampleblock", "equation"):
+            text = getattr(src, "text", "") or ""
+            block = "" if kind in ("text", "equation") else kind
+            o = SlideText(text=text or "Text", block=block, **geo)
+            if block:
+                o.block_title = "Block"
+            if kind == "equation":
+                t = text.strip()
+                o.text = (f"${t}$" if t and "$" not in t else (t or "$  $"))
+                o.align = "center"
+            return o
+        if kind == "image":
+            path = getattr(src, "path", "") or ""
+            if not path:
+                path, _ = QFileDialog.getOpenFileName(
+                    self, "Choose image", "",
+                    "Images (*.png *.jpg *.jpeg *.pdf *.gif *.bmp)")
+            return SlidePicture(path=path or "", keep_aspect=True, **geo)
+        if kind == "table":
+            return SlideTable(**geo)
+        return None
 
     def _open_theme_gallery(self):
         from .theme_gallery import ThemeGallery

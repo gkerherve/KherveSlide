@@ -497,6 +497,22 @@ def test_block_text_wraps_in_beamer_block():
     assert "\\end{alertblock}" in tex
 
 
+def test_beamer_placed_block_honours_width():
+    # A narrow beamer-placed block is wrapped in a sized minipage so it is
+    # exactly as wide as its box; a full-width one is not.
+    narrow = Deck(slides=[Slide(objects=[
+        SlideText(text="body", block="block", w=0.5, locked=True)])],
+        nav_symbols=False)
+    tex = serialize_deck(narrow)
+    assert "\\begin{minipage}{0.5\\textwidth}" in tex
+    assert "\\begin{block}" in tex
+
+    full = Deck(slides=[Slide(objects=[
+        SlideText(text="body", block="block", w=0.98, locked=True)])],
+        nav_symbols=False)
+    assert "minipage" not in serialize_deck(full)
+
+
 def test_no_block_no_block_env():
     deck = Deck(slides=[Slide(objects=[SlideText(text="plain", locked=True)])],
                 nav_symbols=False)
@@ -921,24 +937,41 @@ def test_new_object_stacks_below_previous(monkeypatch):
     assert second.w == first.w
 
 
-def test_placement_combo_sets_box_locked(monkeypatch):
+def _combo_index_for(combo, kind):
+    for i in range(combo.count()):
+        if combo.itemData(i) == kind:
+            return i
+    raise AssertionError(f"no combo entry for {kind}")
+
+
+def test_type_combo_changes_box_type(monkeypatch):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
     from kherveslide import window
+    from kherveslide.model import SlidePicture, SlideTable
     monkeypatch.setattr(window, "tectonic_available", lambda: False)
     w = window.SlideWindow()
-    w.slide.objects.append(SlideText(text="x", locked=True))
+    w.slide.objects.clear()
+    w.slide.objects.append(SlideText(text="x", x=0.2, y=0.3, w=0.6, h=0.2,
+                                     locked=True))
     w._reload_scene()
     item = w._items[-1]
     item.setSelected(True)
-    assert w.placement_combo.isEnabled()
-    # data is (locked, block): index 1 = Beamer-placed, 0 = Free, 2 = Block.
-    assert w.placement_combo.currentData() == (True, "")     # Beamer-placed
-    w.placement_combo.setCurrentIndex(0)                     # Free
-    assert item.obj.locked is False
-    w.placement_combo.setCurrentIndex(2)                     # Block
-    assert item.obj.locked is True and item.obj.block == "block"
-    assert not hasattr(w, "theme_combo")                     # moved to the menu
+    assert w.type_combo.isEnabled()
+    assert w.type_combo.currentData() == "text"
+    # Text → Block keeps the same object, just tags it.
+    w.type_combo.setCurrentIndex(_combo_index_for(w.type_combo, "block"))
+    assert w.slide.objects[0].block == "block"
+    assert isinstance(w.slide.objects[0], SlideText)
+    # Block → Table converts the box but keeps its geometry.
+    w._items[-1].setSelected(True)
+    w.type_combo.setCurrentIndex(_combo_index_for(w.type_combo, "table"))
+    new = w.slide.objects[0]
+    assert isinstance(new, SlideTable)
+    assert (new.x, new.y, new.w, new.h, new.locked) == (0.2, 0.3, 0.6, 0.2, True)
+    # The old Free/Beamer-placed combo is gone.
+    assert not hasattr(w, "placement_combo")
+    assert not hasattr(w, "theme_combo")
 
 
 def test_nav_tickbox_and_menu_stay_in_sync(monkeypatch):
