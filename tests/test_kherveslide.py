@@ -567,6 +567,19 @@ def test_slide_layout_unknown_falls_back_to_blank():
     assert templates.instantiate_slide_layout("nope").objects == []
 
 
+def test_new_slide_layouts_present():
+    names = templates.slide_layout_names()
+    for n in ("Title only", "Three columns", "Comparison",
+              "Picture left + bullets", "Full picture", "Quote"):
+        assert n in names
+
+
+def test_comparison_layout_serializes_as_columns():
+    deck = Deck(slides=[templates.instantiate_slide_layout("Comparison")])
+    tex = serialize_deck(deck)
+    assert "\\begin{columns}" in tex
+
+
 # --- theme builder: decorative rules ---
 
 def test_theme_builder_title_rule_emits_template():

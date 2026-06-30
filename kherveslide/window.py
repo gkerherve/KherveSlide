@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit,
     QPushButton, QSpinBox, QSplitter, QTabWidget, QTextEdit, QToolBar,
-    QVBoxLayout, QWidget,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 from . import icons, spellcheck, templates, themes, version_string
@@ -335,7 +335,8 @@ class SlideWindow(QMainWindow):
         # Theme + decorations live on the toolbar (see _build_toolbar).
 
         m_slide = mb.addMenu("&Slide")
-        m_slide.addAction("Add slide", self._add_slide)
+        m_slide.addAction("Add blank slide", self._add_slide)
+        self._fill_new_slide_menu(m_slide.addMenu("Add slide with layout"))
         m_slide.addAction("Delete slide", self._del_slide)
         m_slide.addAction("Frame title…", self._set_frame_title)
         m_slide.addAction("Background colour…", self._pick_slide_bg)
@@ -482,8 +483,15 @@ class SlideWindow(QMainWindow):
             self._themed_icons.append((a, factory))
             return a
 
-        # Slides
-        vact(icons.slide_add, "Add slide", self._add_slide)
+        # Slides — the add button has a dropdown of layouts (click = blank).
+        add_btn = QToolButton()
+        add_btn.setIcon(icons.slide_add())
+        add_btn.setToolTip("Add slide (click for blank, ▾ to pick a layout)")
+        add_btn.setPopupMode(QToolButton.MenuButtonPopup)
+        add_btn.clicked.connect(self._add_slide)
+        add_btn.setMenu(self._fill_new_slide_menu(QMenu(add_btn)))
+        tb.addWidget(add_btn)
+        self._themed_icons.append((add_btn, icons.slide_add))
         vact(icons.slide_remove, "Remove active slide", self._del_slide)
         vact(icons.move_up, "Move slide up", lambda: self._move_slide(-1))
         vact(icons.move_down, "Move slide down", lambda: self._move_slide(1))
@@ -1048,9 +1056,21 @@ class SlideWindow(QMainWindow):
         self._reload_all()
 
     def _add_slide(self):
-        self.deck.slides.insert(self.current + 1, Slide())
-        self.current += 1
+        self._add_slide_with_layout("Blank")
+
+    def _add_slide_with_layout(self, name="Blank", row=None):
+        at = (self.current if row is None else row) + 1
+        self.deck.slides.insert(at, templates.instantiate_slide_layout(name))
+        self.current = at
         self._reload_all()
+
+    def _fill_new_slide_menu(self, menu, row=None):
+        """Populate *menu* with one entry per slide layout."""
+        for name in templates.slide_layout_names():
+            menu.addAction(
+                name, lambda _=False, n=name, r=row:
+                self._add_slide_with_layout(n, r))
+        return menu
 
     def _del_slide(self):
         if len(self.deck.slides) <= 1:
@@ -1075,9 +1095,8 @@ class SlideWindow(QMainWindow):
         for name in templates.slide_layout_names():
             lay.addAction(name, lambda n=name, r=row: self._apply_layout(r, n))
         menu.addSeparator()
+        self._fill_new_slide_menu(menu.addMenu("New slide after"), row)
         menu.addAction("Duplicate slide", lambda: self._duplicate_slide(row))
-        menu.addAction("New blank slide after",
-                       lambda: self._new_slide_after(row))
         menu.addAction("Delete slide", lambda: self._delete_slide_at(row))
         menu.exec(global_pos)
 

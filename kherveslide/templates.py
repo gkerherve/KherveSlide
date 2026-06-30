@@ -166,12 +166,75 @@ def _lay_section() -> Slide:
     ])
 
 
+def _lay_title_only() -> Slide:
+    return Slide(objects=[
+        _title("Heading", x=0.06, y=0.06, w=0.88, h=0.12, pt=32, align="left"),
+    ])
+
+
+def _lay_comparison() -> Slide:
+    return Slide(objects=[
+        _title("Comparison", x=0.06, y=0.06, w=0.88, h=0.12, pt=32,
+               align="left"),
+        SlideText(x=0.06, y=0.24, w=0.42, h=0.08, text="Option A",
+                  font_pt=22, bold=True),
+        SlideText(x=0.52, y=0.24, w=0.42, h=0.08, text="Option B",
+                  font_pt=22, bold=True),
+        _body("\\begin{itemize}\n  \\item Pros\n  \\item Cons\n\\end{itemize}",
+              x=0.06, y=0.34, w=0.42, h=0.5),
+        _body("\\begin{itemize}\n  \\item Pros\n  \\item Cons\n\\end{itemize}",
+              x=0.52, y=0.34, w=0.42, h=0.5),
+    ])
+
+
+def _lay_three_columns() -> Slide:
+    return Slide(objects=[
+        _title("Heading", x=0.06, y=0.06, w=0.88, h=0.12, pt=32, align="left"),
+        _body("Column one.", x=0.05, y=0.26, w=0.28, h=0.6),
+        _body("Column two.", x=0.36, y=0.26, w=0.28, h=0.6),
+        _body("Column three.", x=0.67, y=0.26, w=0.28, h=0.6),
+    ])
+
+
+def _lay_picture_left() -> Slide:
+    return Slide(objects=[
+        _title("Heading", x=0.06, y=0.06, w=0.88, h=0.12, pt=32, align="left"),
+        SlidePicture(x=0.06, y=0.26, w=0.42, h=0.6, path=""),
+        _body("\\begin{itemize}\n  \\item First point\n"
+              "  \\item Second point\n\\end{itemize}",
+              x=0.52, y=0.26, w=0.42, h=0.6),
+    ])
+
+
+def _lay_full_picture() -> Slide:
+    return Slide(objects=[
+        _title("Heading", x=0.06, y=0.04, w=0.88, h=0.1, pt=26, align="left"),
+        SlidePicture(x=0.08, y=0.2, w=0.84, h=0.72, path=""),
+    ])
+
+
+def _lay_quote() -> Slide:
+    return Slide(objects=[
+        SlideText(x=0.12, y=0.34, w=0.76, h=0.3,
+                  text="\\textit{``A memorable quote goes here.''}",
+                  font_pt=30, align="center"),
+        SlideText(x=0.12, y=0.66, w=0.76, h=0.08, text="— Attribution",
+                  font_pt=18, align="center", color="#666666"),
+    ])
+
+
 _SLIDE_LAYOUTS: dict[str, callable] = {
     "Blank": _lay_blank,
     "Title": _lay_title,
+    "Title only": _lay_title_only,
     "Title + content": _lay_title_content,
     "Two columns": _lay_two_columns,
+    "Three columns": _lay_three_columns,
+    "Comparison": _lay_comparison,
     "Picture + text": _lay_picture_text,
+    "Picture left + bullets": _lay_picture_left,
+    "Full picture": _lay_full_picture,
+    "Quote": _lay_quote,
     "Section divider": _lay_section,
 }
 
