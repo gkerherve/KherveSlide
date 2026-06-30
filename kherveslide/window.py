@@ -22,7 +22,8 @@ from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QTextListFormat
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFileDialog, QFormLayout, QGraphicsView, QHBoxLayout,
-    QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
+    QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
+    QPlainTextEdit,
     QPushButton, QSpinBox, QSplitter, QTabWidget, QTextEdit, QToolBar,
     QVBoxLayout, QWidget,
 )
@@ -410,9 +411,37 @@ class SlideWindow(QMainWindow):
         # delegating to the scene and the page never gets drawn.
         self.view.setFrameShape(QGraphicsView.NoFrame)
 
+        # Inline header above the slide: frame title (this slide) + the
+        # presentation title and author — editable without the menus.
+        header = QWidget()
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(8, 4, 8, 4)
+        self.f_frame_title = QLineEdit()
+        self.f_frame_title.setPlaceholderText("Frame title (this slide)")
+        self.f_frame_title.editingFinished.connect(self._apply_frame_title)
+        self.f_deck_title = QLineEdit()
+        self.f_deck_title.setPlaceholderText("Presentation title")
+        self.f_deck_title.editingFinished.connect(self._apply_deck_title)
+        self.f_deck_author = QLineEdit()
+        self.f_deck_author.setPlaceholderText("Author")
+        self.f_deck_author.editingFinished.connect(self._apply_deck_author)
+        hl.addWidget(QLabel("Frame:"))
+        hl.addWidget(self.f_frame_title, 3)
+        hl.addWidget(QLabel("Title:"))
+        hl.addWidget(self.f_deck_title, 2)
+        hl.addWidget(QLabel("Author:"))
+        hl.addWidget(self.f_deck_author, 2)
+
+        canvas_box = QWidget()
+        cv = QVBoxLayout(canvas_box)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(0)
+        cv.addWidget(header)
+        cv.addWidget(self.view, 1)
+
         wysiwyg = QSplitter(Qt.Horizontal)
         wysiwyg.addWidget(nav_panel)
-        wysiwyg.addWidget(self.view)
+        wysiwyg.addWidget(canvas_box)
         wysiwyg.setStretchFactor(1, 1)
         wysiwyg.setSizes([220, 760])
 
@@ -491,8 +520,34 @@ class SlideWindow(QMainWindow):
         if self.view.fit_mode:
             self.view.fit_to_window()
         self._enable_format(False)
+        self._sync_top_fields()
         self._loading = False
         self._refresh_latex()
+
+    def _sync_top_fields(self):
+        if not hasattr(self, "f_frame_title"):
+            return
+        for widget, val in ((self.f_frame_title, self.slide.title),
+                            (self.f_deck_title, self.deck.title),
+                            (self.f_deck_author, self.deck.author)):
+            widget.blockSignals(True)
+            widget.setText(val)
+            widget.blockSignals(False)
+
+    def _apply_frame_title(self):
+        if not self._loading and self.slide.title != self.f_frame_title.text():
+            self.slide.title = self.f_frame_title.text()
+            self._touch_current()
+
+    def _apply_deck_title(self):
+        if not self._loading and self.deck.title != self.f_deck_title.text():
+            self.deck.title = self.f_deck_title.text()
+            self._refresh_latex()
+
+    def _apply_deck_author(self):
+        if not self._loading and self.deck.author != self.f_deck_author.text():
+            self.deck.author = self.f_deck_author.text()
+            self._refresh_latex()
 
     def _refresh_latex(self):
         self.latex_view.set_source(serialize_deck(self.deck))
@@ -1218,16 +1273,16 @@ class SlideWindow(QMainWindow):
 
     # ---------------- deck / slide settings (menus) ----------------
     def _set_deck_title(self):
-        t, ok = QInputDialog.getText(self, "Deck title", "Title:",
+        t, ok = QInputDialog.getText(self, "Presentation title", "Title:",
                                      text=self.deck.title)
         if ok:
-            self.deck.title = t; self._refresh_latex()
+            self.deck.title = t; self._sync_top_fields(); self._refresh_latex()
 
     def _set_deck_author(self):
-        t, ok = QInputDialog.getText(self, "Deck author", "Author:",
+        t, ok = QInputDialog.getText(self, "Author", "Author:",
                                      text=self.deck.author)
         if ok:
-            self.deck.author = t; self._refresh_latex()
+            self.deck.author = t; self._sync_top_fields(); self._refresh_latex()
 
     def _on_theme_combo(self, text):
         if self._loading or not text:
@@ -1337,6 +1392,7 @@ class SlideWindow(QMainWindow):
             text=self.slide.title)
         if ok:
             self.slide.title = text
+            self._sync_top_fields()
             self._touch_current()
 
     def _pick_slide_bg(self):
