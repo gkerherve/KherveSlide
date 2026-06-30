@@ -641,6 +641,9 @@ class SlideWindow(QMainWindow):
         header = QWidget()
         hl = QHBoxLayout(header)
         hl.setContentsMargins(8, 4, 8, 4)
+        self.f_frame_title = QLineEdit()
+        self.f_frame_title.setPlaceholderText("Frame title (this slide)")
+        self.f_frame_title.editingFinished.connect(self._apply_frame_title)
         self.f_header = QLineEdit()
         self.f_header.setPlaceholderText("Header")
         self.f_header.editingFinished.connect(self._apply_headfoot)
@@ -658,8 +661,10 @@ class SlideWindow(QMainWindow):
                                 "at the bottom-right of every slide")
         self.chk_nav.setChecked(self.deck.nav_symbols)
         self.chk_nav.toggled.connect(self._set_nav_symbols)
+        hl.addWidget(QLabel("Frame:"))
+        hl.addWidget(self.f_frame_title, 2)
         hl.addWidget(QLabel("Header:"))
-        hl.addWidget(self.f_header, 3)
+        hl.addWidget(self.f_header, 2)
         hl.addWidget(QLabel("Foot:"))
         hl.addWidget(self.f_foot_l, 2)
         hl.addWidget(self.f_foot_c, 2)
@@ -870,13 +875,19 @@ class SlideWindow(QMainWindow):
     def _sync_top_fields(self):
         if not hasattr(self, "f_header"):
             return
-        for widget, val in ((self.f_header, self.deck.header),
+        for widget, val in ((self.f_frame_title, self.slide.title),
+                            (self.f_header, self.deck.header),
                             (self.f_foot_l, self.deck.foot_left),
                             (self.f_foot_c, self.deck.foot_center),
                             (self.f_foot_r, self.deck.foot_right)):
             widget.blockSignals(True)
             widget.setText(val)
             widget.blockSignals(False)
+
+    def _apply_frame_title(self):
+        if not self._loading and self.slide.title != self.f_frame_title.text():
+            self.slide.title = self.f_frame_title.text()
+            self._touch_current()
 
     def _apply_headfoot(self):
         if self._loading:
