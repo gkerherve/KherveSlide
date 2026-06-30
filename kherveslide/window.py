@@ -21,7 +21,9 @@ from PySide6.QtCore import (
     QByteArray, QMimeData, QPointF, QSettings, QSize, QThread, QTimer, Qt,
     Signal,
 )
-from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QTextListFormat
+from PySide6.QtGui import (
+    QAction, QActionGroup, QColor, QFont, QTextCharFormat, QTextListFormat,
+)
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFileDialog, QFormLayout, QGraphicsView, QHBoxLayout,
@@ -108,8 +110,9 @@ class _DownloadWorker(QThread):
 class _InlineEditor(QTextEdit):
     """A rich text-box editor that floats over the object being edited:
     bullet/numbered lists show as real lists (not \\item source), and it
-    commits when it loses focus (or Escape is pressed). Misspelled words
-    get a red wavy underline with right-click corrections."""
+    commits when it loses focus (or Escape is pressed). Ctrl+B / Ctrl+I
+    bold/italicise just the selection, so one box can mix styles.
+    Misspelled words get a red wavy underline with right-click corrections."""
 
     editingFinished = Signal()
 
@@ -130,7 +133,33 @@ class _InlineEditor(QTextEdit):
         if event.key() == Qt.Key_Escape:
             self.clearFocus()
             return
+        if event.modifiers() & Qt.ControlModifier:
+            if event.key() == Qt.Key_B:
+                self.toggle_bold()
+                return
+            if event.key() == Qt.Key_I:
+                self.toggle_italic()
+                return
         super().keyPressEvent(event)
+
+    def toggle_bold(self):
+        fmt = QTextCharFormat()
+        on = self.fontWeight() > QFont.Normal
+        fmt.setFontWeight(QFont.Normal if on else QFont.Bold)
+        self._merge_format(fmt)
+
+    def toggle_italic(self):
+        fmt = QTextCharFormat()
+        fmt.setFontItalic(not self.fontItalic())
+        self._merge_format(fmt)
+
+    def _merge_format(self, fmt):
+        # Apply to the selection if there is one, and to whatever is typed
+        # next (so Ctrl+B with no selection starts a bold run).
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            cursor.mergeCharFormat(fmt)
+        self.mergeCurrentCharFormat(fmt)
 
     def contextMenuEvent(self, event):
         menu = self.createStandardContextMenu()
@@ -537,7 +566,8 @@ class SlideWindow(QMainWindow):
         main.setSizes([800, 560])
         self.setCentralWidget(main)
         self.statusBar().showMessage(
-            "Double-click an object to edit it in place")
+            "Double-click to edit • while editing, Ctrl+B / Ctrl+I "
+            "bold/italicise the selection")
 
     # ---------------- reload ----------------
     @property

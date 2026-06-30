@@ -575,6 +575,25 @@ def test_math_only_detects_pure_equations():
     assert _math_only("") is None
 
 
+def test_inline_editor_bolds_only_the_selection():
+    # One text box can mix styles: bolding a selection wraps just that run.
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QTextCursor
+    from kherveslide.window import _InlineEditor
+    from kherveslide.canvas import document_to_latex
+    ed = _InlineEditor()
+    ed.setPlainText("alpha beta")
+    cur = ed.textCursor()
+    cur.setPosition(0)
+    cur.setPosition(5, QTextCursor.KeepAnchor)      # select "alpha"
+    ed.setTextCursor(cur)
+    ed.toggle_bold()
+    out = document_to_latex(ed.document())
+    assert "\\textbf{alpha}" in out
+    assert "beta" in out and "\\textbf{beta}" not in out
+
+
 def test_rich_edit_round_trip_keeps_lists():
     # Editing renders bullets (not \item); committing turns them back into
     # itemize. Needs a Qt app for QTextDocument.
