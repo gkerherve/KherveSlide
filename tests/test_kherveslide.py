@@ -765,6 +765,36 @@ def test_inline_editor_claims_editing_shortcuts():
     assert Qt.Key_N not in _InlineEditor._GRAB_KEYS
 
 
+def test_find_in_slides_navigates(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    from kherveslide.model import Slide
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.deck.slides = [Slide(objects=[SlideText(text="alpha needle")]),
+                     Slide(objects=[SlideText(text="needle two")])]
+    w.current = 0
+    w._reload_all()
+    w._find_in_slides("needle")
+    assert w.current == 0 and any(i.isSelected() for i in w._items)
+    w._find_in_slides("needle")          # next match
+    assert w.current == 1
+    assert w._find_count.text() == "2 / 2"
+    w._find_in_slides("zzz")
+    assert w._find_count.text() == "0 / 0"
+
+
+def test_latex_view_find():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide.latex_view import LatexView
+    v = LatexView()
+    v.set_source("first line\nsecond TARGET line")
+    assert v.find("TARGET") is True
+    assert v.find("absent-word") is False
+
+
 def test_placement_combo_sets_box_locked(monkeypatch):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])

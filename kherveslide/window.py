@@ -298,6 +298,7 @@ class SlideWindow(QMainWindow):
         m_edit.addAction("Paste", self._paste).setShortcut("Ctrl+V")
         m_edit.addAction("Duplicate", self._duplicate_selected).setShortcut("Ctrl+D")
         m_edit.addSeparator()
+        m_edit.addAction("Find…", self._show_find).setShortcut("Ctrl+F")
         m_edit.addAction("Check spelling…", self._check_spelling).setShortcut("F7")
         m_edit.addAction("Page setup…", self._page_setup)
 
@@ -678,10 +679,115 @@ class SlideWindow(QMainWindow):
         main.addWidget(self.right_tabs)
         main.setStretchFactor(0, 1); main.setStretchFactor(1, 1)
         main.setSizes([800, 560])
-        self.setCentralWidget(main)
+
+        # A find bar shared by both left tabs (LaTeX source / WYSIWYG text),
+        # hidden until Ctrl+F.
+        container = QWidget()
+        cl = QVBoxLayout(container)
+        cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(0)
+        cl.addWidget(main, 1)
+        cl.addWidget(self._build_find_bar())
+        self.setCentralWidget(container)
         self.statusBar().showMessage(
             "Double-click to edit • while editing, Ctrl+B / Ctrl+I "
             "bold/italicise the selection")
+
+    # ---------------- find ----------------
+    def _build_find_bar(self) -> QWidget:
+        bar = QWidget()
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(6, 2, 6, 2)
+        self._find_field = QLineEdit()
+        self._find_field.setPlaceholderText("Find in slides / LaTeX…")
+        self._find_field.returnPressed.connect(lambda: self._find_next(False))
+        self._find_field.textChanged.connect(self._on_find_text)
+        h.addWidget(self._find_field, 1)
+        self._find_count = QLabel("")
+        h.addWidget(self._find_count)
+        b_prev = QPushButton("▲"); b_prev.setFixedWidth(28)
+        b_prev.setToolTip("Previous match")
+        b_prev.clicked.connect(lambda: self._find_next(True))
+        h.addWidget(b_prev)
+        b_next = QPushButton("▼"); b_next.setFixedWidth(28)
+        b_next.setToolTip("Next match")
+        b_next.clicked.connect(lambda: self._find_next(False))
+        h.addWidget(b_next)
+        b_close = QPushButton("✕"); b_close.setFixedWidth(28)
+        b_close.clicked.connect(self._close_find)
+        h.addWidget(b_close)
+        self._find_bar = bar
+        self._wf_query = None
+        bar.hide()
+        return bar
+
+    def _show_find(self):
+        self._find_bar.show()
+        self._find_field.setFocus()
+        self._find_field.selectAll()
+
+    def _close_find(self):
+        self._find_bar.hide()
+        self._find_count.setText("")
+        # Return focus to the active editing surface.
+        if self.left_tabs.currentWidget() is self.latex_view:
+            self.latex_view._edit.setFocus()
+        else:
+            self.view.setFocus()
+
+    def _on_find_text(self, _text):
+        # A new query invalidates the WYSIWYG match cache.
+        self._wf_query = None
+        self._find_count.setText("")
+
+    def _find_next(self, backwards=False):
+        text = self._find_field.text()
+        if not text:
+            return
+        if self.left_tabs.currentWidget() is self.latex_view:
+            ok = self.latex_view.find(text, backwards)
+            self._find_count.setText("" if ok else "Not found")
+        else:
+            self.left_tabs.setCurrentIndex(0)   # ensure WYSIWYG visible
+            self._find_in_slides(text, backwards)
+
+    @staticmethod
+    def _obj_haystack(obj) -> str:
+        if isinstance(obj, SlideText):
+            return obj.text or ""
+        if isinstance(obj, SlideTable):
+            return " ".join(" ".join(r) for r in (obj.rows or []))
+        return ""
+
+    def _find_in_slides(self, text, backwards=False):
+        q = text.lower()
+        if q != self._wf_query:
+            self._wf_query = q
+            self._wf_matches = [
+                (si, obj) for si, slide in enumerate(self.deck.slides)
+                for obj in slide.objects
+                if q in self._obj_haystack(obj).lower()]
+            self._wf_idx = -1
+        if not self._wf_matches:
+            self._find_count.setText("0 / 0")
+            return
+        n = len(self._wf_matches)
+        self._wf_idx = (self._wf_idx + (-1 if backwards else 1)) % n
+        si, obj = self._wf_matches[self._wf_idx]
+        if si != self.current:
+            self.nav.setCurrentRow(si)          # selects slide → reloads scene
+        self._select_object(obj)
+        self._find_count.setText(f"{self._wf_idx + 1} / {n}")
+
+    def _select_object(self, obj):
+        self.scene.clearSelection()
+        for it in self._items:
+            try:
+                if it.obj is obj:
+                    it.setSelected(True)
+                    self.view.ensureVisible(it)
+                    break
+            except RuntimeError:
+                continue
 
     # ---------------- reload ----------------
     @property

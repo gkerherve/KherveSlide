@@ -483,6 +483,21 @@ class LatexView(QWidget):
     def source(self) -> str:
         return self._edit.toPlainText()
 
+    def find(self, text: str, backwards: bool = False) -> bool:
+        """Find *text* from the cursor, wrapping around. Returns True if a
+        match was selected."""
+        if not text:
+            return False
+        flags = (QTextDocument.FindBackward if backwards
+                 else QTextDocument.FindFlag(0))
+        if self._edit.find(text, flags):
+            return True
+        # Wrap around from the opposite end.
+        cur = self._edit.textCursor()
+        cur.movePosition(QTextCursor.End if backwards else QTextCursor.Start)
+        self._edit.setTextCursor(cur)
+        return self._edit.find(text, flags)
+
     def cursor_snippet(self, max_chars: int = 40) -> str:
         """Return a short plain-text snippet around the cursor for
         cross-tab navigation. Strips LaTeX commands to get usable text."""
