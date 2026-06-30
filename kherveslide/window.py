@@ -346,11 +346,9 @@ class SlideWindow(QMainWindow):
         self.act_deco.toggled.connect(self._toggle_decorations)
         tb.addAction(self.act_deco)
 
-        # Row 2 — text formatting (its own row so it never crowds row 1).
-        self.addToolBarBreak()
-        ftb = QToolBar("Format"); ftb.setMovable(False)
-        ftb.setIconSize(QSize(24, 24))
-        self.addToolBar(ftb)
+        # Formatting controls continue on the same single horizontal bar.
+        tb.addSeparator()
+        ftb = tb
         self._fmt_tb = ftb
 
         ftb.addWidget(QLabel(" Font "))
