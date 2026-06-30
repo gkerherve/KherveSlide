@@ -93,8 +93,15 @@ def _styled_text(obj: SlideText) -> str:
     return f"{align_cmd}{sized} {body}"
 
 
+_BLOCK_ENVS = {"block", "alertblock", "exampleblock"}
+
+
 def _text_inner(obj: SlideText) -> str:
     content = _styled_text(obj)
+    block = getattr(obj, "block", "")
+    if block in _BLOCK_ENVS:
+        title = getattr(obj, "block_title", "") or ""
+        content = f"\\begin{{{block}}}{{{title}}}{content}\\end{{{block}}}"
     fill = _hex_to_rgb_arg(obj.fill)
     if fill:
         return (f"\\colorbox[HTML]{{{fill}}}{{\\begin{{minipage}}{{\\linewidth}}"
@@ -465,6 +472,38 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
     return "\n".join(parts)
 
 
+def _header_footer_lines(deck) -> list[str]:
+    """Custom headline / footline templates from the deck's header and
+    footer slots. They only show when frames aren't [plain] (decorations
+    on); plain frames suppress head/foot lines."""
+    lines: list[str] = []
+    header = getattr(deck, "header", "")
+    fl = getattr(deck, "foot_left", "")
+    fc = getattr(deck, "foot_center", "")
+    fr = getattr(deck, "foot_right", "")
+    if header:
+        lines += [
+            "\\setbeamertemplate{headline}{%",
+            "\\begin{beamercolorbox}[wd=\\paperwidth,ht=2.6ex,dp=1.2ex,"
+            "leftskip=1.5ex,rightskip=1.5ex]{section in head/foot}%",
+            f"{header}\\hfill\\end{{beamercolorbox}}}}",
+        ]
+    if fl or fc or fr:
+        lines += [
+            "\\setbeamertemplate{footline}{%",
+            "\\leavevmode\\hbox{%",
+            "\\begin{beamercolorbox}[wd=.333\\paperwidth,ht=2.5ex,dp=1.2ex,"
+            f"leftskip=1.5ex]{{author in head/foot}}{fl}\\end{{beamercolorbox}}%",
+            "\\begin{beamercolorbox}[wd=.334\\paperwidth,ht=2.5ex,dp=1.2ex,"
+            f"center]{{title in head/foot}}{fc}\\end{{beamercolorbox}}%",
+            "\\begin{beamercolorbox}[wd=.333\\paperwidth,ht=2.5ex,dp=1.2ex,"
+            f"rightskip=1.5ex]{{date in head/foot}}\\hfill {fr}"
+            "\\end{beamercolorbox}}%",
+            "\\vskip0pt}",
+        ]
+    return lines
+
+
 def serialize_deck(deck: Deck) -> str:
     aspect = _ASPECT_OPTS.get(deck.aspect, "aspectratio=169")
     class_opts = f"[{aspect}]" if aspect else ""
@@ -520,6 +559,7 @@ def serialize_deck(deck: Deck) -> str:
     # symbols at the bottom-right of each frame ourselves (works on plain
     # frames too, where the theme footline — and its symbols — are gone).
     lines.append("\\setbeamertemplate{navigation symbols}{}")
+    lines += _header_footer_lines(deck)
     if deck.title:
         lines.append(f"\\title{{{deck.title}}}")
     if deck.author:

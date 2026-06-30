@@ -459,6 +459,37 @@ def test_serialize_slide_background():
     assert "\\colorbox[HTML]{123456}" in tex
 
 
+def test_block_text_wraps_in_beamer_block():
+    deck = Deck(slides=[Slide(objects=[
+        SlideText(text="body", block="alertblock", block_title="Warning",
+                  locked=True)])], nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "\\begin{alertblock}{Warning}" in tex
+    assert "\\end{alertblock}" in tex
+
+
+def test_no_block_no_block_env():
+    deck = Deck(slides=[Slide(objects=[SlideText(text="plain", locked=True)])],
+                nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "block}" not in tex
+
+
+def test_header_footer_templates():
+    deck = Deck(slides=[Slide()], header="My header",
+                foot_left="L", foot_center="C", foot_right="R")
+    tex = serialize_deck(deck)
+    assert "\\setbeamertemplate{headline}" in tex
+    assert "\\setbeamertemplate{footline}" in tex
+    assert "My header" in tex and "L" in tex and "C" in tex and "R" in tex
+
+
+def test_no_header_footer_by_default():
+    tex = serialize_deck(Deck(slides=[Slide()]))
+    assert "\\setbeamertemplate{headline}" not in tex
+    assert "\\setbeamertemplate{footline}" not in tex
+
+
 def test_text_line_break_becomes_latex_break():
     # A newline the user typed between two plain lines must render as a
     # LaTeX line break, not collapse to a space.
@@ -806,10 +837,13 @@ def test_placement_combo_sets_box_locked(monkeypatch):
     item = w._items[-1]
     item.setSelected(True)
     assert w.placement_combo.isEnabled()
-    assert w.placement_combo.currentIndex() == 0          # Beamer-placed
-    w.placement_combo.setCurrentIndex(1)                  # Free
+    # data is (locked, block): index 1 = Beamer-placed, 0 = Free, 2 = Block.
+    assert w.placement_combo.currentData() == (True, "")     # Beamer-placed
+    w.placement_combo.setCurrentIndex(0)                     # Free
     assert item.obj.locked is False
-    assert not hasattr(w, "theme_combo")                  # moved to the menu
+    w.placement_combo.setCurrentIndex(2)                     # Block
+    assert item.obj.locked is True and item.obj.block == "block"
+    assert not hasattr(w, "theme_combo")                     # moved to the menu
 
 
 def test_nav_tickbox_and_menu_stay_in_sync(monkeypatch):

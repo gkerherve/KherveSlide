@@ -319,7 +319,18 @@ class SlideWindow(QMainWindow):
             self.act_spell.setToolTip(
                 "Install pyspellchecker to enable spell checking.")
         _InlineEditor.spellcheck_enabled = spell_on
+        spellcheck.set_enabled(spell_on)
         self.act_spell.toggled.connect(self._toggle_spellcheck)
+
+        m_lang = m_view.addMenu("Spell-check language")
+        self._lang_group = QActionGroup(self)
+        cur_lang = spellcheck.language()
+        for label, code in spellcheck.LANGUAGES.items():
+            a = m_lang.addAction(label)
+            a.setCheckable(True)
+            a.setChecked(code == cur_lang)
+            a.triggered.connect(lambda _=False, c=code: self._set_spell_language(c))
+            self._lang_group.addAction(a)
 
         m_appear = m_view.addMenu("Appearance")
         self._theme_group = QActionGroup(self)
@@ -451,11 +462,18 @@ class SlideWindow(QMainWindow):
         # menu now). Sets the selected box's locked property.
         tb.addWidget(QLabel(" Box "))
         self.placement_combo = QComboBox()
-        self.placement_combo.addItem("Beamer-placed", True)     # locked
-        self.placement_combo.addItem("Free (you place it)", False)
+        # data = (locked, block). Free is unlocked; the rest are beamer-placed,
+        # the block ones wrap the text in a coloured beamer block.
+        for label, data in (("Free (you place it)", (False, "")),
+                            ("Beamer-placed", (True, "")),
+                            ("Block", (True, "block")),
+                            ("Alert block", (True, "alertblock")),
+                            ("Example block", (True, "exampleblock"))):
+            self.placement_combo.addItem(label, data)
         self.placement_combo.setToolTip(
-            "How beamer treats the selected box: 'Beamer-placed' flows it in "
-            "the standard layout; 'Free' sits exactly where you drag it.")
+            "What this box is: Free (you place it), Beamer-placed (standard "
+            "flow), or a coloured beamer block. Set a block's title from the "
+            "right-click menu.")
         self.placement_combo.currentIndexChanged.connect(
             self._on_placement_combo)
         self.placement_combo.setEnabled(False)   # until a box is selected
@@ -615,31 +633,36 @@ class SlideWindow(QMainWindow):
         # delegating to the scene and the page never gets drawn.
         self.view.setFrameShape(QGraphicsView.NoFrame)
 
-        # Inline header above the slide: frame title (this slide) + the
-        # presentation title and author — editable without the menus.
+        # Inline header above the slide: the deck's header line and the
+        # three footer slots (shown when theme decorations are on). Frame
+        # title is in the Slide menu; presentation Title/Author in the
+        # Presentation menu.
         header = QWidget()
         hl = QHBoxLayout(header)
         hl.setContentsMargins(8, 4, 8, 4)
-        self.f_frame_title = QLineEdit()
-        self.f_frame_title.setPlaceholderText("Frame title (this slide)")
-        self.f_frame_title.editingFinished.connect(self._apply_frame_title)
-        self.f_deck_title = QLineEdit()
-        self.f_deck_title.setPlaceholderText("Presentation title")
-        self.f_deck_title.editingFinished.connect(self._apply_deck_title)
-        self.f_deck_author = QLineEdit()
-        self.f_deck_author.setPlaceholderText("Author")
-        self.f_deck_author.editingFinished.connect(self._apply_deck_author)
+        self.f_header = QLineEdit()
+        self.f_header.setPlaceholderText("Header")
+        self.f_header.editingFinished.connect(self._apply_headfoot)
+        self.f_foot_l = QLineEdit()
+        self.f_foot_l.setPlaceholderText("Left foot")
+        self.f_foot_l.editingFinished.connect(self._apply_headfoot)
+        self.f_foot_c = QLineEdit()
+        self.f_foot_c.setPlaceholderText("Centre foot")
+        self.f_foot_c.editingFinished.connect(self._apply_headfoot)
+        self.f_foot_r = QLineEdit()
+        self.f_foot_r.setPlaceholderText("Right foot")
+        self.f_foot_r.editingFinished.connect(self._apply_headfoot)
         self.chk_nav = QCheckBox("Nav ▾▴")
         self.chk_nav.setToolTip("Show beamer's prev/next navigation symbols "
                                 "at the bottom-right of every slide")
         self.chk_nav.setChecked(self.deck.nav_symbols)
         self.chk_nav.toggled.connect(self._set_nav_symbols)
-        hl.addWidget(QLabel("Frame:"))
-        hl.addWidget(self.f_frame_title, 3)
-        hl.addWidget(QLabel("Title:"))
-        hl.addWidget(self.f_deck_title, 2)
-        hl.addWidget(QLabel("Author:"))
-        hl.addWidget(self.f_deck_author, 2)
+        hl.addWidget(QLabel("Header:"))
+        hl.addWidget(self.f_header, 3)
+        hl.addWidget(QLabel("Foot:"))
+        hl.addWidget(self.f_foot_l, 2)
+        hl.addWidget(self.f_foot_c, 2)
+        hl.addWidget(self.f_foot_r, 2)
         hl.addWidget(self.chk_nav)
 
         canvas_box = QWidget()
@@ -842,29 +865,29 @@ class SlideWindow(QMainWindow):
         self._refresh_latex()
 
     def _sync_top_fields(self):
-        if not hasattr(self, "f_frame_title"):
+        if not hasattr(self, "f_header"):
             return
-        for widget, val in ((self.f_frame_title, self.slide.title),
-                            (self.f_deck_title, self.deck.title),
-                            (self.f_deck_author, self.deck.author)):
+        for widget, val in ((self.f_header, self.deck.header),
+                            (self.f_foot_l, self.deck.foot_left),
+                            (self.f_foot_c, self.deck.foot_center),
+                            (self.f_foot_r, self.deck.foot_right)):
             widget.blockSignals(True)
             widget.setText(val)
             widget.blockSignals(False)
 
-    def _apply_frame_title(self):
-        if not self._loading and self.slide.title != self.f_frame_title.text():
-            self.slide.title = self.f_frame_title.text()
-            self._touch_current()
-
-    def _apply_deck_title(self):
-        if not self._loading and self.deck.title != self.f_deck_title.text():
-            self.deck.title = self.f_deck_title.text()
-            self._refresh_latex()
-
-    def _apply_deck_author(self):
-        if not self._loading and self.deck.author != self.f_deck_author.text():
-            self.deck.author = self.f_deck_author.text()
-            self._refresh_latex()
+    def _apply_headfoot(self):
+        if self._loading:
+            return
+        changed = False
+        for widget, attr in ((self.f_header, "header"),
+                             (self.f_foot_l, "foot_left"),
+                             (self.f_foot_c, "foot_center"),
+                             (self.f_foot_r, "foot_right")):
+            if getattr(self.deck, attr) != widget.text():
+                setattr(self.deck, attr, widget.text())
+                changed = True
+        if changed:
+            self._recompile_now()
 
     def _refresh_latex(self):
         self.latex_view.set_source(serialize_deck(self.deck))
@@ -1552,6 +1575,8 @@ class SlideWindow(QMainWindow):
             lk.setToolTip("Locked: beamer lays the box out. "
                           "Unlocked: drag it anywhere on the slide.")
             lk.toggled.connect(self._set_selected_locked)
+            if isinstance(item.obj, SlideText) and getattr(item.obj, "block", ""):
+                menu.addAction("Block title…", self._set_block_title)
             menu.addSeparator()
             menu.addAction("Bring to front", lambda: self._zorder("front"))
             menu.addAction("Send to back", lambda: self._zorder("back"))
@@ -1575,6 +1600,17 @@ class SlideWindow(QMainWindow):
         paste = menu.addAction("Paste", lambda: self._paste(scene_pos))
         paste.setEnabled(self._can_paste())
         menu.exec(global_pos)
+
+    def _set_block_title(self):
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlideText):
+            return
+        text, ok = QInputDialog.getText(self, "Block title", "Block title:",
+                                        text=item.obj.block_title)
+        if ok:
+            item.obj.block_title = text
+            item.update()
+            self._touch_current()
 
     def _toggle_pic_lock(self, on):
         item = self._selected_item()
@@ -1605,10 +1641,15 @@ class SlideWindow(QMainWindow):
             self._enable_format(False)
             return
         obj = item.obj
-        # Reflect this box's beamer placement in the toolbar combo.
+        # Reflect this box's placement / block kind in the toolbar combo.
+        locked = getattr(obj, "locked", True)
+        block = getattr(obj, "block", "")
+        want = (locked, block if isinstance(obj, SlideText) else "")
         self._loading = True
-        self.placement_combo.setCurrentIndex(
-            0 if getattr(obj, "locked", True) else 1)
+        for i in range(self.placement_combo.count()):
+            if self.placement_combo.itemData(i) == want:
+                self.placement_combo.setCurrentIndex(i)
+                break
         self._loading = False
         is_text = isinstance(obj, SlideText)
         self._enable_format(True, is_text=is_text, is_pic=not is_text)
@@ -1712,18 +1753,21 @@ class SlideWindow(QMainWindow):
         self._recompile_now()
 
     def _on_placement_combo(self):
-        """Toolbar combo → set the selected box's beamer placement."""
+        """Toolbar combo → set the selected box's beamer placement / block."""
         if self._loading:
             return
         item = self._selected_item()
         if item is None:
             return
-        locked = bool(self.placement_combo.currentData())
-        if getattr(item.obj, "locked", True) != locked:
-            item.obj.locked = locked
-            item._apply_lock()
-            item.update()
-            self._touch_current()
+        locked, block = self.placement_combo.currentData()
+        item.obj.locked = locked
+        item._apply_lock()
+        if isinstance(item.obj, SlideText):
+            item.obj.block = block
+            if block and not item.obj.block_title:
+                item.obj.block_title = "Block"
+        item.update()
+        self._touch_current()
 
     def _open_theme_gallery(self):
         from .theme_gallery import ThemeGallery
@@ -1952,9 +1996,17 @@ class SlideWindow(QMainWindow):
         self._nav_panel.setVisible(show)
 
     def _toggle_spellcheck(self, on):
+        from . import spellcheck
         _InlineEditor.spellcheck_enabled = on
+        spellcheck.set_enabled(on)
         QSettings("kherveDOC", "KherveSlide").setValue(
             "spellcheck_enabled", on)
+        self.scene.update()           # repaint canvas underlines
+
+    def _set_spell_language(self, code):
+        from . import spellcheck
+        spellcheck.set_language(code)
+        self.scene.update()           # re-check with the new dictionary
 
     def _check_spelling(self):
         from . import spellcheck

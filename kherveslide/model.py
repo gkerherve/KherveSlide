@@ -45,6 +45,9 @@ class SlideText:
     # Locked: beamer places the box in the standard flow (you can't drag it).
     # Unlocked: free absolute positioning at (x, y) via textpos.
     locked: bool = True
+    # Optional beamer block wrapper: "" | block | alertblock | exampleblock.
+    block: str = ""
+    block_title: str = ""
     type: str = "SlideText"
 
 
@@ -189,6 +192,11 @@ class Deck:
     # Slide/page number shown at the bottom-right of every slide:
     # "none" | "number" (just the slide number) | "of_total" (n / N).
     page_number: str = "none"
+    # Custom header line and footer slots (shown when decorations are on).
+    header: str = ""
+    foot_left: str = ""
+    foot_center: str = ""
+    foot_right: str = ""
     # User-built theme overrides (see ThemeSpec). Applied when enabled.
     theme_spec: ThemeSpec = field(default_factory=ThemeSpec)
     type: str = "Deck"
@@ -218,6 +226,8 @@ def _build_object(d: dict) -> SlideObject:
             bold=bool(d.get("bold", False)),
             italic=bool(d.get("italic", False)),
             locked=bool(d.get("locked", True)),
+            block=str(d.get("block", "")),
+            block_title=str(d.get("block_title", "")),
         )
     if t == "SlidePicture":
         return SlidePicture(
@@ -325,6 +335,10 @@ def _build_deck(d: dict) -> Deck:
         gap=float(d.get("gap", 0.0)),
         nav_symbols=bool(d.get("nav_symbols", True)),
         page_number=str(d.get("page_number", "none")),
+        header=str(d.get("header", "")),
+        foot_left=str(d.get("foot_left", "")),
+        foot_center=str(d.get("foot_center", "")),
+        foot_right=str(d.get("foot_right", "")),
         theme_spec=_build_theme_spec(d.get("theme_spec", {})),
     )
 

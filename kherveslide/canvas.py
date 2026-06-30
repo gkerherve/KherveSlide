@@ -13,8 +13,8 @@ import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QPainter, QPen, QPixmap, QPolygonF, QTextDocument,
-    QTextListFormat, QTextOption,
+    QBrush, QColor, QFont, QPainter, QPen, QPixmap, QPolygonF, QTextCharFormat,
+    QTextCursor, QTextDocument, QTextListFormat, QTextOption,
 )
 from PySide6.QtWidgets import (
     QGraphicsItem, QGraphicsObject, QGraphicsScene, QGraphicsView,
@@ -490,6 +490,11 @@ class TextBoxItem(BoxItem):
                 self._paint_selection(painter)
                 return
 
+        # A beamer block: coloured title bar + tinted body, text sits below.
+        body_top = self._rect.y()
+        if getattr(obj, "block", ""):
+            body_top = self._paint_block(painter)
+
         font = QFont("Helvetica")
         font.setPixelSize(max(6, int(obj.font_pt * self._font_scale)))
         # Helvetica is ~10% wider per glyph than the PDF's Latin Modern, so
@@ -508,7 +513,10 @@ class TextBoxItem(BoxItem):
         doc.setDefaultTextOption(opt)
         colour = obj.color or "#000000"
         doc.setHtml(f'<div style="color:{colour}">{latex_to_html(obj.text)}</div>')
-        inner = self._rect.adjusted(6, 1, -6, -1)
+        self._underline_misspelled(doc)
+        inner = QRectF(self._rect.x() + 6, body_top + 2,
+                       self._rect.width() - 12,
+                       self._rect.bottom() - body_top - 2)
         doc.setTextWidth(inner.width())
 
         painter.save()
@@ -519,6 +527,47 @@ class TextBoxItem(BoxItem):
         doc.drawContents(painter)
         painter.restore()
         self._paint_selection(painter)
+
+    _BLOCK_COLORS = {"block": QColor("#3b5ba9"),
+                     "alertblock": QColor("#b03a3a"),
+                     "exampleblock": QColor("#2e7d4f")}
+
+    def _paint_block(self, painter) -> float:
+        """Draw the block's coloured title bar + tinted body; return the
+        y where the body text should start."""
+        obj = self.obj
+        c = self._BLOCK_COLORS.get(obj.block, self._BLOCK_COLORS["block"])
+        bh = max(16.0, obj.font_pt * self._font_scale * 0.85)
+        hdr = QRectF(self._rect.x(), self._rect.y(), self._rect.width(), bh)
+        body = QRectF(self._rect.x(), hdr.bottom(), self._rect.width(),
+                      max(0.0, self._rect.bottom() - hdr.bottom()))
+        painter.save()
+        painter.fillRect(body, QColor(c.red(), c.green(), c.blue(), 28))
+        painter.fillRect(hdr, c)
+        painter.setPen(QColor("#ffffff"))
+        f = QFont("Helvetica"); f.setPixelSize(max(8, int(bh * 0.6)))
+        f.setBold(True); painter.setFont(f)
+        painter.drawText(hdr.adjusted(6, 0, -6, 0),
+                         int(Qt.AlignVCenter | Qt.AlignLeft),
+                         obj.block_title or "")
+        painter.restore()
+        return hdr.bottom()
+
+    def _underline_misspelled(self, doc):
+        from . import spellcheck
+        if not (spellcheck.enabled() and spellcheck.available()):
+            return
+        spans = spellcheck.misspelled_spans(doc.toPlainText())
+        if not spans:
+            return
+        fmt = QTextCharFormat()
+        fmt.setUnderlineStyle(QTextCharFormat.SpellCheckUnderline)
+        fmt.setUnderlineColor(QColor(220, 40, 40))
+        cur = QTextCursor(doc)
+        for start, end in spans:
+            cur.setPosition(start)
+            cur.setPosition(end, QTextCursor.KeepAnchor)
+            cur.mergeCharFormat(fmt)
 
 
 class PictureBoxItem(BoxItem):
