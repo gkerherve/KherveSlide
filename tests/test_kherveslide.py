@@ -181,9 +181,11 @@ def test_page_number_round_trip():
 
 
 def test_nav_symbols_shown_by_default():
-    # beamer's PDF navigation symbols are the native way to page through.
+    # The prev/next symbols are overlaid at the bottom-right of each frame
+    # (works on plain frames too), with beamer's own placement cleared.
     tex = serialize_deck(_sample_deck())
-    assert "\\setbeamertemplate{navigation symbols}{}" not in tex
+    assert "\\insertslidenavigationsymbol" in tex
+    assert "\\setbeamertemplate{navigation symbols}{}" in tex
 
 
 def test_background_alpha_blends_over_white():
@@ -214,10 +216,11 @@ def test_unlocked_object_uses_textpos():
 
 
 def test_locked_object_flows_no_textpos():
+    # nav_symbols off: a locked-only slide should emit no textblock at all.
     deck = Deck(slides=[Slide(title="Heading", objects=[
         SlideText(text="Body", locked=True),
         SlideText(text="\\begin{itemize}\\item a\\end{itemize}",
-                  locked=True)])])
+                  locked=True)])], nav_symbols=False)
     tex = serialize_deck(deck)
     assert "\\frametitle{Heading}" in tex
     assert "\\begin{textblock}" not in tex
@@ -251,9 +254,10 @@ def test_object_defaults_locked():
 
 
 def test_mixed_lock_flows_and_overlays():
+    # nav_symbols off so the only textblock is the unlocked object's.
     deck = Deck(slides=[Slide(objects=[
         SlideText(text="Flowed", locked=True),
-        SlideText(text="Floated", locked=False)])])
+        SlideText(text="Floated", locked=False)])], nav_symbols=False)
     tex = serialize_deck(deck)
     assert "Flowed" in tex
     assert "\\begin{textblock}" in tex          # the unlocked one
@@ -395,6 +399,7 @@ def test_nav_symbols_suppressed_when_disabled():
     deck = _sample_deck()
     deck.nav_symbols = False
     tex = serialize_deck(deck)
+    assert "\\insertslidenavigationsymbol" not in tex
     assert "\\setbeamertemplate{navigation symbols}{}" in tex
     assert deck_from_json(deck_to_json(deck)) == deck
 

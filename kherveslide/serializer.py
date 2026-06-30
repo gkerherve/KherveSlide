@@ -373,9 +373,31 @@ def _page_number_block(mode: str, gap: float) -> str:
             f"\\end{{textblock}}")
 
 
+# beamer's clickable prev/next (and section/doc) navigation glyphs.
+_NAV_SYMBOLS = (
+    "\\insertslidenavigationsymbol\\insertframenavigationsymbol"
+    "\\insertsubsectionnavigationsymbol\\insertsectionnavigationsymbol"
+    "\\insertdocnavigationsymbol\\insertbackfindforwardnavigationsymbol")
+
+
+def _nav_symbols_block(gap: float) -> str:
+    """Overlay beamer's navigation symbols at the bottom-right corner of the
+    frame. We place them ourselves (instead of relying on the theme footline)
+    so they appear even on the plain frames free positioning uses."""
+    span = 1 / (1 - 2 * gap) if gap < 0.5 else 1.0
+    off = -gap / (1 - 2 * gap) if gap < 0.5 else 0.0
+    x = off + 0.50 * span
+    y = off + 0.93 * span
+    w = 0.48 * span
+    return (f"\\begin{{textblock}}{{{_fmt(w)}}}({_fmt(x)},{_fmt(y)})\n"
+            f"\\raggedleft{{{_NAV_SYMBOLS}}}\n"
+            f"\\end{{textblock}}")
+
+
 def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
                      counter: list | None = None,
-                     page_number: str = "none") -> str:
+                     page_number: str = "none",
+                     nav_symbols: bool = False) -> str:
     if counter is None:
         counter = [0]
     # [t] top-aligns the flowed (locked) content so a tall heading isn't
@@ -408,6 +430,8 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
             block = _overlay_object(obj, gap, counter)
             if block:
                 parts.append(block)
+    if nav_symbols:
+        parts.append(_nav_symbols_block(gap))
     if page_number and page_number != "none":
         parts.append(_page_number_block(page_number, gap))
     parts.append("\\end{frame}")
@@ -465,8 +489,10 @@ def serialize_deck(deck: Deck) -> str:
         f"\\setlength{{\\TPVertModule}}{{{span}\\paperheight}}",
         f"\\textblockorigin{{{_fmt(g)}\\paperwidth}}{{{_fmt(g)}\\paperheight}}",
     ]
-    if not deck.nav_symbols:
-        lines.append("\\setbeamertemplate{navigation symbols}{}")
+    # Always clear beamer's own placement; when enabled we re-insert the
+    # symbols at the bottom-right of each frame ourselves (works on plain
+    # frames too, where the theme footline — and its symbols — are gone).
+    lines.append("\\setbeamertemplate{navigation symbols}{}")
     if deck.title:
         lines.append(f"\\title{{{deck.title}}}")
     if deck.author:
@@ -475,6 +501,7 @@ def serialize_deck(deck: Deck) -> str:
     counter = [0]
     for slide in deck.slides:
         lines.append(_serialize_slide(slide, deck.plain_frames, g, counter,
-                                      getattr(deck, "page_number", "none")))
+                                      getattr(deck, "page_number", "none"),
+                                      deck.nav_symbols))
     lines.append("\\end{document}")
     return "\n".join(lines) + "\n"
