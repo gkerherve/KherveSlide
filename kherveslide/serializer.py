@@ -144,13 +144,17 @@ def _serialize_table(obj: SlideTable) -> str:
 
 
 def _serialize_slide_standard(slide: Slide) -> str:
-    """Standard beamer frame: content flows in the body, beamer places it."""
-    parts = ["\\begin{frame}"]
+    """Standard beamer frame: content flows in the body, beamer places it.
+    Top-aligned so a large title/heading isn't pushed off the top by
+    beamer's default vertical centering."""
+    parts = ["\\begin{frame}[t]"]
     if slide.title:
         parts.append(f"\\frametitle{{{slide.title}}}")
     for obj in slide.objects:
         if isinstance(obj, SlideText):
-            parts.append(_text_inner(obj) + "\\medskip")
+            # Leading \par: without it beamer swallows the first styled
+            # paragraph when several are stacked in a [t] frame.
+            parts.append("\\par " + _text_inner(obj) + "\\medskip")
         elif isinstance(obj, SlideTable):
             parts.append("\\begin{center}" + _table_inner(obj)
                          + "\\end{center}")
