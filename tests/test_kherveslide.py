@@ -904,6 +904,23 @@ def test_latex_editor_scheme_overrides_app_theme():
     assert "#ffffff" in v._edit.styleSheet()
 
 
+def test_new_object_stacks_below_previous(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.clear()
+    first = SlideText(text="A", x=0.1, y=0.1, w=0.8, h=0.2)
+    w.slide.objects.append(first)
+    w._add_text()                       # appends a second text box
+    second = w.slide.objects[-1]
+    # The new box sits below the first (no overlap) and inherits its x/width.
+    assert second.y >= first.y + first.h
+    assert second.x == first.x
+    assert second.w == first.w
+
+
 def test_placement_combo_sets_box_locked(monkeypatch):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])

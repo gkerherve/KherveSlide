@@ -1386,8 +1386,29 @@ class SlideWindow(QMainWindow):
         self._refresh_latex()
 
     # ---------------- objects ----------------
+    def _place_stacked(self, obj):
+        """Position a freshly created object just below the bottom-most
+        existing object so new boxes stack instead of landing on top of
+        each other (matches how beamer flows locked content downward)."""
+        others = [o for o in self.slide.objects
+                  if o is not obj and hasattr(o, "y") and hasattr(o, "h")]
+        if not others:
+            return
+        last = max(others, key=lambda o: o.y + o.h)
+        obj.x = round(last.x, 4)
+        # Match the previous box's width for text/tables so a second block
+        # lines up; keep a picture's own size to preserve its aspect ratio.
+        if not isinstance(obj, SlidePicture):
+            obj.w = last.w
+        new_y = last.y + last.h + 0.02
+        if new_y + obj.h > 1.0:
+            new_y = max(0.0, 1.0 - obj.h)
+        obj.y = round(new_y, 4)
+
     def _add_text(self):
-        self.slide.objects.append(SlideText())
+        obj = SlideText()
+        self._place_stacked(obj)
+        self.slide.objects.append(obj)
         self._reload_scene()
         self._select_last()
         self._touch_current()
@@ -1396,7 +1417,9 @@ class SlideWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self, "Choose image", "",
             "Images (*.png *.jpg *.jpeg *.pdf *.gif *.bmp)")
-        self.slide.objects.append(SlidePicture(path=path or ""))
+        obj = SlidePicture(path=path or "")
+        self._place_stacked(obj)
+        self.slide.objects.append(obj)
         self._reload_scene()
         self._select_last()
         self._touch_current()
@@ -1421,7 +1444,9 @@ class SlideWindow(QMainWindow):
         self._touch_current()
 
     def _add_table(self):
-        self.slide.objects.append(SlideTable())
+        obj = SlideTable()
+        self._place_stacked(obj)
+        self.slide.objects.append(obj)
         self._reload_scene()
         self._select_last()
         self._touch_current()
@@ -1432,6 +1457,7 @@ class SlideWindow(QMainWindow):
         if dlg.exec() and dlg.latex():
             obj = SlideText(text=f"${dlg.latex()}$", font_pt=28,
                             align="center")
+            self._place_stacked(obj)
             self.slide.objects.append(obj)
             self._reload_scene()
             self._select_last()
@@ -1445,8 +1471,9 @@ class SlideWindow(QMainWindow):
         dlg.exec()
 
     def _on_drawing_saved(self, png_path):
-        self.slide.objects.append(
-            SlidePicture(path=png_path, w=0.4, h=0.4, keep_aspect=True))
+        obj = SlidePicture(path=png_path, w=0.4, h=0.4, keep_aspect=True)
+        self._place_stacked(obj)
+        self.slide.objects.append(obj)
         self._reload_scene()
         self._select_last()
         self._touch_current()
@@ -1640,9 +1667,21 @@ class SlideWindow(QMainWindow):
     def _canvas_context_menu(self, global_pos, scene_pos):
         # Right-clicking a box selects it first, so the menu always acts on
         # the box under the cursor (no need to left-click it beforehand).
-        if isinstance(scene_pos, QPointF):
-            self._select_box_at(scene_pos)
+        on_canvas = isinstance(scene_pos, QPointF)
+        hit = self._select_box_at(scene_pos) if on_canvas else None
         menu = QMenu(self)
+        # Right-click on empty canvas → quick "add object" menu.
+        if on_canvas and hit is None:
+            self.scene.clearSelection()
+            menu.addAction("Add text box", self._add_text)
+            menu.addAction("Add image…", self._add_picture)
+            menu.addAction("Add table", self._add_table)
+            menu.addAction("Add equation…", self._add_equation)
+            menu.addSeparator()
+            paste = menu.addAction("Paste", lambda: self._paste(scene_pos))
+            paste.setEnabled(self._can_paste())
+            menu.exec(global_pos)
+            return
         item = self._selected_item()
         if item is not None:
             menu.addAction("Copy", self._copy_selected)
