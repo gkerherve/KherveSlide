@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from . import icons, templates, version_string
+from . import icons, spellcheck, templates, version_string
 from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
     make_item, page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
@@ -108,9 +108,19 @@ class _DownloadWorker(QThread):
 class _InlineEditor(QTextEdit):
     """A rich text-box editor that floats over the object being edited:
     bullet/numbered lists show as real lists (not \\item source), and it
-    commits when it loses focus (or Escape is pressed)."""
+    commits when it loses focus (or Escape is pressed). Misspelled words
+    get a red wavy underline with right-click corrections."""
 
     editingFinished = Signal()
+
+    # Toggled from the View menu; persisted in QSettings.
+    spellcheck_enabled = True
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._speller = spellcheck.SpellHighlighter(self.document())
+        self._speller.enabled = (self.spellcheck_enabled
+                                 and spellcheck.available())
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
@@ -121,6 +131,34 @@ class _InlineEditor(QTextEdit):
             self.clearFocus()
             return
         super().keyPressEvent(event)
+
+    def contextMenuEvent(self, event):
+        menu = self.createStandardContextMenu()
+        if self._speller.enabled:
+            cursor = self.cursorForPosition(event.pos())
+            cursor.select(cursor.SelectionType.WordUnderCursor)
+            word = cursor.selectedText()
+            if word and spellcheck.is_misspelled(word):
+                menu.addSeparator()
+                sugg = spellcheck.suggestions(word)
+                if sugg:
+                    for s in sugg:
+                        act = menu.addAction(s)
+                        act.triggered.connect(
+                            lambda _=False, c=cursor, t=s: self._replace(c, t))
+                else:
+                    menu.addAction("(no suggestions)").setEnabled(False)
+                menu.addAction(
+                    f'Add "{word}" to dictionary',
+                    lambda w=word: self._learn(w))
+        menu.exec(event.globalPos())
+
+    def _replace(self, cursor, text):
+        cursor.insertText(text)
+
+    def _learn(self, word):
+        spellcheck.add_word(word)
+        self._speller.rehighlight()
 
 
 class SlideWindow(QMainWindow):
@@ -211,6 +249,18 @@ class SlideWindow(QMainWindow):
         self.act_show_nav.setChecked(True)
         self.act_show_nav.setShortcut("Ctrl+B")
         self.act_show_nav.toggled.connect(self._toggle_navigator)
+        m_view.addSeparator()
+        self.act_spell = m_view.addAction("Check spelling")
+        self.act_spell.setCheckable(True)
+        spell_on = QSettings("kherveDOC", "KherveSlide").value(
+            "spellcheck_enabled", True, type=bool) and spellcheck.available()
+        self.act_spell.setChecked(spell_on)
+        self.act_spell.setEnabled(spellcheck.available())
+        if not spellcheck.available():
+            self.act_spell.setToolTip(
+                "Install pyspellchecker to enable spell checking.")
+        _InlineEditor.spellcheck_enabled = spell_on
+        self.act_spell.toggled.connect(self._toggle_spellcheck)
 
         m_pres = mb.addMenu("&Presentation")
         m_pres.addAction("Title…", self._set_deck_title)
@@ -256,6 +306,7 @@ class SlideWindow(QMainWindow):
 
     # ---------------- toolbars ----------------
     def _build_toolbar(self):
+        # Row 1 — document actions: file, history, build, zoom, theme.
         tb = QToolBar("Main"); tb.setMovable(False); self.addToolBar(tb)
         tb.setIconSize(QSize(24, 24))
 
@@ -266,28 +317,18 @@ class SlideWindow(QMainWindow):
         act(icons.file_new(), "New", self._new_deck)
         act(icons.file_open(), "Open", self._open_deck)
         act(icons.file_save(), "Save", self._save_deck)
-        act(icons.export_pdf(), "Export PDF", self._export_pdf)
         tb.addSeparator()
         tb.addAction(self.act_undo)
         tb.addAction(self.act_redo)
         tb.addSeparator()
-        act(icons.slide_add(), "Add slide", self._add_slide)
-        act(icons.text_box(), "Add text box", self._add_text)
-        act(icons.image_box(), "Add image box", self._add_picture)
-        act(icons.table(), "Add table", self._add_table)
-        act(icons.math_block(), "Add equation", self._add_equation)
-        act(icons.drawing(), "Add drawing", self._add_drawing)
-        act(icons.delete_box(), "Delete object", self._delete_selected)
-        tb.addSeparator()
         act(icons.templates_icon(), "Templates", self._templates_menu)
         act(icons.compile_pdf(), "Compile", self._compile)
+        act(icons.export_pdf(), "Export PDF", self._export_pdf)
         tb.addSeparator()
         act(icons.zoom_out(), "Zoom out", lambda: self.view.zoom_by(1 / 1.25))
         act(icons.fit_width(), "Fit slide to window",
             lambda: self.view.fit_to_window())
         act(icons.zoom_in(), "Zoom in", lambda: self.view.zoom_by(1.25))
-
-        # Theme controls — quick access on the toolbar.
         tb.addSeparator()
         tb.addWidget(QLabel(" Theme "))
         self.theme_combo = QComboBox()
@@ -305,22 +346,25 @@ class SlideWindow(QMainWindow):
         self.act_deco.toggled.connect(self._toggle_decorations)
         tb.addAction(self.act_deco)
 
-        # Format controls live on the same single horizontal toolbar.
-        tb.addSeparator()
-        self._fmt_tb = tb
+        # Row 2 — text formatting (its own row so it never crowds row 1).
+        self.addToolBarBreak()
+        ftb = QToolBar("Format"); ftb.setMovable(False)
+        ftb.setIconSize(QSize(24, 24))
+        self.addToolBar(ftb)
+        self._fmt_tb = ftb
 
-        tb.addWidget(QLabel(" Font "))
+        ftb.addWidget(QLabel(" Font "))
         self.fmt_font = QSpinBox(); self.fmt_font.setRange(6, 160)
         self.fmt_font.setToolTip("Font size (pt)")
         self.fmt_font.valueChanged.connect(self._apply_text_format)
-        tb.addWidget(self.fmt_font)
+        ftb.addWidget(self.fmt_font)
 
         self.act_bold = QAction(icons.bold(), "Bold", self, checkable=True)
         self.act_bold.triggered.connect(self._apply_text_format)
         self.act_italic = QAction(icons.italic(), "Italic", self, checkable=True)
         self.act_italic.triggered.connect(self._apply_text_format)
-        tb.addAction(self.act_bold); tb.addAction(self.act_italic)
-        tb.addSeparator()
+        ftb.addAction(self.act_bold); ftb.addAction(self.act_italic)
+        ftb.addSeparator()
 
         self._align_group = QActionGroup(self)
         self._align_actions = {}
@@ -329,9 +373,9 @@ class SlideWindow(QMainWindow):
                                ("right", icons.align_right(), "Align right")):
             a = QAction(icon, tip, self, checkable=True)
             a.triggered.connect(lambda _=False, k=key: self._set_align(k))
-            self._align_group.addAction(a); tb.addAction(a)
+            self._align_group.addAction(a); ftb.addAction(a)
             self._align_actions[key] = a
-        tb.addSeparator()
+        ftb.addSeparator()
 
         self.act_textcolor = QAction(icons._glyph_icon("A", color=QColor("#1a6dd8")),
                                      "Text colour", self)
@@ -339,29 +383,29 @@ class SlideWindow(QMainWindow):
         self.act_fill = QAction(icons._glyph_icon("█", color=QColor("#d96b00")),
                                 "Fill colour", self)
         self.act_fill.triggered.connect(lambda: self._pick_obj_color("fill"))
-        tb.addAction(self.act_textcolor); tb.addAction(self.act_fill)
+        ftb.addAction(self.act_textcolor); ftb.addAction(self.act_fill)
+        ftb.addSeparator()
+
+        ftb.addAction(icons.bullet_list(), "Insert bullet list",
+                      self._insert_bullets)
+        ftb.addAction(icons.numbered_list(), "Insert numbered list",
+                      self._insert_numbered)
+        ftb.addSeparator()
 
         self.act_pic = QAction(icons.image_box(), "Replace image…", self)
         self.act_pic.triggered.connect(self._pick_image)
-        tb.addAction(self.act_pic)
-
-        # Insert-into-text controls: bullet list, numbered list, symbol.
-        tb.addSeparator()
-        tb.addAction(icons.bullet_list(), "Insert bullet list",
-                     self._insert_bullets)
-        tb.addAction(icons.numbered_list(), "Insert numbered list",
-                     self._insert_numbered)
-        tb.addAction(icons.symbol(), "Insert symbol…", self._insert_symbol)
+        ftb.addAction(self.act_pic)
 
         self._enable_format(False)
 
     def _build_slide_toolbar(self):
-        """Vertical toolbar on the main frame (left edge) for slide and
-        z-order operations — not part of the WYSIWYG tab."""
-        tb = QToolBar("Slides")
+        """Vertical toolbar on the left edge: slide management, object
+        insertion and z-order — everything that adds or arranges content."""
+        tb = QToolBar("Insert & arrange")
         tb.setIconSize(QSize(24, 24))
         tb.setMovable(False)
         self.addToolBar(Qt.LeftToolBarArea, tb)
+        # Slides
         tb.addAction(icons.slide_add(), "Add slide", self._add_slide)
         tb.addAction(icons.slide_remove(), "Remove active slide",
                      self._del_slide)
@@ -370,18 +414,28 @@ class SlideWindow(QMainWindow):
         tb.addAction(icons.move_down(), "Move slide down",
                      lambda: self._move_slide(1))
         tb.addSeparator()
+        # Insert objects (moved here from the horizontal toolbar)
+        tb.addAction(icons.text_box(), "Add text box", self._add_text)
+        tb.addAction(icons.image_box(), "Add image", self._add_picture)
+        tb.addAction(icons.table(), "Add table", self._add_table)
+        tb.addAction(icons.math_block(), "Add equation", self._add_equation)
+        tb.addAction(icons.symbol(), "Insert symbol…", self._insert_symbol)
+        tb.addAction(icons.drawing(), "Add drawing", self._add_drawing)
+        tb.addAction(icons.line_tool(), "Add line", self._add_line)
+        tb.addAction(icons.arrow_tool(), "Add arrow", self._add_arrow)
+        tb.addSeparator()
+        # Z-order
         tb.addAction(icons.raise_box(), "Raise object",
                      lambda: self._zorder("raise"))
         tb.addAction(icons.lower_box(), "Lower object",
                      lambda: self._zorder("lower"))
-        tb.addAction(icons.raise_box(), "Bring to front",
+        tb.addAction(icons.to_front(), "Bring to front",
                      lambda: self._zorder("front"))
-        tb.addAction(icons.lower_box(), "Send to back",
+        tb.addAction(icons.to_back(), "Send to back",
                      lambda: self._zorder("back"))
         tb.addSeparator()
-        tb.addAction(icons.line_tool(), "Add line", self._add_line)
-        tb.addAction(icons.arrow_tool(), "Add arrow", self._add_arrow)
-        tb.addAction(icons.image_box(), "Add image", self._add_picture)
+        tb.addAction(icons.delete_box(), "Delete object",
+                     self._delete_selected)
 
     def _add_line(self):
         self.slide.objects.append(SlideLine())
@@ -1563,6 +1617,11 @@ class SlideWindow(QMainWindow):
     # ---------------- view ----------------
     def _toggle_navigator(self, show):
         self._nav_panel.setVisible(show)
+
+    def _toggle_spellcheck(self, on):
+        _InlineEditor.spellcheck_enabled = on
+        QSettings("kherveDOC", "KherveSlide").setValue(
+            "spellcheck_enabled", on)
 
     def _open_file_location(self):
         if self.path is None:

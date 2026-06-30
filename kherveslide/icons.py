@@ -964,6 +964,35 @@ def raise_box() -> QIcon:   return _stack_icon(front=True)
 def lower_box() -> QIcon:   return _stack_icon(front=False)
 
 
+def _stack_extreme_icon(front: bool) -> QIcon:
+    """Like _stack_icon but with a double chevron meaning 'all the way'."""
+    px, p = _new_canvas()
+    back = QColor("#555") if _dark else QColor("#bbb")
+    p.setPen(QPen(_fg(), 1.2))
+    if front:
+        p.setBrush(QBrush(back)); p.drawRect(5, 7, 9, 9)
+        p.setBrush(QBrush(_accent())); p.drawRect(9, 11, 9, 9)
+    else:
+        p.setBrush(QBrush(_accent())); p.drawRect(5, 4, 9, 9)
+        p.setBrush(QBrush(back)); p.drawRect(9, 8, 9, 9)
+    p.setPen(QPen(_accent2(), 1.8))
+    p.setBrush(Qt.NoBrush)
+    if front:                       # chevrons pointing up
+        for dy in (0, 4):
+            p.drawPolyline([QPointF(15, 8 + dy), QPointF(18, 5 + dy),
+                            QPointF(21, 8 + dy)])
+    else:                           # chevrons pointing down
+        for dy in (0, 4):
+            p.drawPolyline([QPointF(15, 14 + dy), QPointF(18, 17 + dy),
+                            QPointF(21, 14 + dy)])
+    p.end()
+    return QIcon(px)
+
+
+def to_front() -> QIcon:    return _stack_extreme_icon(front=True)
+def to_back() -> QIcon:     return _stack_extreme_icon(front=False)
+
+
 def delete_box() -> QIcon:
     """Trash-can outline — delete the selected object."""
     px, p = _new_canvas()

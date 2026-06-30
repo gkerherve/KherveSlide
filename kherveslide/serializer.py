@@ -111,7 +111,11 @@ def _picture_graphic(obj: SlidePicture, rel: str = "\\paperwidth",
     if angle:
         graphic = f"\\rotatebox[origin=c]{{{_fmt(angle)}}}{{{graphic}}}"
     if obj.opacity < 1.0:
-        graphic = f"\\transparent{{{_fmt(max(0.0, obj.opacity))}}}{graphic}"
+        # A TikZ node with opacity actually tints the image; the older
+        # \transparent package silently no-op'd here (it printed its value
+        # as literal text under tectonic) so the image stayed opaque.
+        graphic = (f"\\begin{{tikzpicture}}\\node[opacity={_fmt(max(0.0, obj.opacity))},"
+                   f"inner sep=0]{{{graphic}}};\\end{{tikzpicture}}")
     return graphic
 
 
@@ -327,12 +331,15 @@ def serialize_deck(deck: Deck) -> str:
     lines += _theme_spec_lines(getattr(deck, "theme_spec", None))
     # lmodern: scalable fonts for the arbitrary \fontsize sizes the boxes use.
     lines.append("\\usepackage{lmodern}")
-    if any(isinstance(o, SlideLine) for s in deck.slides for o in s.objects):
+    needs_tikz = any(isinstance(o, SlideLine) for s in deck.slides
+                     for o in s.objects)
+    needs_opacity = any(isinstance(o, SlidePicture) and o.opacity < 1.0
+                        for s in deck.slides for o in s.objects)
+    if needs_tikz or needs_opacity:
+        # tikz also drives image opacity (a node with opacity= tints it).
         lines.append("\\usepackage{tikz}")
+    if needs_tikz:
         lines.append("\\usetikzlibrary{arrows.meta}")
-    if any(isinstance(o, SlidePicture) and o.opacity < 1.0
-           for s in deck.slides for o in s.objects):
-        lines.append("\\usepackage{transparent}")
     if any(isinstance(o, SlidePicture) and _has_crop(o)
            for s in deck.slides for o in s.objects):
         # adjustbox supplies \adjincludegraphics with \width-relative trim.

@@ -242,16 +242,41 @@ def test_picture_defaults_locked_aspect():
 
 def test_serialize_picture_opacity():
     deck = Deck(slides=[Slide(objects=[
-        SlidePicture(path="img/a.png", opacity=0.4)])])
+        SlidePicture(path="img/a.png", opacity=0.4, locked=False)])])
     tex = serialize_deck(deck)
-    assert "\\usepackage{transparent}" in tex
-    assert "\\transparent{0.4}" in tex
+    # Opacity is rendered with a TikZ node (the \transparent package
+    # silently failed under tectonic), so tikz must be loaded.
+    assert "\\usepackage{tikz}" in tex
+    assert "node[opacity=0.4" in tex
+    assert "\\transparent" not in tex
 
 
-def test_serialize_opaque_picture_no_transparent_pkg():
+def test_serialize_opaque_picture_no_tikz():
     deck = Deck(slides=[Slide(objects=[SlidePicture(path="img/a.png")])])
     tex = serialize_deck(deck)
-    assert "\\usepackage{transparent}" not in tex
+    assert "\\usepackage{tikz}" not in tex
+    assert "node[opacity" not in tex
+
+
+# --- spell check (optional pyspellchecker) ---
+
+def test_spellcheck_flags_and_suggests():
+    from kherveslide import spellcheck
+    if not spellcheck.available():
+        pytest.skip("pyspellchecker not installed")
+    assert spellcheck.is_misspelled("teh") is True
+    assert spellcheck.is_misspelled("physics") is False
+    assert "the" in [s.lower() for s in spellcheck.suggestions("teh")]
+
+
+def test_spellcheck_personal_dictionary(monkeypatch):
+    from kherveslide import spellcheck
+    if not spellcheck.available():
+        pytest.skip("pyspellchecker not installed")
+    # A word in the personal list is never flagged.
+    assert spellcheck.is_misspelled("Kherve") is True
+    monkeypatch.setattr(spellcheck, "_personal", lambda: {"kherve"})
+    assert spellcheck.is_misspelled("Kherve") is False
 
 
 def test_object_clipboard_round_trip():

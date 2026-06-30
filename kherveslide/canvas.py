@@ -231,9 +231,9 @@ class BoxItem(QGraphicsObject):
 
     def _lock_rect(self) -> QRectF:
         """The clickable lock toggle, on the box's right side near the top."""
-        s = 18.0
+        s = 26.0
         r = self._rect
-        return QRectF(r.right() - s - 3, r.top() + 3, s, s)
+        return QRectF(r.right() - s - 4, r.top() + 4, s, s)
 
     # -- geometry --------------------------------------------------
     def boundingRect(self) -> QRectF:
@@ -293,10 +293,9 @@ class BoxItem(QGraphicsObject):
         self.lockToggled.emit()
 
     def mousePressEvent(self, event):
-        # The lock badge is clickable whenever the box is shown (hover or
-        # selection) — it's the only control on a locked box.
-        if (self.isSelected() or self._hover) \
-                and self._lock_rect().contains(event.pos()):
+        # The lock badge is always visible, so it's always clickable — it's
+        # the only control on a locked box.
+        if self._lock_rect().contains(event.pos()):
             self.toggle_lock()
             event.accept()
             return
@@ -405,8 +404,7 @@ class BoxItem(QGraphicsObject):
             painter.setPen(QPen(QColor(150, 150, 150), 0, Qt.DashLine))
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(self._rect)
-            if self._hover:
-                self._paint_lock(painter)
+            self._paint_lock(painter)        # always show lock state
             return
         painter.setPen(QPen(QColor(40, 120, 220), 0, Qt.SolidLine))
         painter.setBrush(Qt.NoBrush)
@@ -419,28 +417,35 @@ class BoxItem(QGraphicsObject):
         self._paint_lock(painter)
 
     def _paint_lock(self, painter):
-        """A little padlock badge — closed (grey) when locked, open (blue)
-        when the box is freely positioned. Click it to toggle."""
+        """A bold padlock badge so the lock state reads at a glance —
+        amber & closed when locked, green & open when freely positioned.
+        Click it to toggle."""
         r = self._lock_rect()
         locked = self._is_locked()
+        accent = QColor(217, 119, 6) if locked else QColor(34, 160, 86)
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
-        bg = QColor(90, 96, 102) if locked else QColor(40, 120, 220)
-        painter.setBrush(QBrush(QColor(255, 255, 255, 235)))
-        painter.setPen(QPen(bg, 1.2))
-        painter.drawRoundedRect(r, 3, 3)
+        # Filled, high-contrast disc with a white padlock drawn on top.
+        painter.setBrush(QBrush(QColor(0, 0, 0, 40)))      # soft shadow
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(r.translated(0, 1))
+        painter.setBrush(QBrush(accent))
+        painter.setPen(QPen(QColor(255, 255, 255), 1.5))
+        painter.drawEllipse(r)
+        white = QColor(255, 255, 255)
         # Body of the padlock.
-        bw, bh = r.width() * 0.62, r.height() * 0.42
-        body = QRectF(r.center().x() - bw / 2, r.bottom() - bh - 2, bw, bh)
-        painter.setBrush(QBrush(bg))
+        bw, bh = r.width() * 0.46, r.height() * 0.30
+        body = QRectF(r.center().x() - bw / 2,
+                      r.center().y() - bh / 2 + r.height() * 0.08, bw, bh)
+        painter.setBrush(QBrush(white))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(body, 1.5, 1.5)
-        # Shackle: a closed arc when locked, lifted/open when unlocked.
+        # Shackle: a closed loop when locked, lifted to the side when open.
         painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(bg, 1.4))
-        sw = bw * 0.62
+        painter.setPen(QPen(white, 2.0))
+        sw = bw * 0.74
         sx = r.center().x() - sw / 2
-        sy = body.top() - sw * 0.7
+        sy = body.top() - sw * 0.62
         arc = QRectF(sx, sy, sw, sw)
         if locked:
             painter.drawArc(arc, 0, 180 * 16)
@@ -449,7 +454,7 @@ class BoxItem(QGraphicsObject):
             painter.drawLine(QPointF(arc.right(), arc.center().y()),
                              QPointF(arc.right(), body.top()))
         else:
-            painter.drawArc(arc.translated(sw * 0.45, 0), 30 * 16, 170 * 16)
+            painter.drawArc(arc.translated(sw * 0.5, 0), 20 * 16, 180 * 16)
             painter.drawLine(QPointF(arc.left(), arc.center().y()),
                              QPointF(arc.left(), body.top()))
         painter.restore()
