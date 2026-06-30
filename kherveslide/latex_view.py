@@ -21,6 +21,11 @@ from PySide6.QtWidgets import (
 
 _LIGHT_COLORS = {
     "command": "#1a6dd8",
+    "keyword": "#af00db",
+    "env": "#267f99",
+    "option": "#b35900",
+    "number": "#098658",
+    "special": "#a31515",
     "brace": "#7a4c00",
     "math_fg": "#1a3a8c",
     "comment": "#888888",
@@ -42,6 +47,11 @@ _LIGHT_COLORS = {
 }
 _DARK_COLORS = {
     "command": "#6cb4ff",
+    "keyword": "#c586c0",
+    "env": "#4ec9b0",
+    "option": "#ce9178",
+    "number": "#b5cea8",
+    "special": "#d16969",
     "brace": "#e5a835",
     "math_fg": "#8cc4ff",
     "comment": "#6a9955",
@@ -141,27 +151,47 @@ class LatexHighlighter(QSyntaxHighlighter):
 
     def _build_rules(self) -> None:
         c = _DARK_COLORS if self._dark else _LIGHT_COLORS
-        self._rules: list[tuple[QRegularExpression, QTextCharFormat]] = []
+        # Each rule is (regex, format, capture-group). Group 0 = whole match.
+        # Later rules win on overlapping characters, so order is significant.
+        self._rules: list[tuple[QRegularExpression, QTextCharFormat, int]] = []
 
-        cmd_fmt = QTextCharFormat()
-        cmd_fmt.setForeground(QColor(c["command"]))
-        cmd_fmt.setFontWeight(QFont.Bold)
-        self._rules.append((QRegularExpression(r"\\[A-Za-z@]+\*?"), cmd_fmt))
+        def rule(pattern, fmt, group=0):
+            self._rules.append((QRegularExpression(pattern), fmt, group))
 
-        brace_fmt = QTextCharFormat()
-        brace_fmt.setForeground(QColor(c["brace"]))
-        self._rules.append((QRegularExpression(r"[\{\}]"), brace_fmt))
+        def fmt(color=None, *, bold=False, italic=False):
+            f = QTextCharFormat()
+            if color:
+                f.setForeground(QColor(color))
+            if bold:
+                f.setFontWeight(QFont.Bold)
+            if italic:
+                f.setFontItalic(True)
+            return f
 
-        math_fmt = QTextCharFormat()
-        math_fmt.setForeground(QColor(c["math_fg"]))
+        # 1. Any control sequence (\command or \@macro).
+        rule(r"\\[A-Za-z@]+\*?", fmt(c["command"], bold=True))
+        # 2. Structural keywords get their own colour, on top of (1).
+        rule(r"\\(?:begin|end|documentclass|usepackage|usetheme|usecolortheme"
+             r"|RequirePackage|newcommand|renewcommand|providecommand|def"
+             r"|input|include|setbeamertemplate|setbeamercolor|setbeamerfont"
+             r"|usefonttheme|useinnertheme|useoutertheme)\b\*?",
+             fmt(c["keyword"], bold=True))
+        # 3. The environment name inside \begin{...}/\end{...} (group 1).
+        rule(r"\\(?:begin|end)\*?\{([A-Za-z0-9@]+\*?)\}", fmt(c["env"]), 1)
+        # 4. Optional arguments [key=value, ...].
+        rule(r"\[[^\]\n]*\]", fmt(c["option"]))
+        # 5. Braces.
+        rule(r"[{}]", fmt(c["brace"]))
+        # 6. Numbers and dimensions.
+        rule(r"\b\d+(?:\.\d+)?\b", fmt(c["number"]))
+        # 7. Alignment & row-break separators.
+        rule(r"\\\\|&|~", fmt(c["special"], bold=True))
+        # 8. Inline maths (overrides the above within $...$).
+        math_fmt = fmt(c["math_fg"], italic=True)
         math_fmt.setBackground(QColor(c["math_bg"]))
-        math_fmt.setFontItalic(True)
-        self._rules.append((QRegularExpression(r"\$[^$]*\$"), math_fmt))
-
-        comment_fmt = QTextCharFormat()
-        comment_fmt.setForeground(QColor(c["comment"]))
-        comment_fmt.setFontItalic(True)
-        self._rules.append((QRegularExpression(r"%[^\n]*"), comment_fmt))
+        rule(r"\$[^$]*\$", math_fmt)
+        # 9. Comments win over everything to end of line.
+        rule(r"%[^\n]*", fmt(c["comment"], italic=True))
 
         # Block-level formats.
         self._section_fmt = QTextCharFormat()
@@ -236,11 +266,14 @@ class LatexHighlighter(QSyntaxHighlighter):
         self.setCurrentBlockState(state)
 
         # Apply token-level highlights first.
-        for pattern, fmt in self._rules:
+        for pattern, fmt, group in self._rules:
             it = pattern.globalMatch(text)
             while it.hasNext():
                 m = it.next()
-                self.setFormat(m.capturedStart(), m.capturedLength(), fmt)
+                start = m.capturedStart(group)
+                length = m.capturedLength(group)
+                if start >= 0 and length > 0:
+                    self.setFormat(start, length, fmt)
 
         # Overlay block background on every character without touching the
         # foreground colour set by the token rules above.

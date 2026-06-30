@@ -567,6 +567,34 @@ def test_slide_layout_unknown_falls_back_to_blank():
     assert templates.instantiate_slide_layout("nope").objects == []
 
 
+# --- LaTeX source highlighter ---
+
+def test_latex_highlighter_distinguishes_tokens():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QTextDocument
+    from kherveslide.latex_view import LatexHighlighter, _LIGHT_COLORS as C
+    line = "\\begin{frame}[plain,t] x=0.4 & \\textbf{hi}"
+    doc = QTextDocument()
+    doc.setPlainText(line)
+    LatexHighlighter(doc).rehighlight()
+    formats = doc.firstBlock().layout().formats()
+
+    def color_at(idx):
+        col = None
+        for fr in formats:
+            if fr.start <= idx < fr.start + fr.length:
+                col = fr.format.foreground().color().name()
+        return col
+
+    assert color_at(line.index("begin")) == C["keyword"]   # \begin
+    assert color_at(line.index("frame")) == C["env"]        # env name
+    assert color_at(line.index("[plain")) == C["option"]    # optional arg
+    assert color_at(line.index("0.4")) == C["number"]
+    assert color_at(line.index("&")) == C["special"]
+    assert color_at(line.index("textbf")) == C["command"]   # \textbf
+
+
 # --- canvas LaTeX -> HTML preview ---
 
 def test_latex_to_html_itemize_is_bullet_list():
