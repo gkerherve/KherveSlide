@@ -527,7 +527,6 @@ class SlideWindow(QMainWindow):
         cf = QFont("Consolas"); cf.setStyleHint(QFont.Monospace); cf.setPointSize(10)
         self.console.setFont(cf)
         self.pdf_view = PdfPreview()
-        self.pdf_view.pageChanged.connect(self._on_pdf_page_changed)
         self.right_tabs = QTabWidget()
         self.right_tabs.addTab(self.pdf_view, "PDF")
         self.right_tabs.addTab(self.console, "Console")
@@ -968,11 +967,6 @@ class SlideWindow(QMainWindow):
         self._reload_scene()
         # Jump the PDF preview to the matching page (each slide is one page).
         self.pdf_view.go_to_page(row)
-
-    def _on_pdf_page_changed(self, page):
-        # The PDF nav bar moved to another page — select the matching slide.
-        if 0 <= page < len(self.deck.slides) and page != self.current:
-            self.nav.setCurrentRow(page)
 
     def _on_reorder(self, order):
         self.deck.slides = [self.deck.slides[i] for i in order]

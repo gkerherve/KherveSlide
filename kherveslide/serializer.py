@@ -179,6 +179,66 @@ def _flow_object(obj) -> str | None:
     return None
 
 
+def _column_content(obj) -> str | None:
+    """A locked object's content when it sits inside a beamer column —
+    sized to the column (\\linewidth), no full-width centring."""
+    if isinstance(obj, SlideText):
+        return _text_inner(obj)
+    if isinstance(obj, SlideTable):
+        return _table_inner(obj)
+    if isinstance(obj, SlidePicture) and obj.path:
+        return _picture_graphic(obj, "\\linewidth", "\\textheight")
+    return None
+
+
+def _h_disjoint(a, b) -> bool:
+    return a.x + a.w <= b.x + 1e-6 or b.x + b.w <= a.x + 1e-6
+
+
+def _group_rows(objs: list) -> list[list]:
+    """Cluster locked objects into visual rows. Objects whose vertical
+    extents overlap *and* that sit side by side (no horizontal overlap)
+    share a row → they become beamer columns. Everything else is its own
+    row and simply flows."""
+    rows: list[list] = []
+    for o in sorted(objs, key=lambda o: (round(o.y, 3), o.x)):
+        for row in rows:
+            top = min(m.y for m in row)
+            bot = max(m.y + m.h for m in row)
+            v_overlap = o.y < bot - 0.02 and (o.y + o.h) > top + 0.02
+            if v_overlap and all(_h_disjoint(o, m) for m in row):
+                row.append(o)
+                break
+        else:
+            rows.append([o])
+    rows.sort(key=lambda row: min(m.y for m in row))
+    return rows
+
+
+def _serialize_flow(objs: list) -> list[str]:
+    """Lay out locked objects as standard beamer flow, turning side-by-side
+    groups into columns."""
+    parts: list[str] = []
+    for row in _group_rows(objs):
+        if len(row) == 1:
+            block = _flow_object(row[0])
+            if block:
+                parts.append(block)
+            continue
+        row = sorted(row, key=lambda o: o.x)
+        parts.append("\\begin{columns}[t]")
+        for o in row:
+            content = _column_content(o)
+            if content is None:
+                continue
+            w = max(0.1, min(0.92, o.w))
+            parts.append(f"\\begin{{column}}{{{_fmt(w)}\\textwidth}}")
+            parts.append(content)
+            parts.append("\\end{column}")
+        parts.append("\\end{columns}")
+    return parts
+
+
 _SIZE_MACRO = {"small": "\\small", "normal": "\\normalsize",
                "large": "\\large", "Large": "\\Large", "huge": "\\huge"}
 
@@ -297,12 +357,11 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
             "\\hspace{\\paperwidth}}\n"
             "\\end{textblock}")
     # Locked objects flow in the frame body (beamer lays them out); lines
-    # are always absolute, so they never flow.
-    for obj in slide.objects:
-        if getattr(obj, "locked", True) and not isinstance(obj, SlideLine):
-            block = _flow_object(obj)
-            if block:
-                parts.append(block)
+    # are always absolute, so they never flow. Side-by-side locked objects
+    # become beamer columns.
+    locked_flow = [o for o in slide.objects
+                   if getattr(o, "locked", True) and not isinstance(o, SlideLine)]
+    parts.extend(_serialize_flow(locked_flow))
     # Unlocked objects (and all lines) are placed absolutely on top.
     for obj in slide.objects:
         if not getattr(obj, "locked", True) or isinstance(obj, SlideLine):

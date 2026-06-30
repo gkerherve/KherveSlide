@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QModelIndex, QPointF, Qt, QTimer, Signal
+from PySide6.QtCore import QModelIndex, QPointF, Qt, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QVBoxLayout, QWidget,
 )
@@ -29,10 +29,6 @@ except ImportError:                           # pragma: no cover
 
 class PdfPreview(QWidget):
     """Embedded PDF viewer with a status header and live zoom."""
-
-    # Emitted when the user moves to another page via the nav bar, so the
-    # window can keep the slide navigator in step.
-    pageChanged = Signal(int)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -91,27 +87,6 @@ class PdfPreview(QWidget):
             fb.addWidget(btn_close)
             self._find_bar.hide()
             layout.addWidget(self._find_bar)
-
-            # Slide navigation bar — prev / next page + a "Page X / N"
-            # indicator, mirroring the old bottom toolbar.
-            nav = QWidget(self)
-            nb = QHBoxLayout(nav)
-            nb.setContentsMargins(4, 2, 4, 2)
-            self._nav_prev = QPushButton("◀ Prev")
-            self._nav_prev.setToolTip("Previous slide")
-            self._nav_prev.clicked.connect(self._go_prev)
-            nb.addWidget(self._nav_prev)
-            self._nav_label = QLabel("Page 0 / 0")
-            self._nav_label.setAlignment(Qt.AlignCenter)
-            nb.addWidget(self._nav_label, 1)
-            self._nav_next = QPushButton("Next ▶")
-            self._nav_next.setToolTip("Next slide")
-            self._nav_next.clicked.connect(self._go_next)
-            nb.addWidget(self._nav_next)
-            layout.addWidget(nav)
-            navp = self._view.pageNavigator()
-            if navp is not None:
-                navp.currentPageChanged.connect(self._update_nav_label)
         else:
             self._view = None
             self._search_model = None
@@ -150,28 +125,6 @@ class PdfPreview(QWidget):
         self._status.hide()
         if saved_scroll:
             QTimer.singleShot(0, lambda: vbar.setValue(saved_scroll))
-        self._update_nav_label()
-
-    # ----- slide navigation bar -----
-
-    def _update_nav_label(self, *_):
-        if not _QTPDF_AVAILABLE or self._view is None:
-            return
-        n = self._doc.pageCount()
-        cur = self.current_page() + 1 if n else 0
-        self._nav_label.setText(f"Page {cur} / {n}")
-        self._nav_prev.setEnabled(n > 0)
-        self._nav_next.setEnabled(n > 0)
-
-    def _go_prev(self):
-        target = max(0, self.current_page() - 1)
-        self.go_to_page(target)
-        self.pageChanged.emit(target)
-
-    def _go_next(self):
-        target = min(self.page_count() - 1, self.current_page() + 1)
-        self.go_to_page(target)
-        self.pageChanged.emit(target)
 
     def set_zoom_percent(self, percent: int) -> None:
         self._zoom_percent = max(25, min(400, int(percent)))

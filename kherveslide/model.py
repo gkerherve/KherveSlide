@@ -176,10 +176,11 @@ class Deck:
     # Object coordinates are 0..1 within the page minus this gap, so every
     # box keeps the same breathing room from the slide edge.
     gap: float = 0.0
-    # beamer's prev/next navigation symbols. Off by default: they're rarely
-    # wanted on a designed slide and their hyperlink annotations poke just
-    # below the page edge, which makes xdvipdfmx warn on every page.
-    nav_symbols: bool = False
+    # beamer's prev/next navigation symbols, shown on the PDF itself. On by
+    # default — that's the native way to page through the slides. (They make
+    # xdvipdfmx emit a harmless out-of-page annotation warning, filtered from
+    # the console.) Turn off from Presentation ▸ Navigation symbols.
+    nav_symbols: bool = True
     # User-built theme overrides (see ThemeSpec). Applied when enabled.
     theme_spec: ThemeSpec = field(default_factory=ThemeSpec)
     type: str = "Deck"
@@ -314,7 +315,7 @@ def _build_deck(d: dict) -> Deck:
         page_w_cm=float(d.get("page_w_cm", 0.0)),
         page_h_cm=float(d.get("page_h_cm", 0.0)),
         gap=float(d.get("gap", 0.0)),
-        nav_symbols=bool(d.get("nav_symbols", False)),
+        nav_symbols=bool(d.get("nav_symbols", True)),
         theme_spec=_build_theme_spec(d.get("theme_spec", {})),
     )
 

@@ -155,9 +155,10 @@ def test_page_fields_round_trip():
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
-def test_nav_symbols_suppressed_by_default():
+def test_nav_symbols_shown_by_default():
+    # beamer's PDF navigation symbols are the native way to page through.
     tex = serialize_deck(_sample_deck())
-    assert "\\setbeamertemplate{navigation symbols}{}" in tex
+    assert "\\setbeamertemplate{navigation symbols}{}" not in tex
 
 
 def test_background_alpha_blends_over_white():
@@ -196,6 +197,26 @@ def test_locked_object_flows_no_textpos():
     assert "\\frametitle{Heading}" in tex
     assert "\\begin{textblock}" not in tex
     assert "Body" in tex
+
+
+def test_side_by_side_locked_boxes_become_columns():
+    # Two locked text boxes at the same height but different x are columns.
+    deck = Deck(slides=[Slide(objects=[
+        SlideText(x=0.05, y=0.3, w=0.4, h=0.4, text="Left", locked=True),
+        SlideText(x=0.55, y=0.3, w=0.4, h=0.4, text="Right", locked=True)])])
+    tex = serialize_deck(deck)
+    assert "\\begin{columns}" in tex
+    assert tex.count("\\begin{column}") == 2
+    assert tex.index("Left") < tex.index("Right")     # ordered by x
+
+
+def test_stacked_locked_boxes_do_not_make_columns():
+    # Different heights → they flow one above the other, no columns.
+    deck = Deck(slides=[Slide(objects=[
+        SlideText(x=0.1, y=0.1, w=0.8, h=0.15, text="Top", locked=True),
+        SlideText(x=0.1, y=0.5, w=0.8, h=0.3, text="Bottom", locked=True)])])
+    tex = serialize_deck(deck)
+    assert "\\begin{columns}" not in tex
 
 
 def test_object_defaults_locked():
@@ -345,11 +366,11 @@ def test_theme_spec_round_trip():
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
-def test_nav_symbols_kept_when_enabled():
+def test_nav_symbols_suppressed_when_disabled():
     deck = _sample_deck()
-    deck.nav_symbols = True
+    deck.nav_symbols = False
     tex = serialize_deck(deck)
-    assert "\\setbeamertemplate{navigation symbols}{}" not in tex
+    assert "\\setbeamertemplate{navigation symbols}{}" in tex
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
