@@ -713,6 +713,30 @@ def test_inline_editor_claims_editing_shortcuts():
     assert Qt.Key_N not in _InlineEditor._GRAB_KEYS
 
 
+def test_paste_image_fills_selected_picture_box(monkeypatch):
+    # A clipboard image pasted while a picture box is selected fills that
+    # box instead of creating a new floating image.
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QImage, QColor
+    from PySide6.QtCore import QPointF
+    from kherveslide import window
+    from kherveslide.model import SlidePicture
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    img = QImage(60, 40, QImage.Format_RGB32)
+    img.fill(QColor("#33aa55"))
+    QApplication.clipboard().setImage(img)
+    w = window.SlideWindow()
+    w.slide.objects.append(SlidePicture(x=0.1, y=0.1, w=0.4, h=0.4, path=""))
+    w._reload_scene()
+    item = w._items[-1]
+    item.setSelected(True)
+    n = len(w.slide.objects)
+    w._paste(QPointF(100, 100))
+    assert len(w.slide.objects) == n            # filled, not added
+    assert item.obj.path                        # picture now has a file
+
+
 def test_toolbar_bold_targets_selection_while_editing(monkeypatch):
     # Clicking the toolbar Bold button mid-edit must bold only the selected
     # run, not the whole box (the box-level flag stays off).

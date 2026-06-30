@@ -1317,6 +1317,10 @@ class SlideWindow(QMainWindow):
         return bool(md and (md.hasFormat(self._OBJ_MIME) or md.hasImage()
                             or _dropped_image(md)))
 
+    def _clipboard_has_image(self):
+        md = QApplication.clipboard().mimeData()
+        return bool(md and (md.hasImage() or _dropped_image(md)))
+
     def _paste(self, scene_pos=None):
         if not isinstance(scene_pos, QPointF):   # menu/shortcut pass a bool
             scene_pos = None
@@ -1337,19 +1341,29 @@ class SlideWindow(QMainWindow):
             self._touch_current()
             return
         img = cb.image()
+        path = None
         if img is not None and not img.isNull():
             path = self._save_clipboard_image(img)
-            if path:
-                if scene_pos is None:
-                    scene_pos = QPointF(self.scene.page_w / 2,
-                                        self.scene.page_h / 2)
-                self._on_image_dropped(path, scene_pos)
+        if path is None:
+            path = _dropped_image(md)
+        if not path:
             return
-        path = _dropped_image(md)
-        if path:
-            self._on_image_dropped(
-                path, scene_pos or QPointF(self.scene.page_w / 2,
-                                           self.scene.page_h / 2))
+        # If a picture box is selected, drop the image straight into it
+        # (fills an empty placeholder); otherwise add a new floating image.
+        item = self._selected_item()
+        if item is not None and isinstance(item.obj, SlidePicture):
+            self._set_picture_path(item, path)
+            return
+        self._on_image_dropped(
+            path, scene_pos or QPointF(self.scene.page_w / 2,
+                                       self.scene.page_h / 2))
+
+    def _set_picture_path(self, item, path):
+        item.obj.path = path
+        item._pix_path = None          # force pixmap reload
+        item.update()
+        self._touch_current()
+        self.statusBar().showMessage("Image pasted into the picture box")
 
     def _add_object(self, obj, offset=False):
         if offset:
@@ -1411,6 +1425,9 @@ class SlideWindow(QMainWindow):
                 lock.toggled.connect(self._toggle_pic_lock)
                 menu.addAction("Transparency…", self._set_pic_opacity)
                 menu.addAction("Replace image…", self._pick_image)
+                pst = menu.addAction("Paste image here",
+                                     lambda: self._paste(scene_pos))
+                pst.setEnabled(self._clipboard_has_image())
             menu.addSeparator()
         paste = menu.addAction("Paste", lambda: self._paste(scene_pos))
         paste.setEnabled(self._can_paste())

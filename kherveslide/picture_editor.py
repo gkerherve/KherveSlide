@@ -6,11 +6,14 @@ is a numeric control with a small live preview of the final result.
 """
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QHBoxLayout,
-    QLabel, QPushButton, QVBoxLayout, QWidget,
+    QApplication, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
+    QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
 _HANDLE = 7.0
@@ -200,6 +203,10 @@ class PictureEditDialog(QDialog):
         b_replace = QPushButton("Replace image…")
         b_replace.clicked.connect(self._replace)
         controls.addWidget(b_replace)
+        b_paste = QPushButton("Paste from clipboard")
+        b_paste.setToolTip("Use a screenshot/image copied to the clipboard")
+        b_paste.clicked.connect(self._paste)
+        controls.addWidget(b_paste)
         controls.addStretch(1)
         self._preview = QLabel()
         self._preview.setFixedSize(96, 96)
@@ -236,11 +243,27 @@ class PictureEditDialog(QDialog):
             self, "Choose image", "",
             "Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.pdf)")
         if path:
-            self.path = path
-            self._src = QPixmap(path)
-            self._canvas.set_pixmap(self._src if not self._src.isNull()
-                                    else None)
-            self._update_preview()
+            self._set_image(path)
+
+    def _paste(self):
+        """Use an image (e.g. a screenshot) from the clipboard."""
+        img = QApplication.clipboard().image()
+        if img is None or img.isNull():
+            return
+        d = Path(tempfile.gettempdir()) / "kherveslide_pasted"
+        d.mkdir(parents=True, exist_ok=True)
+        i = 1
+        while (d / f"pasted_{i:03d}.png").exists():
+            i += 1
+        p = d / f"pasted_{i:03d}.png"
+        img.save(str(p), "PNG")
+        self._set_image(str(p))
+
+    def _set_image(self, path):
+        self.path = path
+        self._src = QPixmap(path)
+        self._canvas.set_pixmap(self._src if not self._src.isNull() else None)
+        self._update_preview()
 
     def _update_preview(self):
         if self._src.isNull():
