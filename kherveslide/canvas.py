@@ -862,10 +862,11 @@ class SlideView(QGraphicsView):
         self.fit_mode = True
 
     def keyPressEvent(self, event):
-        # Delete the selected object. While editing text the embedded editor
-        # has focus (not the view), so this never eats the editor's Delete.
+        # Delete the selected object — but NOT while editing text: then the
+        # inline editor is the scene's focus item and must get Delete itself.
         if event.key() == Qt.Key_Delete and self.scene() \
-                and self.scene().selectedItems():
+                and self.scene().selectedItems() \
+                and self.scene().focusItem() is None:
             self.deleteRequested.emit()
             event.accept()
             return

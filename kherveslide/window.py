@@ -1597,7 +1597,25 @@ class SlideWindow(QMainWindow):
         return str(p)
 
     # ---------------- canvas right-click menu ----------------
+    def _select_box_at(self, scene_pos):
+        """Select the topmost box whose rectangle contains *scene_pos*."""
+        hit = None
+        for it in self._items:            # later items paint on top
+            try:
+                if it.scene_rect().contains(scene_pos):
+                    hit = it
+            except RuntimeError:
+                continue
+        if hit is not None and not hit.isSelected():
+            self.scene.clearSelection()
+            hit.setSelected(True)
+        return hit
+
     def _canvas_context_menu(self, global_pos, scene_pos):
+        # Right-clicking a box selects it first, so the menu always acts on
+        # the box under the cursor (no need to left-click it beforehand).
+        if isinstance(scene_pos, QPointF):
+            self._select_box_at(scene_pos)
         menu = QMenu(self)
         item = self._selected_item()
         if item is not None:

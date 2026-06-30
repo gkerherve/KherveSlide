@@ -825,6 +825,37 @@ def test_inline_editor_claims_editing_shortcuts():
     assert Qt.Key_N not in _InlineEditor._GRAB_KEYS
 
 
+def test_right_click_selects_box_under_cursor(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.append(SlideText(x=0.1, y=0.1, w=0.4, h=0.2, text="A",
+                                     locked=False))
+    w._reload_scene()
+    item = w._items[-1]
+    assert not item.isSelected()
+    w._select_box_at(item.scene_rect().center())     # right-click hit-test
+    assert item.isSelected()
+
+
+def test_delete_key_ignored_while_editing(monkeypatch):
+    # While the inline editor is up, the scene has a focus item, so the
+    # view's Delete shortcut must not fire (it would delete the box).
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.append(SlideText(text="hello", locked=False))
+    w._reload_scene()
+    item = w._items[-1]
+    item.setSelected(True)
+    w._edit_text_item(item)
+    assert w.scene.focusItem() is not None      # editor holds scene focus
+
+
 def test_find_in_slides_navigates(monkeypatch):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
