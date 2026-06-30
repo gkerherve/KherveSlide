@@ -69,9 +69,6 @@ _COLOUR_THEMES = [
     "dove", "fly", "lily", "monarca", "orchid", "rose", "seagull",
     "seahorse", "spruce", "structure", "whale", "wolverine",
 ]
-# Shown in the theme combo when a theme-builder custom theme is active, so
-# it no longer reads as the plain base theme (e.g. "Warsaw").
-_CUSTOM_LABEL = "Custom (theme builder)"
 _ASPECTS = ["169", "1610", "43", "32", "54", "141"]
 _ASPECT_LABELS = {
     "169": "16:9", "1610": "16:10", "43": "4:3",
@@ -337,7 +334,7 @@ class SlideWindow(QMainWindow):
         # One Theme menu for everything that shapes the slide's look: the
         # presentation theme (whole look) AND the colour theme (colours
         # only), plus the gallery, the custom builder and decorations.
-        m_theme = mb.addMenu("&Theme")
+        m_theme = mb.addMenu("&Slide Theme")
         m_ptheme = m_theme.addMenu("Presentation theme (whole look)")
         self._ptheme_group = QActionGroup(self)
         self._ptheme_actions = {}
@@ -345,7 +342,7 @@ class SlideWindow(QMainWindow):
             a = m_ptheme.addAction(name)
             a.setCheckable(True)
             a.triggered.connect(
-                lambda _=False, n=name: self.theme_combo.setCurrentText(n))
+                lambda _=False, n=name: self._set_presentation_theme(n))
             self._ptheme_group.addAction(a)
             self._ptheme_actions[name] = a
         m_ctheme = m_theme.addMenu("Colour theme (colours only)")
@@ -449,19 +446,19 @@ class SlideWindow(QMainWindow):
             lambda: self.view.fit_to_window())
         act(icons.zoom_in, "Zoom in", lambda: self.view.zoom_by(1.25))
         tb.addSeparator()
-        # Quick theme switch; the full set (colour theme, gallery, builder,
-        # decorations) lives in the Theme menu. act_deco is created there.
-        tb.addWidget(QLabel(" Theme "))
-        self.theme_combo = QComboBox()
-        self.theme_combo.setEditable(True)
-        self.theme_combo.addItem(_CUSTOM_LABEL)
-        self.theme_combo.addItems(_THEMES)
-        self.theme_combo.setToolTip("Presentation theme — the whole look. "
-                                    "Colours, gallery and the builder are in "
-                                    "the Theme menu.")
-        self.theme_combo.currentTextChanged.connect(self._on_theme_combo)
-        tb.addWidget(self.theme_combo)
-        tb.addAction(self.act_deco)
+        # Per-box beamer placement (the whole theme lives in the Slide Theme
+        # menu now). Sets the selected box's locked property.
+        tb.addWidget(QLabel(" Box "))
+        self.placement_combo = QComboBox()
+        self.placement_combo.addItem("Beamer-placed", True)     # locked
+        self.placement_combo.addItem("Free (you place it)", False)
+        self.placement_combo.setToolTip(
+            "How beamer treats the selected box: 'Beamer-placed' flows it in "
+            "the standard layout; 'Free' sits exactly where you drag it.")
+        self.placement_combo.currentIndexChanged.connect(
+            self._on_placement_combo)
+        self.placement_combo.setEnabled(False)   # until a box is selected
+        tb.addWidget(self.placement_combo)
 
         # Formatting controls continue on the same single horizontal bar.
         tb.addSeparator()
@@ -701,11 +698,6 @@ class SlideWindow(QMainWindow):
             w.blockSignals(False)
         mode = getattr(self.deck, "page_number", "none")
         self._pgnum_actions.get(mode, self._pgnum_actions["none"]).setChecked(True)
-        self.theme_combo.blockSignals(True)
-        custom_on = getattr(self.deck.theme_spec, "enabled", False)
-        self.theme_combo.setCurrentText(
-            _CUSTOM_LABEL if custom_on else self.deck.theme)
-        self.theme_combo.blockSignals(False)
         self.nav.refresh(self.deck, self.current)
         self._reload_scene()
 
@@ -1502,10 +1494,16 @@ class SlideWindow(QMainWindow):
         if self._loading:
             return
         item = self._selected_item()
+        self.placement_combo.setEnabled(item is not None)
         if item is None:
             self._enable_format(False)
             return
         obj = item.obj
+        # Reflect this box's beamer placement in the toolbar combo.
+        self._loading = True
+        self.placement_combo.setCurrentIndex(
+            0 if getattr(obj, "locked", True) else 1)
+        self._loading = False
         is_text = isinstance(obj, SlideText)
         self._enable_format(True, is_text=is_text, is_pic=not is_text)
         if is_text:
@@ -1598,17 +1596,28 @@ class SlideWindow(QMainWindow):
         if ok:
             self.deck.author = t; self._sync_top_fields(); self._refresh_latex()
 
-    def _on_theme_combo(self, text):
-        if self._loading or not text:
-            return
-        if text == _CUSTOM_LABEL:
-            self._open_theme_builder()
+    def _set_presentation_theme(self, name):
+        if self._loading or not name:
             return
         # Picking a built-in theme replaces any custom theme-builder layer.
-        self.deck.theme = text
+        self.deck.theme = name
         if self.deck.theme_spec.enabled:
             self.deck.theme_spec.enabled = False
         self._recompile_now()
+
+    def _on_placement_combo(self):
+        """Toolbar combo → set the selected box's beamer placement."""
+        if self._loading:
+            return
+        item = self._selected_item()
+        if item is None:
+            return
+        locked = bool(self.placement_combo.currentData())
+        if getattr(item.obj, "locked", True) != locked:
+            item.obj.locked = locked
+            item._apply_lock()
+            item.update()
+            self._touch_current()
 
     def _open_theme_gallery(self):
         from .theme_gallery import ThemeGallery
@@ -1619,9 +1628,6 @@ class SlideWindow(QMainWindow):
             self.deck.theme = dlg.chosen
             self.deck.color_theme = dlg.chosen_color
             self.deck.theme_spec.enabled = False   # built-in replaces custom
-            self.theme_combo.blockSignals(True)
-            self.theme_combo.setCurrentText(dlg.chosen)
-            self.theme_combo.blockSignals(False)
             # Previews show decorations, so turn them on to match what was seen.
             self.deck.plain_frames = False
             self.act_deco.blockSignals(True)
@@ -1723,10 +1729,6 @@ class SlideWindow(QMainWindow):
                                  self.deck.color_theme, self.deck.aspect, self)
         if dlg.exec() and dlg.result_spec is not None:
             self.deck.theme_spec = dlg.result_spec
-            self.theme_combo.blockSignals(True)
-            self.theme_combo.setCurrentText(
-                _CUSTOM_LABEL if dlg.result_spec.enabled else self.deck.theme)
-            self.theme_combo.blockSignals(False)
             if dlg.result_spec.enabled:
                 # Custom themes touch decorated elements — show them.
                 self.deck.plain_frames = False

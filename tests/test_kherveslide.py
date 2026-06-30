@@ -744,6 +744,23 @@ def test_inline_editor_claims_editing_shortcuts():
     assert Qt.Key_N not in _InlineEditor._GRAB_KEYS
 
 
+def test_placement_combo_sets_box_locked(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.append(SlideText(text="x", locked=True))
+    w._reload_scene()
+    item = w._items[-1]
+    item.setSelected(True)
+    assert w.placement_combo.isEnabled()
+    assert w.placement_combo.currentIndex() == 0          # Beamer-placed
+    w.placement_combo.setCurrentIndex(1)                  # Free
+    assert item.obj.locked is False
+    assert not hasattr(w, "theme_combo")                  # moved to the menu
+
+
 def test_nav_tickbox_and_menu_stay_in_sync(monkeypatch):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
