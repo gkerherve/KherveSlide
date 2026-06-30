@@ -126,6 +126,46 @@ def test_serialize_shape_rectangle_and_ellipse():
     assert "rotate=-30" in tex                            # screen CW → tikz CCW
 
 
+def test_shape_inline_obeys_zorder():
+    from kherveslide.model import SlideShape
+    # No beamer-placed object: the shape is placed inline via textpos (so it
+    # z-stacks by source order), NOT a page-absolute overlay.
+    tex = serialize_deck(Deck(slides=[Slide(objects=[
+        SlideShape(shape="rect", fill="#ff0000")])], nav_symbols=False))
+    assert "\\begin{textblock}" in tex
+    assert "remember picture" not in tex
+
+
+def test_shape_sent_behind_locked_uses_background():
+    from kherveslide.model import SlideShape
+    # Shape FIRST, beamer-placed text AFTER → the shape was sent to the back,
+    # so it is drawn in the frame's background template (the only layer under
+    # the flow body), using a page-absolute tikz overlay.
+    behind = serialize_deck(Deck(slides=[Slide(objects=[
+        SlideShape(shape="rect", fill="#ff0000"),
+        SlideText(text="Hi", locked=True)])], nav_symbols=False))
+    assert "\\setbeamertemplate{background}" in behind
+    assert "remember picture" in behind
+    # Shape AFTER the text → ordinary inline foreground, no background template.
+    front = serialize_deck(Deck(slides=[Slide(objects=[
+        SlideText(text="Hi", locked=True),
+        SlideShape(shape="rect", fill="#ff0000")])], nav_symbols=False))
+    assert "\\setbeamertemplate{background}" not in front
+
+
+def test_scene_has_pasteboard_around_page():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide.canvas import SlideScene
+    s = SlideScene("169")
+    pr, sr = s.page_rect(), s.sceneRect()
+    # The scene extends past the page on every side so a box can be parked off
+    # the slide, while the page rect still reports just the slide.
+    assert sr.left() < pr.left() and sr.top() < pr.top()
+    assert sr.right() > pr.right() and sr.bottom() > pr.bottom()
+    assert (pr.width(), pr.height()) == (s.page_w, s.page_h)
+
+
 def test_serialize_line_style_and_opacity():
     deck = Deck(slides=[Slide(objects=[
         SlideLine(arrow_end=True, style="dotted", opacity=0.4)])],
@@ -413,10 +453,11 @@ def test_serialize_line_uses_tikz():
     deck = Deck(slides=[Slide(objects=[SlideLine(arrow_end=True)])])
     tex = serialize_deck(deck)
     assert "\\usepackage{tikz}" in tex
-    assert "\\usetikzlibrary{arrows.meta}" in tex
-    assert "\\begin{tikzpicture}[overlay,remember picture]" in tex
+    assert "\\usetikzlibrary{arrows.meta,calc}" in tex
+    assert "\\begin{tikzpicture}" in tex
     assert "-{Stealth" in tex                    # sized Stealth arrowhead
-    assert "current page.north west" in tex
+    # placed inline via textpos so it obeys z-order (no page-absolute overlay)
+    assert "\\begin{textblock}" in tex
 
 
 def test_serialize_plain_line_has_no_arrowhead():

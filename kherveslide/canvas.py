@@ -388,9 +388,12 @@ class BoxItem(QGraphicsObject):
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionChange and self.scene():
-            # Keep the box on the page (it may sit within the gap margin).
-            nx = min(max(0.0, value.x()), self._pw - self._rect.width())
-            ny = min(max(0.0, value.y()), self._ph - self._rect.height())
+            # Allow parking a box on the grey pasteboard around the slide (it
+            # just won't render in the PDF) — clamp only to the scene rect so
+            # it can't be dragged out of reach entirely.
+            sr = self.scene().sceneRect()
+            nx = min(max(sr.left(), value.x()), sr.right() - self._rect.width())
+            ny = min(max(sr.top(), value.y()), sr.bottom() - self._rect.height())
             return QPointF(nx, ny)
         if change == QGraphicsItem.ItemPositionHasChanged:
             self._write_geometry()
@@ -878,8 +881,19 @@ class SlideScene(QGraphicsScene):
         self.page_h = SCENE_H
         self._set_rect()
 
+    def page_rect(self) -> QRectF:
+        """The slide page itself (white area), independent of the scene rect
+        which extends into a grey pasteboard so objects can be dragged off
+        the slide."""
+        return QRectF(0, 0, self.page_w, self.page_h)
+
     def _set_rect(self):
-        self.setSceneRect(0, 0, self.page_w, self.page_h)
+        # Surround the page with a generous pasteboard so a box / tool can be
+        # parked outside the slide (it just won't render in the PDF). The view
+        # still fits the page, so the pasteboard only appears when you drag
+        # something out or zoom away.
+        mx, my = 0.6 * self.page_w, 0.6 * self.page_h
+        self.setSceneRect(-mx, -my, self.page_w + 2 * mx, self.page_h + 2 * my)
 
     def set_aspect(self, aspect):
         self.aspect = aspect
@@ -900,7 +914,7 @@ class SlideScene(QGraphicsScene):
         # backgroundBrush — because setting that brush stops the view from
         # ever calling this, leaving the page unpainted.
         painter.fillRect(rect, QColor("#9aa0a6"))
-        r = self.sceneRect()
+        r = self.page_rect()
         painter.fillRect(r.translated(7, 7), QColor(0, 0, 0, 45))
         painter.fillRect(r, QColor(self.page_color or "#FFFFFF"))
         painter.setPen(QPen(QColor(150, 150, 150), 0))
@@ -1002,8 +1016,13 @@ class SlideView(QGraphicsView):
             self.scale(factor, factor)
 
     def fit_to_window(self):
-        if self.scene() is not None:
-            self.fitInView(self.scene().sceneRect(), Qt.KeepAspectRatio)
+        scene = self.scene()
+        if scene is not None:
+            # Fit the slide page (not the wider pasteboard) so the slide stays
+            # the focus; the grey margins appear only on zoom-out / drag-out.
+            rect = (scene.page_rect() if hasattr(scene, "page_rect")
+                    else scene.sceneRect())
+            self.fitInView(rect, Qt.KeepAspectRatio)
             self.fit_mode = True
 
 
@@ -1023,6 +1042,6 @@ def render_thumbnail(slide: Slide, deck, width_px: int = 160) -> QPixmap:
     pm.fill(QColor("#FFFFFF"))
     painter = QPainter(pm)
     painter.setRenderHint(QPainter.Antialiasing, True)
-    scene.render(painter, QRectF(0, 0, width_px, height_px), scene.sceneRect())
+    scene.render(painter, QRectF(0, 0, width_px, height_px), scene.page_rect())
     painter.end()
     return pm

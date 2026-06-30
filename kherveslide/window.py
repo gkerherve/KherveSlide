@@ -899,8 +899,11 @@ class SlideWindow(QMainWindow):
         self.scene.blockSignals(True)
         self.scene.clear()
         self.scene.blockSignals(False)
-        for obj in self.slide.objects:
+        for z, obj in enumerate(self.slide.objects):
             item = make_item(obj, pw, ph, self.deck.gap, self._font_scale)
+            # Stack strictly by list order so raise / lower / front / back are
+            # honoured on the canvas exactly as in the generated slide.
+            item.setZValue(z)
             item.geometryChanged.connect(self._on_item_geometry)
             item.lockToggled.connect(self._on_lock_toggled)
             if isinstance(item, TableBoxItem):

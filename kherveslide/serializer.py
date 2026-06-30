@@ -428,10 +428,13 @@ def _theme_spec_lines(spec) -> list[str]:
 _DASH_TIKZ = {"dashed": ", dashed", "dotted": ", dotted"}
 
 
+# Lines and shapes are placed inline via textpos (NOT a page-absolute
+# "overlay,remember picture" tikz layer, which always paints on top of
+# everything regardless of source order). Drawing them in local tikz
+# coordinates inside a textblock makes them obey the same source-order
+# z-stacking as every other box, so raise / lower / send-behind work.
+
 def _serialize_line(obj: SlideLine, gap: float, idx: int) -> str:
-    span = 1 - 2 * gap
-    px1, py1 = gap + obj.x * span, gap + obj.y * span
-    px2, py2 = gap + (obj.x + obj.w) * span, gap + (obj.y + obj.h) * span
     colour = _hex_to_rgb_arg(obj.color) or "000000"
     hs = max(0.3, getattr(obj, "head_size", 1.0))
     head = f"{{Stealth[length={_fmt(2.4 * hs)}mm]}}"
@@ -446,25 +449,23 @@ def _serialize_line(obj: SlideLine, gap: float, idx: int) -> str:
     dash = _DASH_TIKZ.get(getattr(obj, "style", "solid"), "")
     op = getattr(obj, "opacity", 1.0)
     opacity = f", draw opacity={_fmt(op)}" if op < 1.0 else ""
-    nw = "current page.north west"
-    return (
-        f"\\definecolor{{ksline{idx}}}{{HTML}}{{{colour}}}\n"
-        f"\\begin{{tikzpicture}}[overlay,remember picture]\n"
+    wlen, hlen = "\\linewidth", f"{_fmt(obj.h)}\\TPVertModule"
+    pic = (
+        f"\\begin{{tikzpicture}}\n"
+        f"\\useasboundingbox (0,0) rectangle ({wlen},-{hlen});\n"
         f"\\draw[line width={_fmt(obj.width_pt)}pt,color=ksline{idx}"
-        f"{arrow}{dash}{opacity}] "
-        f"([xshift={_fmt(px1)}\\paperwidth,yshift=-{_fmt(py1)}\\paperheight]{nw}) -- "
-        f"([xshift={_fmt(px2)}\\paperwidth,yshift=-{_fmt(py2)}\\paperheight]{nw});\n"
+        f"{arrow}{dash}{opacity}] (0,0) -- ({wlen},-{hlen});\n"
         f"\\end{{tikzpicture}}")
+    return (f"\\definecolor{{ksline{idx}}}{{HTML}}{{{colour}}}\n"
+            f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
+            f"{pic}\n\\end{{textblock}}")
 
 
 def _serialize_shape(obj: SlideShape, gap: float, idx: int) -> str:
-    span = 1 - 2 * gap
-    cx = gap + (obj.x + obj.w / 2) * span
-    cy = gap + (obj.y + obj.h / 2) * span
-    w, h = obj.w * span, obj.h * span
+    wlen, hlen = "\\linewidth", f"{_fmt(obj.h)}\\TPVertModule"
     defs = ""
-    opts = [f"minimum width={_fmt(w)}\\paperwidth",
-            f"minimum height={_fmt(h)}\\paperheight", "inner sep=0pt"]
+    opts = [f"minimum width={wlen}", f"minimum height={hlen}",
+            "inner sep=0pt", "anchor=center"]
     if obj.shape == "ellipse":
         opts.insert(0, "ellipse")
     elif obj.corner == "rounded":
@@ -484,13 +485,96 @@ def _serialize_shape(obj: SlideShape, gap: float, idx: int) -> str:
         opts.append(f"opacity={_fmt(obj.opacity)}")
     if obj.rotation:
         opts.append(f"rotate={_fmt(-obj.rotation)}")
+    pic = (
+        f"\\begin{{tikzpicture}}\n"
+        f"\\useasboundingbox (0,0) rectangle ({wlen},-{hlen});\n"
+        f"\\node[{', '.join(opts)}] at ($(0,0)!0.5!({wlen},-{hlen})$) {{}};\n"
+        f"\\end{{tikzpicture}}")
+    return (defs +
+            f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
+            f"{pic}\n\\end{{textblock}}")
+
+
+# --- "behind" variants: page-absolute tikz drawn in the frame background
+# template, which is the only layer beneath beamer-placed (flow) content.
+# Used when a line/shape is sent below a beamer-placed box in the stack.
+
+def _serialize_line_bg(obj: SlideLine, gap: float, idx: int) -> str:
+    span = 1 - 2 * gap
+    px1, py1 = gap + obj.x * span, gap + obj.y * span
+    px2, py2 = gap + (obj.x + obj.w) * span, gap + (obj.y + obj.h) * span
+    colour = _hex_to_rgb_arg(obj.color) or "000000"
+    hs = max(0.3, getattr(obj, "head_size", 1.0))
+    head = f"{{Stealth[length={_fmt(2.4 * hs)}mm]}}"
+    if obj.arrow_start and obj.arrow_end:
+        arrow = f", {head}-{head}"
+    elif obj.arrow_end:
+        arrow = f", -{head}"
+    elif obj.arrow_start:
+        arrow = f", {head}-"
+    else:
+        arrow = ""
+    dash = _DASH_TIKZ.get(getattr(obj, "style", "solid"), "")
+    op = getattr(obj, "opacity", 1.0)
+    opacity = f", draw opacity={_fmt(op)}" if op < 1.0 else ""
+    nw = "current page.north west"
+    return (
+        f"\\definecolor{{ksline{idx}}}{{HTML}}{{{colour}}}%\n"
+        f"\\begin{{tikzpicture}}[remember picture,overlay]\n"
+        f"\\draw[line width={_fmt(obj.width_pt)}pt,color=ksline{idx}"
+        f"{arrow}{dash}{opacity}] "
+        f"([xshift={_fmt(px1)}\\paperwidth,yshift=-{_fmt(py1)}\\paperheight]{nw}) -- "
+        f"([xshift={_fmt(px2)}\\paperwidth,yshift=-{_fmt(py2)}\\paperheight]{nw});\n"
+        f"\\end{{tikzpicture}}")
+
+
+def _serialize_shape_bg(obj: SlideShape, gap: float, idx: int) -> str:
+    span = 1 - 2 * gap
+    cx = gap + (obj.x + obj.w / 2) * span
+    cy = gap + (obj.y + obj.h / 2) * span
+    w, h = obj.w * span, obj.h * span
+    defs = ""
+    opts = [f"minimum width={_fmt(w)}\\paperwidth",
+            f"minimum height={_fmt(h)}\\paperheight", "inner sep=0pt"]
+    if obj.shape == "ellipse":
+        opts.insert(0, "ellipse")
+    elif obj.corner == "rounded":
+        opts.append("rounded corners=4pt")
+    if obj.border_color and obj.border_width > 0:
+        defs += (f"\\definecolor{{ksshape{idx}}}{{HTML}}"
+                 f"{{{_hex_to_rgb_arg(obj.border_color) or '000000'}}}%\n")
+        opts.append(f"draw=ksshape{idx}")
+        opts.append(f"line width={_fmt(obj.border_width)}pt")
+        opts.append({"dashed": "dashed", "dotted": "dotted"}.get(
+            getattr(obj, "style", "solid"), "solid"))
+    if obj.fill:
+        defs += (f"\\definecolor{{ksfill{idx}}}{{HTML}}"
+                 f"{{{_hex_to_rgb_arg(obj.fill) or 'ffffff'}}}%\n")
+        opts.append(f"fill=ksfill{idx}")
+    if obj.opacity < 1.0:
+        opts.append(f"opacity={_fmt(obj.opacity)}")
+    if obj.rotation:
+        opts.append(f"rotate={_fmt(-obj.rotation)}")
     nw = "current page.north west"
     pos = (f"([xshift={_fmt(cx)}\\paperwidth,"
            f"yshift=-{_fmt(cy)}\\paperheight]{nw})")
     return (defs +
-            "\\begin{tikzpicture}[overlay,remember picture]\n"
+            "\\begin{tikzpicture}[remember picture,overlay]\n"
             f"\\node[{', '.join(opts)}] at {pos} {{}};\n"
             "\\end{tikzpicture}")
+
+
+def _overlay_behind(obj, gap: float, counter: list) -> str | None:
+    """A line/shape rendered into the frame background (behind flow)."""
+    if isinstance(obj, SlideLine):
+        block = _serialize_line_bg(obj, gap, counter[0])
+        counter[0] += 1
+        return block
+    if isinstance(obj, SlideShape):
+        block = _serialize_shape_bg(obj, gap, counter[0])
+        counter[0] += 1
+        return block
+    return None
 
 
 def _overlay_object(obj, gap: float, counter: list) -> str | None:
@@ -571,7 +655,37 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
     opts = ("plain," if plain else "") + "t"
     bar = "% " + "=" * 70
     head = f"% Slide {index + 1}" + (f" - {slide.title}" if slide.title else "")
-    parts = [bar, head, bar, f"\\begin{{frame}}[{opts}]"]
+
+    def _is_flow(o) -> bool:
+        return (getattr(o, "locked", True)
+                and not isinstance(o, (SlideLine, SlideShape)))
+
+    # beamer renders ALL absolutely-placed (textpos / tikz overlay) content
+    # above the flow body, so a line/shape that the user sent *below* a
+    # beamer-placed box can't sit behind it inline. Those "behind" shapes are
+    # drawn in the frame's background template instead — the one layer under
+    # the flow body. "Behind" = a line/shape whose stack index is lower than
+    # the first beamer-placed object.
+    objs = slide.objects
+    first_flow = next((k for k, o in enumerate(objs) if _is_flow(o)), None)
+    behind = []
+    if first_flow is not None:
+        behind = [o for k, o in enumerate(objs)
+                  if k < first_flow and isinstance(o, (SlideLine, SlideShape))]
+    behind_ids = {id(o) for o in behind}
+
+    parts = [bar, head, bar]
+    if behind:
+        bg_parts = []
+        for o in behind:
+            blk = _overlay_behind(o, gap, counter)
+            if blk:
+                bg_parts.append(blk)
+        parts.append("{%  scoped background: shapes sent behind the content")
+        parts.append("\\setbeamertemplate{background}{%")
+        parts.extend(bg_parts)
+        parts.append("}")
+    parts.append(f"\\begin{{frame}}[{opts}]")
     if slide.title:
         parts.append(f"  \\frametitle{{{slide.title}}}")
     bg = _hex_to_rgb_arg(blend_over_white(slide.bg, slide.bg_alpha))
@@ -587,24 +701,32 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
             f"\\colorbox[HTML]{{{bg}}}{{\\rule{{0pt}}{{\\paperheight}}"
             "\\hspace{\\paperwidth}}\n"
             "\\end{textblock}")
-    # Locked objects flow in the frame body (beamer lays them out); lines
-    # are always absolute, so they never flow. Side-by-side locked objects
-    # become beamer columns.
-    locked_flow = [o for o in slide.objects
-                   if getattr(o, "locked", True)
-                   and not isinstance(o, (SlideLine, SlideShape))]
-    flow = _serialize_flow(locked_flow)
-    if flow:
-        parts.append("\n  % beamer-placed content (flows in the frame body)")
-        parts.extend(flow)
-    # Unlocked objects (and all lines) are placed absolutely on top.
-    for obj in slide.objects:
-        if (not getattr(obj, "locked", True)
-                or isinstance(obj, (SlideLine, SlideShape))):
-            block = _overlay_object(obj, gap, counter)
+    # Emit objects in list order so the stack order on the slide matches the
+    # canvas (raise / lower / bring-to-front actually move things): later
+    # source = drawn on top. A run of consecutive beamer-placed objects flows
+    # in the frame body (and side-by-side ones become columns); free objects,
+    # lines and shapes are placed absolutely inline at their list position.
+    i = 0
+    while i < len(objs):
+        if id(objs[i]) in behind_ids:
+            i += 1                       # already drawn in the background
+            continue
+        if _is_flow(objs[i]):
+            run = []
+            while i < len(objs) and _is_flow(objs[i]):
+                run.append(objs[i])
+                i += 1
+            flow = _serialize_flow(run)
+            if flow:
+                parts.append("\n  % beamer-placed content "
+                             "(flows in the frame body)")
+                parts.extend(flow)
+        else:
+            block = _overlay_object(objs[i], gap, counter)
             if block:
-                parts.append(f"\n  % {_obj_label(obj)} (free-positioned)")
+                parts.append(f"\n  % {_obj_label(objs[i])} (free-positioned)")
                 parts.append(block)
+            i += 1
     if nav_symbols:
         parts.append("\n  % navigation symbols (bottom-right)")
         parts.append(_nav_symbols_block(gap))
@@ -612,6 +734,8 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
         parts.append("\n  % slide number")
         parts.append(_page_number_block(page_number, gap))
     parts.append("\\end{frame}")
+    if behind:
+        parts.append("}")     # close the scoped-background group
     return "\n".join(parts)
 
 
@@ -682,7 +806,7 @@ def serialize_deck(deck: Deck) -> str:
         # tikz also drives image opacity (a node with opacity= tints it).
         lines.append("\\usepackage{tikz}")
     if needs_tikz:
-        lines.append("\\usetikzlibrary{arrows.meta}")
+        lines.append("\\usetikzlibrary{arrows.meta,calc}")
         if needs_ellipse:
             lines.append("\\usetikzlibrary{shapes.geometric}")
     if any(isinstance(o, SlidePicture) and _has_crop(o)
