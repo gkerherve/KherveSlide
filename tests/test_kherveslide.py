@@ -811,3 +811,31 @@ def test_rich_edit_round_trip_keeps_lists():
     assert out.count("\\item") == 2
     assert "\\end{itemize}" in out
     assert "First" in out and "Second" in out
+
+
+# --- PowerPoint import ---
+
+def test_pptx_import_maps_shapes(tmp_path):
+    from kherveslide import pptx_import
+    if not pptx_import.available():
+        pytest.skip("python-pptx not installed")
+    from pptx import Presentation
+    from pptx.util import Inches
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])   # blank layout
+    tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+    tb.text_frame.text = "Hello"
+    tb.text_frame.paragraphs[0].runs[0].font.bold = True
+    src = tmp_path / "deck.pptx"
+    prs.save(str(src))
+
+    deck = pptx_import.import_pptx(src, tmp_path / "media")
+    assert len(deck.slides) == 1
+    texts = [o for o in deck.slides[0].objects
+             if isinstance(o, SlideText)]
+    assert any("Hello" in o.text for o in texts)
+    assert any("\\textbf{Hello}" in o.text for o in texts)   # bold run kept
+    # Imported objects are freely positioned, and the page matches the pptx.
+    assert all(o.locked is False for o in deck.slides[0].objects)
+    assert deck.page_w_cm > 0 and deck.page_h_cm > 0
+    serialize_deck(deck)            # the imported deck serialises cleanly

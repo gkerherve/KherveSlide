@@ -270,6 +270,7 @@ class SlideWindow(QMainWindow):
         m_file.addAction("New window", self._new_window).setShortcut(
             "Ctrl+Shift+N")
         m_file.addAction("Open…", self._open_deck).setShortcut("Ctrl+O")
+        m_file.addAction("Import PowerPoint (.pptx)…", self._import_pptx)
         self._recent_menu = m_file.addMenu("Open recent")
         self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
         m_file.addSeparator()
@@ -1979,6 +1980,39 @@ class SlideWindow(QMainWindow):
             "KherveSlide presentation (*.kslide *.kslide.json *.json)")
         if path:
             self.open_path(path)
+
+    def _import_pptx(self):
+        from . import pptx_import
+        if not pptx_import.available():
+            QMessageBox.warning(
+                self, "Import PowerPoint",
+                "The python-pptx package is needed to import .pptx files.\n"
+                "Install it with:  pip install python-pptx")
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import PowerPoint", "", "PowerPoint (*.pptx)")
+        if not path:
+            return
+        src = Path(path)
+        media = src.parent / f"{src.stem}_media"
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            deck = pptx_import.import_pptx(src, media)
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Import PowerPoint",
+                                f"Could not import this file:\n{e}")
+            return
+        QApplication.restoreOverrideCursor()
+        self.deck = deck
+        self.current = 0
+        self.path = None          # imported — user saves it as a .kslide
+        self._update_title()
+        self._reload_all()
+        self._reset_history()
+        self.statusBar().showMessage(
+            f"Imported {len(deck.slides)} slide(s) from PowerPoint — "
+            "review and Save As a .kslide")
 
     def open_path(self, path):
         """Open a presentation file (shared by Open, Open recent, CLI)."""
