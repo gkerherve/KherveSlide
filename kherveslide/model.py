@@ -42,6 +42,9 @@ class SlideText:
     align: str = "left"           # left | center | right
     bold: bool = False
     italic: bool = False
+    # Locked: beamer places the box in the standard flow (you can't drag it).
+    # Unlocked: free absolute positioning at (x, y) via textpos.
+    locked: bool = True
     type: str = "SlideText"
 
 
@@ -57,6 +60,7 @@ class SlidePicture:
     path: str = ""
     keep_aspect: bool = True    # lock aspect ratio by default (no distortion)
     opacity: float = 1.0        # 0..1 image transparency
+    locked: bool = True         # see SlideText.locked
     type: str = "SlidePicture"
 
 
@@ -79,6 +83,7 @@ class SlideTable:
     border: bool = True
     header: bool = True        # first row styled as a coloured header
     caption: str = ""          # optional caption shown under the table
+    locked: bool = True        # see SlideText.locked
     type: str = "SlideTable"
 
 
@@ -101,6 +106,9 @@ class SlideLine:
     width_pt: float = 1.5
     arrow_start: bool = False
     arrow_end: bool = False
+    # A line is inherently positioned, so it is always drawn absolutely in
+    # the PDF; locked only governs whether it can be dragged on the canvas.
+    locked: bool = True
     type: str = "SlideLine"
 
 
@@ -194,6 +202,7 @@ def _build_object(d: dict) -> SlideObject:
             align=str(d.get("align", "left")),
             bold=bool(d.get("bold", False)),
             italic=bool(d.get("italic", False)),
+            locked=bool(d.get("locked", True)),
         )
     if t == "SlidePicture":
         return SlidePicture(
@@ -202,6 +211,7 @@ def _build_object(d: dict) -> SlideObject:
             path=str(d.get("path", "")),
             keep_aspect=bool(d.get("keep_aspect", True)),
             opacity=float(d.get("opacity", 1.0)),
+            locked=bool(d.get("locked", True)),
         )
     if t == "SlideTable":
         rows = d.get("rows") or _default_rows()
@@ -214,6 +224,7 @@ def _build_object(d: dict) -> SlideObject:
             border=bool(d.get("border", True)),
             header=bool(d.get("header", True)),
             caption=str(d.get("caption", "")),
+            locked=bool(d.get("locked", True)),
         )
     if t == "SlideLine":
         return SlideLine(
@@ -223,6 +234,7 @@ def _build_object(d: dict) -> SlideObject:
             width_pt=float(d.get("width_pt", 1.5)),
             arrow_start=bool(d.get("arrow_start", False)),
             arrow_end=bool(d.get("arrow_end", False)),
+            locked=bool(d.get("locked", True)),
         )
     raise ValueError(f"Unknown slide object type: {t!r}")
 
@@ -238,12 +250,23 @@ def build_object(d: dict) -> SlideObject:
 
 
 def _build_slide(d: dict) -> Slide:
+    # Locking moved from per-slide (`free`) to per-object (`locked`). Decks
+    # saved before that have no per-object flag, so migrate from the slide:
+    # an old "free" slide had freely placed objects (unlocked); an old
+    # standard slide had beamer-placed objects (locked).
+    slide_free = bool(d.get("free", True))
+    objs = []
+    for od in d.get("objects", []):
+        obj = _build_object(od)
+        if "locked" not in od:
+            obj.locked = not slide_free
+        objs.append(obj)
     return Slide(
-        objects=[_build_object(o) for o in d.get("objects", [])],
+        objects=objs,
         title=str(d.get("title", "")),
         bg=str(d.get("bg", "")),
         bg_alpha=float(d.get("bg_alpha", 1.0)),
-        free=bool(d.get("free", True)),
+        free=slide_free,
     )
 
 

@@ -94,7 +94,7 @@ def test_serialize_textblock_coordinates():
     # modules are bound to \paperwidth/\paperheight so a bare 0.4 is half
     # the slide's quarter-width and (0.25,0.5) is the box's top-left.
     deck = Deck(slides=[Slide(objects=[
-        SlideText(x=0.25, y=0.5, w=0.4, h=0.1, text="X")])])
+        SlideText(x=0.25, y=0.5, w=0.4, h=0.1, text="X", locked=False)])])
     tex = serialize_deck(deck)
     assert "\\begin{textblock}{0.4}(0.25,0.5)" in tex
     assert "\\textblockorigin{0\\paperwidth}{0\\paperheight}" in tex
@@ -102,7 +102,7 @@ def test_serialize_textblock_coordinates():
 
 def test_serialize_frames_are_plain():
     tex = serialize_deck(_sample_deck())
-    assert "\\begin{frame}[plain]" in tex
+    assert "\\begin{frame}[plain,t]" in tex
 
 
 def test_serialize_decorated_frames_when_not_plain():
@@ -179,26 +179,58 @@ def test_background_alpha_round_trip():
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
-# --- per-slide layout mode ---
+# --- per-object lock / layout mode ---
 
-def test_free_slide_uses_textpos():
-    deck = Deck(slides=[Slide(free=True, objects=[SlideText(text="Hi")])])
+def test_unlocked_object_uses_textpos():
+    deck = Deck(slides=[Slide(objects=[SlideText(text="Hi", locked=False)])])
     tex = serialize_deck(deck)
     assert "\\begin{textblock}" in tex
 
 
-def test_standard_slide_flows_no_textpos():
-    deck = Deck(slides=[Slide(free=False, title="Heading", objects=[
-        SlideText(text="Body"),
-        SlideText(text="\\begin{itemize}\\item a\\end{itemize}")])])
+def test_locked_object_flows_no_textpos():
+    deck = Deck(slides=[Slide(title="Heading", objects=[
+        SlideText(text="Body", locked=True),
+        SlideText(text="\\begin{itemize}\\item a\\end{itemize}",
+                  locked=True)])])
     tex = serialize_deck(deck)
     assert "\\frametitle{Heading}" in tex
     assert "\\begin{textblock}" not in tex
     assert "Body" in tex
 
 
-def test_free_round_trip():
-    deck = Deck(slides=[Slide(free=False)])
+def test_object_defaults_locked():
+    assert SlideText().locked is True
+    assert SlidePicture().locked is True
+    assert SlideTable().locked is True
+
+
+def test_mixed_lock_flows_and_overlays():
+    deck = Deck(slides=[Slide(objects=[
+        SlideText(text="Flowed", locked=True),
+        SlideText(text="Floated", locked=False)])])
+    tex = serialize_deck(deck)
+    assert "Flowed" in tex
+    assert "\\begin{textblock}" in tex          # the unlocked one
+    # The flowed box is not wrapped in a textblock.
+    assert tex.count("\\begin{textblock}") == 1
+
+
+def test_legacy_free_slide_migrates_to_unlocked():
+    # A deck saved before per-object locking (only slide.free) loads with
+    # its objects' lock state derived from the slide.
+    import json
+    raw = json.dumps({"type": "Deck", "slides": [
+        {"type": "Slide", "free": True,
+         "objects": [{"type": "SlideText", "text": "x"}]},
+        {"type": "Slide", "free": False,
+         "objects": [{"type": "SlideText", "text": "y"}]}]})
+    deck = deck_from_json(raw)
+    assert deck.slides[0].objects[0].locked is False   # was free
+    assert deck.slides[1].objects[0].locked is True    # was standard
+
+
+def test_lock_round_trip():
+    deck = Deck(slides=[Slide(objects=[SlideText(locked=False)])])
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
@@ -311,7 +343,7 @@ def test_serialize_text_styling():
 def test_serialize_picture():
     deck = Deck(slides=[Slide(objects=[
         SlidePicture(x=0.1, y=0.1, w=0.3, h=0.4, path="img/a.png",
-                     keep_aspect=False)])])
+                     keep_aspect=False, locked=False)])])
     tex = serialize_deck(deck)
     expect = ("\\includegraphics[width=0.3\\paperwidth,"
               "height=0.4\\paperheight]{img/a.png}")
@@ -356,7 +388,8 @@ def test_table_round_trip():
 def test_serialize_table_styled():
     deck = Deck(slides=[Slide(objects=[
         SlideTable(x=0.1, y=0.1, w=0.5, h=0.25,
-                   rows=[["a", "b"], ["c", "d"]], caption="cap")])])
+                   rows=[["a", "b"], ["c", "d"]], caption="cap",
+                   locked=False)])])
     tex = serialize_deck(deck)
     assert "\\begin{textblock}{0.5}(0.1,0.1)" in tex
     assert "\\begin{tabular}{|l|l|}" in tex

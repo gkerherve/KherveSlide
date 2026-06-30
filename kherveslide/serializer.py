@@ -143,28 +143,20 @@ def _serialize_table(obj: SlideTable) -> str:
             f"\\end{{textblock}}")
 
 
-def _serialize_slide_standard(slide: Slide) -> str:
-    """Standard beamer frame: content flows in the body, beamer places it.
-    Top-aligned so a large title/heading isn't pushed off the top by
-    beamer's default vertical centering."""
-    parts = ["\\begin{frame}[t]"]
-    if slide.title:
-        parts.append(f"\\frametitle{{{slide.title}}}")
-    for obj in slide.objects:
-        if isinstance(obj, SlideText):
-            # Leading \par: without it beamer swallows the first styled
-            # paragraph when several are stacked in a [t] frame.
-            parts.append("\\par " + _text_inner(obj) + "\\medskip")
-        elif isinstance(obj, SlideTable):
-            parts.append("\\begin{center}" + _table_inner(obj)
-                         + "\\end{center}")
-        elif isinstance(obj, SlidePicture) and obj.path:
-            parts.append("\\begin{center}"
-                         + _picture_graphic(obj, "\\textwidth", "\\textheight")
-                         + "\\end{center}")
-        # Lines have no flow position, so they're omitted in standard mode.
-    parts.append("\\end{frame}")
-    return "\n".join(parts)
+def _flow_object(obj) -> str | None:
+    """A locked object's representation in the standard beamer flow (beamer
+    places it). Returns None for objects that have no flow form."""
+    if isinstance(obj, SlideText):
+        # Leading \par: without it beamer swallows the first styled
+        # paragraph when several are stacked in a [t] frame.
+        return "\\par " + _text_inner(obj) + "\\medskip"
+    if isinstance(obj, SlideTable):
+        return "\\begin{center}" + _table_inner(obj) + "\\end{center}"
+    if isinstance(obj, SlidePicture) and obj.path:
+        return ("\\begin{center}"
+                + _picture_graphic(obj, "\\textwidth", "\\textheight")
+                + "\\end{center}")
+    return None
 
 
 _SIZE_MACRO = {"small": "\\small", "normal": "\\normalsize",
@@ -247,12 +239,29 @@ def _serialize_line(obj: SlideLine, gap: float, idx: int) -> str:
         f"\\end{{tikzpicture}}")
 
 
+def _overlay_object(obj, gap: float, counter: list) -> str | None:
+    """An unlocked object's absolutely-positioned (textpos / tikz) form."""
+    if isinstance(obj, SlideText):
+        return _serialize_text(obj)
+    if isinstance(obj, SlideTable):
+        return _serialize_table(obj)
+    if isinstance(obj, SlideLine):
+        block = _serialize_line(obj, gap, counter[0])
+        counter[0] += 1
+        return block
+    if isinstance(obj, SlidePicture):
+        return _serialize_picture(obj) or None
+    return None
+
+
 def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
                      counter: list | None = None) -> str:
-    if not slide.free:
-        return _serialize_slide_standard(slide)
-    parts = ["\\begin{frame}[plain]" if plain else "\\begin{frame}"]
-    # A frame title makes the chosen theme render its standard title bar.
+    if counter is None:
+        counter = [0]
+    # [t] top-aligns the flowed (locked) content so a tall heading isn't
+    # pushed off-screen by beamer's default vertical centering.
+    opts = ("plain," if plain else "") + "t"
+    parts = [f"\\begin{{frame}}[{opts}]"]
     if slide.title:
         parts.append(f"\\frametitle{{{slide.title}}}")
     bg = _hex_to_rgb_arg(blend_over_white(slide.bg, slide.bg_alpha))
@@ -267,18 +276,17 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
             f"\\colorbox[HTML]{{{bg}}}{{\\rule{{0pt}}{{\\paperheight}}"
             "\\hspace{\\paperwidth}}\n"
             "\\end{textblock}")
-    if counter is None:
-        counter = [0]
+    # Locked objects flow in the frame body (beamer lays them out); lines
+    # are always absolute, so they never flow.
     for obj in slide.objects:
-        if isinstance(obj, SlideText):
-            parts.append(_serialize_text(obj))
-        elif isinstance(obj, SlideTable):
-            parts.append(_serialize_table(obj))
-        elif isinstance(obj, SlideLine):
-            parts.append(_serialize_line(obj, gap, counter[0]))
-            counter[0] += 1
-        elif isinstance(obj, SlidePicture):
-            block = _serialize_picture(obj)
+        if getattr(obj, "locked", True) and not isinstance(obj, SlideLine):
+            block = _flow_object(obj)
+            if block:
+                parts.append(block)
+    # Unlocked objects (and all lines) are placed absolutely on top.
+    for obj in slide.objects:
+        if not getattr(obj, "locked", True) or isinstance(obj, SlideLine):
+            block = _overlay_object(obj, gap, counter)
             if block:
                 parts.append(block)
     parts.append("\\end{frame}")

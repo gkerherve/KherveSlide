@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Minor is bumped by hand for behaviour changes; the patch component is
 # the repo's total commit count, appended automatically at runtime.
-__version__ = "0.40"
+__version__ = "0.41"
 
 
 def _git_build_info() -> tuple[int, str] | None:

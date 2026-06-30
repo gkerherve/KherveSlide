@@ -216,12 +216,6 @@ class SlideWindow(QMainWindow):
         m_slide.addAction("Frame title…", self._set_frame_title)
         m_slide.addAction("Background colour…", self._pick_slide_bg)
         m_slide.addAction("Clear background", self._clear_slide_bg)
-        m_slide.addSeparator()
-        self.act_free = m_slide.addAction("Free positioning")
-        self.act_free.setCheckable(True)
-        self.act_free.setToolTip("On: place objects yourself. "
-                                 "Off: standard beamer layout (auto-placed).")
-        self.act_free.toggled.connect(self._toggle_free)
 
         m_insert = mb.addMenu("&Insert")
         m_insert.addAction("Text box", self._add_text)
@@ -431,11 +425,6 @@ class SlideWindow(QMainWindow):
         self.f_deck_author = QLineEdit()
         self.f_deck_author.setPlaceholderText("Author")
         self.f_deck_author.editingFinished.connect(self._apply_deck_author)
-        self.chk_free = QCheckBox("Free")
-        self.chk_free.setToolTip("Free positioning. Uncheck for standard "
-                                 "beamer layout (auto-placed).")
-        self.chk_free.toggled.connect(self._toggle_free)
-        hl.addWidget(self.chk_free)
         hl.addWidget(QLabel("Frame:"))
         hl.addWidget(self.f_frame_title, 3)
         hl.addWidget(QLabel("Title:"))
@@ -520,6 +509,7 @@ class SlideWindow(QMainWindow):
         for obj in self.slide.objects:
             item = make_item(obj, pw, ph, self.deck.gap, self._font_scale)
             item.geometryChanged.connect(self._on_item_geometry)
+            item.lockToggled.connect(self._on_lock_toggled)
             if isinstance(item, TableBoxItem):
                 item.cellDoubleClicked.connect(
                     lambda r, c, it=item: self._edit_table_cell(it, r, c))
@@ -528,15 +518,10 @@ class SlideWindow(QMainWindow):
                     lambda it=item: self._on_double_click(it))
             self.scene.addItem(item)
             self._items.append(item)
-        self.scene.free = self.slide.free
         if self.view.fit_mode:
             self.view.fit_to_window()
         self._enable_format(False)
         self._sync_top_fields()
-        for w in (self.act_free, self.chk_free):
-            w.blockSignals(True)
-            w.setChecked(self.slide.free)
-            w.blockSignals(False)
         self._loading = False
         self._refresh_latex()
 
@@ -1190,6 +1175,14 @@ class SlideWindow(QMainWindow):
             menu.addAction("Duplicate", self._duplicate_selected)
             menu.addAction("Delete", self._delete_selected)
             menu.addSeparator()
+            locked = getattr(item.obj, "locked", True)
+            lk = menu.addAction("Locked (beamer places it)")
+            lk.setCheckable(True)
+            lk.setChecked(locked)
+            lk.setToolTip("Locked: beamer lays the box out. "
+                          "Unlocked: drag it anywhere on the slide.")
+            lk.toggled.connect(self._set_selected_locked)
+            menu.addSeparator()
             menu.addAction("Bring to front", lambda: self._zorder("front"))
             menu.addAction("Send to back", lambda: self._zorder("back"))
             if isinstance(item.obj, SlidePicture):
@@ -1387,15 +1380,15 @@ class SlideWindow(QMainWindow):
         self.deck.nav_symbols = on
         self._recompile_now()
 
-    def _toggle_free(self, on):
-        self.slide.free = on
-        self.scene.free = on
-        self.scene.update()
-        for w in (self.act_free, self.chk_free):   # keep both controls in sync
-            w.blockSignals(True)
-            w.setChecked(on)
-            w.blockSignals(False)
-        self._recompile_now()
+    def _on_lock_toggled(self):
+        # A box was locked/unlocked from its lock badge: re-flow the LaTeX
+        # and record the change for undo.
+        self._touch_current()
+
+    def _set_selected_locked(self, locked: bool):
+        item = self._selected_item()
+        if item is not None and getattr(item.obj, "locked", True) != locked:
+            item.toggle_lock()
 
     def _open_theme_builder(self):
         from .theme_builder import ThemeBuilderDialog

@@ -193,6 +193,7 @@ class BoxItem(QGraphicsObject):
 
     geometryChanged = Signal()
     doubleClicked = Signal()
+    lockToggled = Signal()
 
     def __init__(self, obj, page_w: float, page_h: float, gap: float = 0.0,
                  font_scale: float = FONT_SCALE):
@@ -202,22 +203,37 @@ class BoxItem(QGraphicsObject):
         self._ph = page_h
         self._gap = gap
         self._font_scale = font_scale
+        self._hover = False
         cw, ch, ox, oy = self._content()
         self._rect = QRectF(0, 0, max(MIN_PX, obj.w * cw),
                             max(MIN_PX, obj.h * ch))
         self.setPos(ox + obj.x * cw, oy + obj.y * ch)
         self.setFlags(
-            QGraphicsItem.ItemIsMovable
-            | QGraphicsItem.ItemIsSelectable
+            QGraphicsItem.ItemIsSelectable
             | QGraphicsItem.ItemSendsGeometryChanges)
         self.setAcceptHoverEvents(True)
         self._resize_handle: int | None = None
         self._press_scene = QPointF()
         self._start_rect = QRectF()
         self._start_pos = QPointF()
+        self._apply_lock()
 
     def _aspect_locked(self) -> bool:
         return False
+
+    def _is_locked(self) -> bool:
+        return bool(getattr(self.obj, "locked", True))
+
+    def _apply_lock(self) -> None:
+        """A locked box is beamer-controlled: it can be selected (to edit or
+        unlock) but not dragged or resized."""
+        self.setFlag(QGraphicsItem.ItemIsMovable, not self._is_locked())
+
+    def _lock_rect(self) -> QRectF:
+        """The clickable lock toggle, on the box's right side near the top."""
+        s = 18.0
+        r = self._rect
+        return QRectF(r.right() - s - 3, r.top() + 3, s, s)
 
     # -- geometry --------------------------------------------------
     def boundingRect(self) -> QRectF:
@@ -236,13 +252,29 @@ class BoxItem(QGraphicsObject):
                 for h, (x, y) in pts.items()}
 
     def _handle_at(self, pos: QPointF) -> int | None:
+        if self._is_locked():
+            return None
         for h, rect in self._handle_rects().items():
             if rect.contains(pos):
                 return h
         return None
 
     # -- mouse -----------------------------------------------------
+    def hoverEnterEvent(self, event):
+        self._hover = True
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self._hover = False
+        self.update()
+        super().hoverLeaveEvent(event)
+
     def hoverMoveEvent(self, event):
+        if self._lock_rect().contains(event.pos()):
+            self.setCursor(Qt.PointingHandCursor)
+            super().hoverMoveEvent(event)
+            return
         h = self._handle_at(event.pos()) if self.isSelected() else None
         cursors = {
             TL: Qt.SizeFDiagCursor, BR: Qt.SizeFDiagCursor,
@@ -250,10 +282,24 @@ class BoxItem(QGraphicsObject):
             T: Qt.SizeVerCursor, B: Qt.SizeVerCursor,
             L: Qt.SizeHorCursor, R: Qt.SizeHorCursor,
         }
-        self.setCursor(cursors.get(h, Qt.SizeAllCursor))
+        default = Qt.ArrowCursor if self._is_locked() else Qt.SizeAllCursor
+        self.setCursor(cursors.get(h, default))
         super().hoverMoveEvent(event)
 
+    def toggle_lock(self) -> None:
+        self.obj.locked = not self._is_locked()
+        self._apply_lock()
+        self.update()
+        self.lockToggled.emit()
+
     def mousePressEvent(self, event):
+        # The lock badge is clickable whenever the box is shown (hover or
+        # selection) — it's the only control on a locked box.
+        if (self.isSelected() or self._hover) \
+                and self._lock_rect().contains(event.pos()):
+            self.toggle_lock()
+            event.accept()
+            return
         h = self._handle_at(event.pos()) if self.isSelected() else None
         if h is not None:
             self._resize_handle = h
@@ -354,18 +400,59 @@ class BoxItem(QGraphicsObject):
 
     # -- painting helpers -----------------------------------------
     def _paint_selection(self, painter):
+        locked = self._is_locked()
         if not self.isSelected():
             painter.setPen(QPen(QColor(150, 150, 150), 0, Qt.DashLine))
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(self._rect)
+            if self._hover:
+                self._paint_lock(painter)
             return
         painter.setPen(QPen(QColor(40, 120, 220), 0, Qt.SolidLine))
         painter.setBrush(Qt.NoBrush)
         painter.drawRect(self._rect)
-        painter.setBrush(QBrush(QColor(255, 255, 255)))
-        painter.setPen(QPen(QColor(40, 120, 220), 0))
-        for rect in self._handle_rects().values():
-            painter.drawRect(rect)
+        if not locked:                       # resize handles only when free
+            painter.setBrush(QBrush(QColor(255, 255, 255)))
+            painter.setPen(QPen(QColor(40, 120, 220), 0))
+            for rect in self._handle_rects().values():
+                painter.drawRect(rect)
+        self._paint_lock(painter)
+
+    def _paint_lock(self, painter):
+        """A little padlock badge — closed (grey) when locked, open (blue)
+        when the box is freely positioned. Click it to toggle."""
+        r = self._lock_rect()
+        locked = self._is_locked()
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        bg = QColor(90, 96, 102) if locked else QColor(40, 120, 220)
+        painter.setBrush(QBrush(QColor(255, 255, 255, 235)))
+        painter.setPen(QPen(bg, 1.2))
+        painter.drawRoundedRect(r, 3, 3)
+        # Body of the padlock.
+        bw, bh = r.width() * 0.62, r.height() * 0.42
+        body = QRectF(r.center().x() - bw / 2, r.bottom() - bh - 2, bw, bh)
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(body, 1.5, 1.5)
+        # Shackle: a closed arc when locked, lifted/open when unlocked.
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(bg, 1.4))
+        sw = bw * 0.62
+        sx = r.center().x() - sw / 2
+        sy = body.top() - sw * 0.7
+        arc = QRectF(sx, sy, sw, sw)
+        if locked:
+            painter.drawArc(arc, 0, 180 * 16)
+            painter.drawLine(QPointF(arc.left(), arc.center().y()),
+                             QPointF(arc.left(), body.top()))
+            painter.drawLine(QPointF(arc.right(), arc.center().y()),
+                             QPointF(arc.right(), body.top()))
+        else:
+            painter.drawArc(arc.translated(sw * 0.45, 0), 30 * 16, 170 * 16)
+            painter.drawLine(QPointF(arc.left(), arc.center().y()),
+                             QPointF(arc.left(), body.top()))
+        painter.restore()
 
 
 class TextBoxItem(BoxItem):
@@ -399,6 +486,10 @@ class TextBoxItem(BoxItem):
 
         font = QFont("Helvetica")
         font.setPixelSize(max(6, int(obj.font_pt * self._font_scale)))
+        # Helvetica is ~10% wider per glyph than the PDF's Latin Modern, so
+        # the same text wrapped a line early on the canvas. Condensing the
+        # width (height unchanged) lines the canvas wrap up with the PDF.
+        font.setStretch(90)
         font.setBold(obj.bold)
         font.setItalic(obj.italic)
 
@@ -594,7 +685,6 @@ class SlideScene(QGraphicsScene):
         super().__init__()
         self.aspect = aspect
         self.page_color = "#FFFFFF"   # current slide background
-        self.free = True              # False = standard beamer layout
         self.gap = 0.0
         self.page_w = scene_width(aspect)
         self.page_h = SCENE_H
@@ -634,15 +724,6 @@ class SlideScene(QGraphicsScene):
                            (1 - 2 * g) * self.page_w, (1 - 2 * g) * self.page_h)
             painter.setPen(QPen(QColor(120, 160, 210), 0, Qt.DashLine))
             painter.drawRect(guide)
-
-    def drawForeground(self, painter, rect):
-        if not self.free:
-            # Positions are only a guide here — beamer lays the slide out.
-            painter.setPen(QColor(150, 90, 0))
-            f = QFont("Helvetica"); f.setPixelSize(16); painter.setFont(f)
-            painter.drawText(QRectF(8, 6, self.page_w - 16, 24),
-                             int(Qt.AlignLeft | Qt.AlignTop),
-                             "Standard beamer layout — beamer auto-places content")
 
 
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".pdf")
