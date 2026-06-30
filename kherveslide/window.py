@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget,
 )
 
-from . import icons, spellcheck, templates, themes, version_string
+from . import icons, shapes, spellcheck, templates, themes, version_string
 from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
     make_item, page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
@@ -436,6 +436,17 @@ class SlideWindow(QMainWindow):
         m_insert.addAction("Equation…", self._add_equation)
         m_insert.addAction("Drawing…", self._add_drawing)
 
+        m_shapes = mb.addMenu("S&hapes")
+        m_shapes.addAction("Line", self._add_line)
+        m_shapes.addAction("Arrow", self._add_arrow)
+        m_shapes.addSeparator()
+        for group, items in shapes.GROUPS:
+            sub = m_shapes.addMenu(group)
+            for key, label in items:
+                sub.addAction(
+                    label,
+                    lambda _checked=False, k=key: self._add_shape(k))
+
         m_table = mb.addMenu("&Table")
         m_table.addAction("Add row", lambda: self._table_op("add_row"))
         m_table.addAction("Add column", lambda: self._table_op("add_col"))
@@ -638,6 +649,13 @@ class SlideWindow(QMainWindow):
     def _add_ellipse(self):
         self._add_object(SlideShape(shape="ellipse", w=0.22, h=0.22),
                          offset=True)
+
+    def _add_shape(self, key):
+        w = 0.22 if key not in ("circle", "ellipse") else 0.22
+        h = 0.22 if key in ("circle", "ellipse", "star4", "star5", "star6",
+                            "plus", "pentagon", "hexagon", "heptagon",
+                            "octagon") else 0.18
+        self._add_object(SlideShape(shape=key, w=w, h=h), offset=True)
 
     def _enable_format(self, on, is_text=True, is_pic=False):
         for w in (self.fmt_font, self.act_bold, self.act_italic,
@@ -1852,8 +1870,11 @@ class SlideWindow(QMainWindow):
         form = QFormLayout(dlg)
         state = {"fill": o.fill, "border_color": o.border_color}
 
-        shape = QComboBox(); shape.addItems(["rect", "ellipse"])
-        shape.setCurrentText(o.shape)
+        shape = QComboBox()
+        for key, label in shapes.LABELS.items():
+            shape.addItem(label, key)
+        cur = shape.findData(o.shape)
+        shape.setCurrentIndex(cur if cur >= 0 else 0)
         form.addRow("Shape", shape)
         form.addRow("Fill colour", self._colour_button(state, "fill"))
         form.addRow("Outline colour",
@@ -1877,7 +1898,7 @@ class SlideWindow(QMainWindow):
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
         form.addRow(bb)
         if dlg.exec():
-            o.shape = shape.currentText()
+            o.shape = shape.currentData()
             o.fill = state["fill"]
             o.border_color = state["border_color"]
             o.border_width = width.value()

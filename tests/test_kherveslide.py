@@ -118,12 +118,40 @@ def test_serialize_shape_rectangle_and_ellipse():
     ])], nav_symbols=False, plain_frames=True)
     tex = serialize_deck(deck)
     assert "\\usepackage{tikz}" in tex
-    assert "\\usetikzlibrary{shapes.geometric}" in tex   # ellipse needs it
-    assert "ellipse" in tex
-    assert "rounded corners=4pt" in tex
+    assert "ellipse" in tex                               # ellipse path
+    assert "rounded corners=6pt" in tex                  # rect with rounded corners
     assert "fill=ksfill0" in tex
     assert "dashed" in tex
-    assert "rotate=-30" in tex                            # screen CW → tikz CCW
+    assert "rotate around={-30" in tex                   # screen CW → tikz CCW
+
+
+def test_shapes_library_all_serialize():
+    from kherveslide import shapes
+    from kherveslide.model import SlideShape
+    # Every catalogued shape produces a closed tikz path or ellipse and
+    # serialises without error.
+    for key in shapes.ALL:
+        tex = serialize_deck(Deck(slides=[Slide(objects=[
+            SlideShape(shape=key, fill="#abcdef")])], nav_symbols=False))
+        assert "\\begin{tikzpicture}" in tex
+        kind = shapes.outline(key)
+        if kind[0] == "poly":
+            assert "-- cycle" in tex
+        elif kind[0] == "ellipse":
+            assert "ellipse [x radius=" in tex
+
+
+def test_add_shape_appends_shape(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    from kherveslide.model import SlideShape
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.clear()
+    w._add_shape("octagon")
+    assert isinstance(w.slide.objects[-1], SlideShape)
+    assert w.slide.objects[-1].shape == "octagon"
 
 
 def test_shape_inline_obeys_zorder():
@@ -453,7 +481,7 @@ def test_serialize_line_uses_tikz():
     deck = Deck(slides=[Slide(objects=[SlideLine(arrow_end=True)])])
     tex = serialize_deck(deck)
     assert "\\usepackage{tikz}" in tex
-    assert "\\usetikzlibrary{arrows.meta,calc}" in tex
+    assert "\\usetikzlibrary{arrows.meta}" in tex
     assert "\\begin{tikzpicture}" in tex
     assert "-{Stealth" in tex                    # sized Stealth arrowhead
     # placed inline via textpos so it obeys z-order (no page-absolute overlay)

@@ -21,6 +21,7 @@ layout; the user composes the slide entirely from boxes.
 """
 from __future__ import annotations
 
+from . import shapes as _shapes
 from .model import (
     Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
     blend_over_white, TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE,
@@ -461,35 +462,61 @@ def _serialize_line(obj: SlideLine, gap: float, idx: int) -> str:
             f"{pic}\n\\end{{textblock}}")
 
 
-def _serialize_shape(obj: SlideShape, gap: float, idx: int) -> str:
-    wlen, hlen = "\\linewidth", f"{_fmt(obj.h)}\\TPVertModule"
-    defs = ""
-    opts = [f"minimum width={wlen}", f"minimum height={hlen}",
-            "inner sep=0pt", "anchor=center"]
-    if obj.shape == "ellipse":
-        opts.insert(0, "ellipse")
-    elif obj.corner == "rounded":
-        opts.append("rounded corners=4pt")
-    if obj.border_color and obj.border_width > 0:
-        defs += (f"\\definecolor{{ksshape{idx}}}{{HTML}}"
-                 f"{{{_hex_to_rgb_arg(obj.border_color) or '000000'}}}\n")
-        opts.append(f"draw=ksshape{idx}")
-        opts.append(f"line width={_fmt(obj.border_width)}pt")
-        opts.append({"dashed": "dashed", "dotted": "dotted"}.get(
-            getattr(obj, "style", "solid"), "solid"))
+def _eff_shape(obj: SlideShape) -> str:
+    if obj.shape == "rect" and getattr(obj, "corner", "sharp") == "rounded":
+        return "rounded_rect"
+    return obj.shape
+
+
+def _shape_tikz(obj: SlideShape, idx: int, pt, center: str,
+                xr: str, yr: str) -> tuple[str, str, str]:
+    """Build (color-defs, path-options, path-body) for a shape from its
+    normalised outline. *pt(nx, ny)* formats a box-relative point as a tikz
+    coordinate; *center*/*xr*/*yr* size the ellipse case."""
+    kind = _shapes.outline(_eff_shape(obj))
+    defs, opts = "", []
     if obj.fill:
         defs += (f"\\definecolor{{ksfill{idx}}}{{HTML}}"
-                 f"{{{_hex_to_rgb_arg(obj.fill) or 'ffffff'}}}\n")
+                 f"{{{_hex_to_rgb_arg(obj.fill) or 'ffffff'}}}%\n")
         opts.append(f"fill=ksfill{idx}")
+    if obj.border_color and obj.border_width > 0:
+        defs += (f"\\definecolor{{ksshape{idx}}}{{HTML}}"
+                 f"{{{_hex_to_rgb_arg(obj.border_color) or '000000'}}}%\n")
+        opts.append(f"draw=ksshape{idx}")
+        opts.append(f"line width={_fmt(obj.border_width)}pt")
+        st = {"dashed": "dashed", "dotted": "dotted"}.get(
+            getattr(obj, "style", "solid"))
+        if st:
+            opts.append(st)
     if obj.opacity < 1.0:
         opts.append(f"opacity={_fmt(obj.opacity)}")
+    if kind[0] == "rect" and kind[1]:
+        opts.append("rounded corners=6pt")
     if obj.rotation:
-        opts.append(f"rotate={_fmt(-obj.rotation)}")
-    pic = (
-        f"\\begin{{tikzpicture}}\n"
-        f"\\useasboundingbox (0,0) rectangle ({wlen},-{hlen});\n"
-        f"\\node[{', '.join(opts)}] at ($(0,0)!0.5!({wlen},-{hlen})$) {{}};\n"
-        f"\\end{{tikzpicture}}")
+        opts.append(f"rotate around={{{_fmt(-obj.rotation)}:{center}}}")
+    if kind[0] == "ellipse":
+        body = f"{center} ellipse [x radius={xr}, y radius={yr}]"
+    elif kind[0] == "rect":
+        body = f"{pt(0, 0)} rectangle {pt(1, 1)}"
+    else:
+        body = " -- ".join(pt(nx, ny) for nx, ny in kind[1]) + " -- cycle"
+    return defs, ", ".join(opts), body
+
+
+def _serialize_shape(obj: SlideShape, gap: float, idx: int) -> str:
+    wlen, hlen = "\\linewidth", f"{_fmt(obj.h)}\\TPVertModule"
+
+    def pt(nx, ny):
+        return (f"({_fmt(nx)}\\linewidth,"
+                f"-{_fmt(ny * obj.h)}\\TPVertModule)")
+
+    center = pt(0.5, 0.5)
+    xr, yr = "0.5\\linewidth", f"{_fmt(0.5 * obj.h)}\\TPVertModule"
+    defs, opts, body = _shape_tikz(obj, idx, pt, center, xr, yr)
+    pic = (f"\\begin{{tikzpicture}}\n"
+           f"\\useasboundingbox (0,0) rectangle ({wlen},-{hlen});\n"
+           f"\\path[{opts}] {body};\n"
+           f"\\end{{tikzpicture}}")
     return (defs +
             f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
             f"{pic}\n\\end{{textblock}}")
@@ -530,37 +557,21 @@ def _serialize_line_bg(obj: SlideLine, gap: float, idx: int) -> str:
 
 def _serialize_shape_bg(obj: SlideShape, gap: float, idx: int) -> str:
     span = 1 - 2 * gap
-    cx = gap + (obj.x + obj.w / 2) * span
-    cy = gap + (obj.y + obj.h / 2) * span
-    w, h = obj.w * span, obj.h * span
-    defs = ""
-    opts = [f"minimum width={_fmt(w)}\\paperwidth",
-            f"minimum height={_fmt(h)}\\paperheight", "inner sep=0pt"]
-    if obj.shape == "ellipse":
-        opts.insert(0, "ellipse")
-    elif obj.corner == "rounded":
-        opts.append("rounded corners=4pt")
-    if obj.border_color and obj.border_width > 0:
-        defs += (f"\\definecolor{{ksshape{idx}}}{{HTML}}"
-                 f"{{{_hex_to_rgb_arg(obj.border_color) or '000000'}}}%\n")
-        opts.append(f"draw=ksshape{idx}")
-        opts.append(f"line width={_fmt(obj.border_width)}pt")
-        opts.append({"dashed": "dashed", "dotted": "dotted"}.get(
-            getattr(obj, "style", "solid"), "solid"))
-    if obj.fill:
-        defs += (f"\\definecolor{{ksfill{idx}}}{{HTML}}"
-                 f"{{{_hex_to_rgb_arg(obj.fill) or 'ffffff'}}}%\n")
-        opts.append(f"fill=ksfill{idx}")
-    if obj.opacity < 1.0:
-        opts.append(f"opacity={_fmt(obj.opacity)}")
-    if obj.rotation:
-        opts.append(f"rotate={_fmt(-obj.rotation)}")
     nw = "current page.north west"
-    pos = (f"([xshift={_fmt(cx)}\\paperwidth,"
-           f"yshift=-{_fmt(cy)}\\paperheight]{nw})")
+
+    def pt(nx, ny):
+        x = gap + (obj.x + nx * obj.w) * span
+        y = gap + (obj.y + ny * obj.h) * span
+        return (f"([xshift={_fmt(x)}\\paperwidth,"
+                f"yshift=-{_fmt(y)}\\paperheight]{nw})")
+
+    center = pt(0.5, 0.5)
+    xr = f"{_fmt(0.5 * obj.w * span)}\\paperwidth"
+    yr = f"{_fmt(0.5 * obj.h * span)}\\paperheight"
+    defs, opts, body = _shape_tikz(obj, idx, pt, center, xr, yr)
     return (defs +
             "\\begin{tikzpicture}[remember picture,overlay]\n"
-            f"\\node[{', '.join(opts)}] at {pos} {{}};\n"
+            f"\\path[{opts}] {body};\n"
             "\\end{tikzpicture}")
 
 
@@ -800,15 +811,11 @@ def serialize_deck(deck: Deck) -> str:
                      for s in deck.slides for o in s.objects)
     needs_opacity = any(isinstance(o, SlidePicture) and o.opacity < 1.0
                         for s in deck.slides for o in s.objects)
-    needs_ellipse = any(isinstance(o, SlideShape) and o.shape == "ellipse"
-                        for s in deck.slides for o in s.objects)
     if needs_tikz or needs_opacity:
         # tikz also drives image opacity (a node with opacity= tints it).
         lines.append("\\usepackage{tikz}")
     if needs_tikz:
-        lines.append("\\usetikzlibrary{arrows.meta,calc}")
-        if needs_ellipse:
-            lines.append("\\usetikzlibrary{shapes.geometric}")
+        lines.append("\\usetikzlibrary{arrows.meta}")
     if any(isinstance(o, SlidePicture) and _has_crop(o)
            for s in deck.slides for o in s.objects):
         # adjustbox supplies \adjincludegraphics with \width-relative trim.

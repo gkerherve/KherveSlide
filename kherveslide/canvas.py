@@ -24,6 +24,14 @@ from .model import (
     Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
     TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE,
 )
+from . import shapes as _shapes
+
+
+def effective_shape(obj) -> str:
+    """A plain rectangle with rounded corners is drawn as a rounded rect."""
+    if obj.shape == "rect" and getattr(obj, "corner", "sharp") == "rounded":
+        return "rounded_rect"
+    return obj.shape
 
 
 def _inline_html(s: str) -> str:
@@ -823,12 +831,14 @@ _PEN_STYLE = {"solid": Qt.SolidLine, "dashed": Qt.DashLine,
 
 
 class ShapeBoxItem(BoxItem):
-    """A rectangle or ellipse with editable fill / outline / corners."""
+    """Any vector shape (rectangle, ellipse, polygon, arrow, star…) with
+    editable fill / outline / corners / rotation."""
 
     def paint(self, painter, option, widget=None):
         obj: SlideShape = self.obj
         r = self._rect
         painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setOpacity(max(0.0, min(1.0, getattr(obj, "opacity", 1.0))))
         if obj.rotation:
             c = r.center()
@@ -848,13 +858,7 @@ class ShapeBoxItem(BoxItem):
             painter.setPen(pen)
         else:
             painter.setPen(Qt.NoPen)
-        if obj.shape == "ellipse":
-            painter.drawEllipse(r)
-        elif obj.corner == "rounded":
-            rad = min(r.width(), r.height()) * 0.12
-            painter.drawRoundedRect(r, rad, rad)
-        else:
-            painter.drawRect(r)
+        painter.drawPath(_shapes.qt_path(effective_shape(obj), r))
         painter.restore()
         self._paint_selection(painter)
 
