@@ -884,6 +884,27 @@ def test_paste_image_fills_selected_picture_box(monkeypatch):
     assert item.obj.path                        # picture now has a file
 
 
+def test_picture_editor_remove_background():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QPixmap, QColor, QImage, QPainter
+    import tempfile
+    from pathlib import Path
+    from kherveslide.model import SlidePicture
+    from kherveslide.picture_editor import PictureEditDialog
+    wd = Path(tempfile.mkdtemp(prefix="ks_bg_"))
+    pm = QPixmap(40, 30)
+    pm.fill(QColor("white"))
+    p = QPainter(pm); p.fillRect(12, 9, 16, 12, QColor("#cc2222")); p.end()
+    src = wd / "img.png"
+    pm.save(str(src))
+    dlg = PictureEditDialog(SlidePicture(path=str(src)))
+    dlg._remove_background()
+    out = QImage(dlg.path)
+    assert out.pixelColor(0, 0).alpha() == 0        # white corner cleared
+    assert out.pixelColor(20, 15).alpha() == 255    # red kept
+
+
 def test_toolbar_bold_targets_selection_while_editing(monkeypatch):
     # Clicking the toolbar Bold button mid-edit must bold only the selected
     # run, not the whole box (the box-level flag stays off).

@@ -22,7 +22,8 @@ from PySide6.QtCore import (
     Qt, Signal,
 )
 from PySide6.QtGui import (
-    QAction, QActionGroup, QColor, QFont, QTextCharFormat, QTextListFormat,
+    QAction, QActionGroup, QColor, QFont, QPixmap, QTextCharFormat,
+    QTextListFormat, QTransform,
 )
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
@@ -1099,6 +1100,29 @@ class SlideWindow(QMainWindow):
         item.update()
         self._touch_current()
 
+    def _export_picture_png(self):
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlidePicture):
+            return
+        o = item.obj
+        src = QPixmap(o.path) if o.path else QPixmap()
+        if src.isNull():
+            QMessageBox.warning(self, "Export to PNG", "This box has no image.")
+            return
+        # Apply the box's crop and rotation, then save.
+        w, h = src.width(), src.height()
+        img = src.copy(int(o.crop_l * w), int(o.crop_t * h),
+                       max(1, int((1 - o.crop_l - o.crop_r) * w)),
+                       max(1, int((1 - o.crop_t - o.crop_b) * h)))
+        if getattr(o, "rotation", 0.0):
+            img = img.transformed(QTransform().rotate(o.rotation),
+                                  Qt.SmoothTransformation)
+        out, _ = QFileDialog.getSaveFileName(
+            self, "Export image to PNG", "image.png", "PNG image (*.png)")
+        if out:
+            img.save(out, "PNG")
+            self.statusBar().showMessage(f"Exported image to {out}")
+
     def _begin_inline_edit(self, rect, initial, *, font_pt, commit):
         """Float a *rich* editor over *rect* (lists show as real bullets,
         not \\item source); on focus-out call commit(latex)."""
@@ -1596,6 +1620,8 @@ class SlideWindow(QMainWindow):
                 pst = menu.addAction("Paste image here",
                                      lambda: self._paste(scene_pos))
                 pst.setEnabled(self._clipboard_has_image())
+                exp = menu.addAction("Export to PNG…", self._export_picture_png)
+                exp.setEnabled(bool(item.obj.path))
             menu.addSeparator()
         paste = menu.addAction("Paste", lambda: self._paste(scene_pos))
         paste.setEnabled(self._can_paste())

@@ -1078,3 +1078,68 @@ def arrow_tool() -> QIcon:
                              QPointF(17, 13)]))
     p.end()
     return QIcon(px)
+
+
+def _rotate_icon(cw: bool) -> QIcon:
+    """A circular arrow — rotate clockwise or counter-clockwise."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 2.0, Qt.SolidLine, Qt.RoundCap))
+    p.setBrush(Qt.NoBrush)
+    # 270° arc leaving a gap at the top where the arrowhead sits.
+    p.drawArc(QRectF(5, 5, 14, 14), 120 * 16, 300 * 16)
+    p.setBrush(QBrush(_fg())); p.setPen(Qt.NoPen)
+    if cw:
+        p.drawPolygon(QPolygonF([QPointF(18, 4), QPointF(19, 11),
+                                 QPointF(13, 8)]))
+    else:
+        p.drawPolygon(QPolygonF([QPointF(6, 4), QPointF(5, 11),
+                                 QPointF(11, 8)]))
+    p.end()
+    return QIcon(px)
+
+
+def rotate_left() -> QIcon:   return _rotate_icon(cw=False)
+def rotate_right() -> QIcon:  return _rotate_icon(cw=True)
+
+
+def crop_reset() -> QIcon:
+    """Two overlapping crop corners — reset the crop to the full image."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.drawPolyline([QPointF(8, 3), QPointF(8, 16), QPointF(21, 16)])
+    p.drawPolyline([QPointF(3, 8), QPointF(16, 8), QPointF(16, 21)])
+    p.end()
+    return QIcon(px)
+
+
+def paste() -> QIcon:
+    """Clipboard with a sheet — paste from clipboard."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 1.6)); p.setBrush(QBrush(_accent()))
+    p.drawRoundedRect(QRectF(5, 4, 14, 17), 2, 2)
+    p.setBrush(QBrush(_fg() if not _dark else QColor("#222")))
+    p.setPen(Qt.NoPen)
+    p.drawRoundedRect(QRectF(9, 2.5, 6, 3.5), 1, 1)   # the clip
+    p.setBrush(QBrush(QColor("#fff")))
+    p.setPen(QPen(QColor("#bbb"), 1))
+    p.drawRect(QRectF(8, 9, 8, 9))                    # sheet
+    p.end()
+    return QIcon(px)
+
+
+def remove_bg() -> QIcon:
+    """A checkerboard (transparency) with a wand — make background clear."""
+    px, p = _new_canvas()
+    p.setPen(Qt.NoPen)
+    light = QColor("#888") if _dark else QColor("#ccc")
+    p.setBrush(QBrush(light))
+    for r in range(3):
+        for c in range(3):
+            if (r + c) % 2 == 0:
+                p.drawRect(4 + c * 5, 4 + r * 5, 5, 5)
+    p.setPen(QPen(_accent2(), 2.2, Qt.SolidLine, Qt.RoundCap))
+    p.drawLine(11, 18, 20, 9)                         # wand
+    p.setBrush(QBrush(_accent2())); p.setPen(Qt.NoPen)
+    p.drawEllipse(QRectF(18, 6, 5, 5))                # wand tip
+    p.end()
+    return QIcon(px)

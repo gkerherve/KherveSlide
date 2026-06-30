@@ -9,12 +9,16 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap, QTransform
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import (
+    QBrush, QColor, QImage, QPainter, QPen, QPixmap, QTransform,
+)
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
-    QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QLabel, QSizePolicy, QToolBar, QVBoxLayout, QWidget,
 )
+
+from . import icons
 
 _HANDLE = 7.0
 _MIN_FRAC = 0.05          # the crop must keep at least this fraction each axis
@@ -183,38 +187,36 @@ class PictureEditDialog(QDialog):
         root = QVBoxLayout(self)
         root.addWidget(self._canvas, 1)
 
-        controls = QHBoxLayout()
-        controls.addWidget(QLabel("Rotation°:"))
+        tb = QToolBar()
+        tb.setIconSize(QSize(22, 22))
+        tb.addAction(icons.rotate_left(), "Rotate left 90°",
+                     lambda: self._nudge(-90))
+        tb.addAction(icons.rotate_right(), "Rotate right 90°",
+                     lambda: self._nudge(90))
+        tb.addWidget(QLabel(" Rot° "))
         self._rot = QDoubleSpinBox()
         self._rot.setRange(-180.0, 180.0)
         self._rot.setSingleStep(1.0)
         self._rot.setValue(self.rotation)
         self._rot.valueChanged.connect(self._on_rot)
-        controls.addWidget(self._rot)
-        b_ccw = QPushButton("⟲ 90°")
-        b_ccw.clicked.connect(lambda: self._nudge(-90))
-        controls.addWidget(b_ccw)
-        b_cw = QPushButton("⟳ 90°")
-        b_cw.clicked.connect(lambda: self._nudge(90))
-        controls.addWidget(b_cw)
-        b_reset = QPushButton("Reset crop")
-        b_reset.clicked.connect(self._canvas.reset)
-        controls.addWidget(b_reset)
-        b_replace = QPushButton("Replace image…")
-        b_replace.clicked.connect(self._replace)
-        controls.addWidget(b_replace)
-        b_paste = QPushButton("Paste from clipboard")
-        b_paste.setToolTip("Use a screenshot/image copied to the clipboard")
-        b_paste.clicked.connect(self._paste)
-        controls.addWidget(b_paste)
-        controls.addStretch(1)
+        tb.addWidget(self._rot)
+        tb.addSeparator()
+        tb.addAction(icons.crop_reset(), "Reset crop", self._canvas.reset)
+        tb.addSeparator()
+        tb.addAction(icons.file_open(), "Replace image…", self._replace)
+        tb.addAction(icons.paste(), "Paste from clipboard", self._paste)
+        tb.addAction(icons.remove_bg(), "Make the background transparent",
+                     self._remove_background)
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        tb.addWidget(spacer)
+        tb.addWidget(QLabel("Result: "))
         self._preview = QLabel()
-        self._preview.setFixedSize(96, 96)
+        self._preview.setFixedSize(72, 72)
         self._preview.setAlignment(Qt.AlignCenter)
         self._preview.setStyleSheet("border:1px solid #888;background:#fff;")
-        controls.addWidget(QLabel("Result:"))
-        controls.addWidget(self._preview)
-        root.addLayout(controls)
+        tb.addWidget(self._preview)
+        root.addWidget(tb)
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
@@ -265,6 +267,43 @@ class PictureEditDialog(QDialog):
         self._canvas.set_pixmap(self._src if not self._src.isNull() else None)
         self._update_preview()
 
+    def _remove_background(self):
+        """Make the image's background colour transparent — sampled from the
+        top-left corner, with a tolerance, written out as a transparent PNG."""
+        if self._src.isNull():
+            return
+        img = self._src.toImage().convertToFormat(QImage.Format_RGBA8888)
+        w, h = img.width(), img.height()
+        bg = img.pixelColor(0, 0)
+        tol = 40
+        try:
+            import numpy as np
+            buf = img.constBits()
+            arr = np.frombuffer(buf, np.uint8).reshape((h, img.bytesPerLine()))
+            arr = arr[:, :w * 4].reshape((h, w, 4)).copy()
+            ref = np.array([bg.red(), bg.green(), bg.blue()], dtype=np.int16)
+            diff = np.abs(arr[:, :, :3].astype(np.int16) - ref).max(axis=2)
+            arr[diff <= tol, 3] = 0
+            data = arr.tobytes()
+            out = QImage(data, w, h, QImage.Format_RGBA8888)
+        except Exception:
+            out = img            # numpy missing: fall back per-pixel (slow)
+            for y in range(h):
+                for x in range(w):
+                    c = out.pixelColor(x, y)
+                    if (abs(c.red() - bg.red()) <= tol
+                            and abs(c.green() - bg.green()) <= tol
+                            and abs(c.blue() - bg.blue()) <= tol):
+                        out.setPixelColor(x, y, QColor(0, 0, 0, 0))
+        d = Path(tempfile.gettempdir()) / "kherveslide_pasted"
+        d.mkdir(parents=True, exist_ok=True)
+        i = 1
+        while (d / f"nobg_{i:03d}.png").exists():
+            i += 1
+        p = d / f"nobg_{i:03d}.png"
+        out.save(str(p), "PNG")
+        self._set_image(str(p))
+
     def _update_preview(self):
         if self._src.isNull():
             self._preview.clear()
@@ -278,4 +317,4 @@ class PictureEditDialog(QDialog):
             cropped = cropped.transformed(
                 QTransform().rotate(self.rotation), Qt.SmoothTransformation)
         self._preview.setPixmap(cropped.scaled(
-            92, 92, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            68, 68, Qt.KeepAspectRatio, Qt.SmoothTransformation))
