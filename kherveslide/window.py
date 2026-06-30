@@ -300,6 +300,18 @@ class SlideWindow(QMainWindow):
         self.act_nav.setCheckable(True)
         self.act_nav.setChecked(self.deck.nav_symbols)
         self.act_nav.toggled.connect(self._toggle_nav_symbols)
+
+        m_pgnum = m_pres.addMenu("Slide numbers")
+        self._pgnum_group = QActionGroup(self)
+        self._pgnum_actions = {}
+        for mode, label in (("none", "Off"),
+                            ("number", "Slide number"),
+                            ("of_total", "Slide number / total")):
+            a = m_pgnum.addAction(label)
+            a.setCheckable(True)
+            a.triggered.connect(lambda _=False, m=mode: self._set_page_number(m))
+            self._pgnum_group.addAction(a)
+            self._pgnum_actions[mode] = a
         # Theme + decorations live on the toolbar (see _build_toolbar).
 
         m_slide = mb.addMenu("&Slide")
@@ -581,6 +593,8 @@ class SlideWindow(QMainWindow):
         self.act_nav.blockSignals(True)
         self.act_nav.setChecked(self.deck.nav_symbols)
         self.act_nav.blockSignals(False)
+        mode = getattr(self.deck, "page_number", "none")
+        self._pgnum_actions.get(mode, self._pgnum_actions["none"]).setChecked(True)
         self.theme_combo.blockSignals(True)
         self.theme_combo.setCurrentText(self.deck.theme)
         self.theme_combo.blockSignals(False)
@@ -1506,6 +1520,10 @@ class SlideWindow(QMainWindow):
 
     def _toggle_nav_symbols(self, on):
         self.deck.nav_symbols = on
+        self._recompile_now()
+
+    def _set_page_number(self, mode):
+        self.deck.page_number = mode
         self._recompile_now()
 
     def _on_lock_toggled(self):

@@ -181,6 +181,9 @@ class Deck:
     # xdvipdfmx emit a harmless out-of-page annotation warning, filtered from
     # the console.) Turn off from Presentation ▸ Navigation symbols.
     nav_symbols: bool = True
+    # Slide/page number shown at the bottom-right of every slide:
+    # "none" | "number" (just the slide number) | "of_total" (n / N).
+    page_number: str = "none"
     # User-built theme overrides (see ThemeSpec). Applied when enabled.
     theme_spec: ThemeSpec = field(default_factory=ThemeSpec)
     type: str = "Deck"
@@ -316,6 +319,7 @@ def _build_deck(d: dict) -> Deck:
         page_h_cm=float(d.get("page_h_cm", 0.0)),
         gap=float(d.get("gap", 0.0)),
         nav_symbols=bool(d.get("nav_symbols", True)),
+        page_number=str(d.get("page_number", "none")),
         theme_spec=_build_theme_spec(d.get("theme_spec", {})),
     )
 

@@ -155,6 +155,31 @@ def test_page_fields_round_trip():
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
+def test_page_number_off_by_default():
+    tex = serialize_deck(Deck(slides=[Slide()]))
+    assert "\\insertframenumber" not in tex
+
+
+def test_page_number_simple():
+    deck = Deck(slides=[Slide()], page_number="number")
+    tex = serialize_deck(deck)
+    assert "\\insertframenumber" in tex
+    assert "\\inserttotalframenumber" not in tex
+
+
+def test_page_number_of_total():
+    deck = Deck(slides=[Slide(), Slide()], page_number="of_total")
+    tex = serialize_deck(deck)
+    assert "\\inserttotalframenumber" in tex
+    # One number block per slide.
+    assert tex.count("\\insertframenumber") == 2
+
+
+def test_page_number_round_trip():
+    deck = Deck(slides=[Slide()], page_number="of_total")
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
 def test_nav_symbols_shown_by_default():
     # beamer's PDF navigation symbols are the native way to page through.
     tex = serialize_deck(_sample_deck())

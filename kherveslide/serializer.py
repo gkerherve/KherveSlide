@@ -334,8 +334,27 @@ def _overlay_object(obj, gap: float, counter: list) -> str | None:
     return None
 
 
+def _page_number_block(mode: str, gap: float) -> str:
+    """A small slide-number overlay at the bottom-right corner. Placed via
+    textpos so it shows on plain frames too (where the theme footline is
+    suppressed)."""
+    inner = ("\\insertframenumber\\,/\\,\\inserttotalframenumber"
+             if mode == "of_total" else "\\insertframenumber")
+    # Pin to the page's bottom-right regardless of the content gap, the same
+    # way the background panel un-insets the textpos grid.
+    span = 1 / (1 - 2 * gap) if gap < 0.5 else 1.0
+    off = -gap / (1 - 2 * gap) if gap < 0.5 else 0.0
+    x = off + 0.78 * span
+    y = off + 0.955 * span
+    w = 0.2 * span
+    return (f"\\begin{{textblock}}{{{_fmt(w)}}}({_fmt(x)},{_fmt(y)})\n"
+            f"\\raggedleft{{\\small\\color{{black!55}}{inner}}}\n"
+            f"\\end{{textblock}}")
+
+
 def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
-                     counter: list | None = None) -> str:
+                     counter: list | None = None,
+                     page_number: str = "none") -> str:
     if counter is None:
         counter = [0]
     # [t] top-aligns the flowed (locked) content so a tall heading isn't
@@ -368,6 +387,8 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
             block = _overlay_object(obj, gap, counter)
             if block:
                 parts.append(block)
+    if page_number and page_number != "none":
+        parts.append(_page_number_block(page_number, gap))
     parts.append("\\end{frame}")
     return "\n".join(parts)
 
@@ -432,6 +453,7 @@ def serialize_deck(deck: Deck) -> str:
     lines.append("\\begin{document}")
     counter = [0]
     for slide in deck.slides:
-        lines.append(_serialize_slide(slide, deck.plain_frames, g, counter))
+        lines.append(_serialize_slide(slide, deck.plain_frames, g, counter,
+                                      getattr(deck, "page_number", "none")))
     lines.append("\\end{document}")
     return "\n".join(lines) + "\n"
