@@ -184,25 +184,56 @@ def _serialize_picture(obj: SlidePicture) -> str:
             f"\\end{{textblock}}")
 
 
+_ALIGN_COL = {"left": "l", "center": "c", "right": "r"}
+
+
 def _table_inner(obj: SlideTable) -> str:
     rows = obj.rows or [[""]]
     ncols = max((len(r) for r in rows), default=1)
-    sep = "|" if obj.border else ""
-    colspec = sep + sep.join("l" for _ in range(ncols)) + sep
-    rule = ("\\arrayrulecolor{ksTblRule}\\hline\n" if obj.border else "")
+    grid = getattr(obj, "grid", "all")
+    if not getattr(obj, "border", True) and grid == "all":
+        grid = "none"      # legacy border=False overrides the default grid
+    a = _ALIGN_COL.get(getattr(obj, "align", "left"), "l")
+    vbar = "|" if grid == "all" else ""
+    colspec = vbar + vbar.join(a for _ in range(ncols)) + vbar
+    full_hline = grid in ("all", "horizontal")
+    outer_hline = grid in ("all", "horizontal", "outer")
+    hrule = "\\hline\n" if full_hline else ""
+    edge = "\\hline\n" if outer_hline else ""
+
+    # Per-table colours, named after their hex so two differently-styled
+    # tables on the same deck never clash (definecolor is global).
+    def cname(prefix, hexv, fallback):
+        h = _hex_to_rgb_arg(hexv) or fallback
+        return f"ks{prefix}{h}", f"\\definecolor{{ks{prefix}{h}}}{{HTML}}{{{h}}}"
+
+    head_n, head_d = cname("TH", getattr(obj, "header_bg", "#FCE4D6"), "FCE4D6")
+    hfg_n, hfg_d = cname("TF", getattr(obj, "header_fg", "#C55A11"), "C55A11")
+    rule_n, rule_d = cname("TR", getattr(obj, "rule_color", "#F4B183"), "F4B183")
+    stripe_n, stripe_d = cname("TS", getattr(obj, "stripe_color", "#F5F5F5"),
+                               "F5F5F5")
+    defs = head_d + hfg_d + rule_d + stripe_d
+    striped = getattr(obj, "striped", False)
+
     body = []
     for i, row in enumerate(rows):
         cells = list(row) + [""] * (ncols - len(row))
         if i == 0 and obj.header:
-            cells = [f"\\textcolor{{ksTblHeadFg}}{{\\textbf{{{c}}}}}"
-                     for c in cells]
-            line = "  \\rowcolor{ksTblHead}" + " & ".join(cells) + " \\\\"
+            cells = [f"\\textcolor{{{hfg_n}}}{{\\textbf{{{c}}}}}" for c in cells]
+            line = f"  \\rowcolor{{{head_n}}}" + " & ".join(cells) + " \\\\"
         else:
-            line = "  " + " & ".join(cells) + " \\\\"
+            prefix = "  "
+            if striped:
+                bi = i - (1 if obj.header else 0)
+                if bi % 2 == 1:
+                    prefix = f"  \\rowcolor{{{stripe_n}}}"
+            line = prefix + " & ".join(cells) + " \\\\"
         body.append(line)
-    table = (f"\\begin{{tabular}}{{{colspec}}}\n{rule}"
-             + ("\n" + rule).join(body)
-             + f"\n{rule}\\end{{tabular}}")
+
+    joiner = ("\n" + hrule) if full_hline else "\n"
+    table = (f"\\begin{{tabular}}{{{colspec}}}\n{edge}"
+             + joiner.join(body)
+             + f"\n{edge}\\end{{tabular}}")
     color = _hex_to_rgb_arg(obj.color)
     if color and color != "000000":
         table = f"\\textcolor[HTML]{{{color}}}{{{table}}}"
@@ -211,7 +242,9 @@ def _table_inner(obj: SlideTable) -> str:
                   f"\\textcolor{{ksTblCap}}{{{obj.caption}}}}}")
     lead = int(round(obj.font_pt * 1.2))
     sized = f"\\fontsize{{{obj.font_pt}}}{{{lead}}}\\selectfont"
-    return _frame_wrap(f"{{{sized} {table}}}", obj)
+    rule_w = f"\\setlength{{\\arrayrulewidth}}{{{_fmt(obj.rule_width)}pt}}"
+    return _frame_wrap(
+        f"{{{defs}{rule_w}\\arrayrulecolor{{{rule_n}}} {sized} {table}}}", obj)
 
 
 def _serialize_table(obj: SlideTable) -> str:

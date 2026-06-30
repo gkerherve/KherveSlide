@@ -444,6 +444,8 @@ class SlideWindow(QMainWindow):
         m_table.addSeparator()
         m_table.addAction("Toggle header row", lambda: self._table_op("header"))
         m_table.addAction("Caption…", lambda: self._table_op("caption"))
+        m_table.addSeparator()
+        m_table.addAction("Table properties…", self._table_props_dialog)
 
         m_tpl = mb.addMenu("Te&mplates")
         self._m_tpl_new = m_tpl.addMenu("New presentation from template")
@@ -689,6 +691,12 @@ class SlideWindow(QMainWindow):
         self.f_foot_r = QLineEdit()
         self.f_foot_r.setPlaceholderText("Right foot")
         self.f_foot_r.editingFinished.connect(self._apply_headfoot)
+        # The head/foot slots accept LaTeX, so common dynamic bits work:
+        _hf_tip = ("Accepts LaTeX — e.g. \\today for the date, "
+                   "\\insertframenumber for the slide number, "
+                   "\\inserttitle / \\insertauthor.")
+        for _f in (self.f_header, self.f_foot_l, self.f_foot_c, self.f_foot_r):
+            _f.setToolTip(_hf_tip)
         self.chk_nav = QCheckBox("Nav ▾▴")
         self.chk_nav.setToolTip("Show beamer's prev/next navigation symbols "
                                 "at the bottom-right of every slide")
@@ -1714,6 +1722,8 @@ class SlideWindow(QMainWindow):
             elif isinstance(item.obj, SlideLine):
                 menu.addAction("Line / arrow properties…",
                                self._line_props_dialog)
+            elif isinstance(item.obj, SlideTable):
+                menu.addAction("Table properties…", self._table_props_dialog)
             else:
                 menu.addAction("Box style (border / fill)…",
                                self._box_style_dialog)
@@ -1909,6 +1919,86 @@ class SlideWindow(QMainWindow):
             o.arrow_end = a_end.isChecked()
             o.head_size = head.value()
             o.opacity = opacity.value()
+            item.update()
+            self._touch_current()
+
+    @staticmethod
+    def _resized_rows(rows, nrows, ncols):
+        out = []
+        for r in range(nrows):
+            src = rows[r] if r < len(rows) else []
+            out.append([(src[c] if c < len(src) else "") for c in range(ncols)])
+        return out
+
+    def _table_props_dialog(self):
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlideTable):
+            return
+        o = item.obj
+        cur_cols = max((len(r) for r in o.rows), default=1)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Table properties")
+        form = QFormLayout(dlg)
+        state = {"header_bg": o.header_bg, "header_fg": o.header_fg,
+                 "rule_color": o.rule_color, "stripe_color": o.stripe_color,
+                 "color": o.color, "fill": o.fill,
+                 "border_color": o.border_color}
+
+        n_rows = QSpinBox(); n_rows.setRange(1, 50); n_rows.setValue(len(o.rows))
+        n_cols = QSpinBox(); n_cols.setRange(1, 20); n_cols.setValue(cur_cols)
+        form.addRow("Rows", n_rows)
+        form.addRow("Columns", n_cols)
+        header = QCheckBox("First row is a header")
+        header.setChecked(o.header)
+        form.addRow(header)
+        form.addRow("Header fill",
+                    self._colour_button(state, "header_bg", allow_none=False))
+        form.addRow("Header text",
+                    self._colour_button(state, "header_fg", allow_none=False))
+        align = QComboBox(); align.addItems(["left", "center", "right"])
+        align.setCurrentText(o.align)
+        form.addRow("Cell alignment", align)
+        fontsz = QSpinBox(); fontsz.setRange(6, 60); fontsz.setValue(o.font_pt)
+        form.addRow("Font size (pt)", fontsz)
+        form.addRow("Text colour",
+                    self._colour_button(state, "color", allow_none=False))
+        grid = QComboBox(); grid.addItems(["all", "horizontal", "outer", "none"])
+        grid.setCurrentText(o.grid)
+        form.addRow("Grid lines", grid)
+        form.addRow("Rule colour",
+                    self._colour_button(state, "rule_color", allow_none=False))
+        rule_w = QDoubleSpinBox(); rule_w.setRange(0.1, 6.0)
+        rule_w.setSingleStep(0.2); rule_w.setValue(o.rule_width)
+        form.addRow("Rule width (pt)", rule_w)
+        striped = QCheckBox("Zebra-stripe body rows")
+        striped.setChecked(o.striped)
+        form.addRow(striped)
+        form.addRow("Stripe colour",
+                    self._colour_button(state, "stripe_color", allow_none=False))
+        caption = QLineEdit(o.caption)
+        form.addRow("Caption", caption)
+        form.addRow("Box fill", self._colour_button(state, "fill"))
+        form.addRow("Box frame", self._colour_button(state, "border_color"))
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec():
+            o.rows = self._resized_rows(o.rows, n_rows.value(), n_cols.value())
+            o.header = header.isChecked()
+            o.header_bg = state["header_bg"]
+            o.header_fg = state["header_fg"]
+            o.align = align.currentText()
+            o.font_pt = fontsz.value()
+            o.color = state["color"] or "#000000"
+            o.grid = grid.currentText()
+            o.border = o.grid != "none"
+            o.rule_color = state["rule_color"]
+            o.rule_width = rule_w.value()
+            o.striped = striped.isChecked()
+            o.stripe_color = state["stripe_color"]
+            o.caption = caption.text()
+            o.fill = state["fill"]
+            o.border_color = state["border_color"]
             item.update()
             self._touch_current()
 

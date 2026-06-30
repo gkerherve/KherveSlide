@@ -663,10 +663,13 @@ def test_serialize_table_styled():
     assert "\\begin{textblock}{0.5}(0.1,0.1)" in tex
     assert "\\begin{tabular}{|l|l|}" in tex
     assert "\\usepackage{colortbl}" in tex
-    assert "\\rowcolor{ksTblHead}" in tex          # coloured header row
-    assert "\\textcolor{ksTblHeadFg}{\\textbf{a}}" in tex
+    # header row gets a coloured background + bold header-fg text (the colour
+    # names are now suffixed with the hex so two tables never clash).
+    assert "\\rowcolor{ksTHFCE4D6}" in tex          # coloured header row
+    assert "\\textcolor{ksTFC55A11}{\\textbf{a}}" in tex
     assert "c & d \\\\" in tex                      # body row plain
-    assert "\\arrayrulecolor{ksTblRule}\\hline" in tex
+    assert "\\arrayrulecolor{ksTRF4B183}" in tex    # default rule colour
+    assert "\\hline" in tex
     assert "\\textcolor{ksTblCap}{cap}" in tex      # caption
 
 
@@ -683,6 +686,55 @@ def test_table_header_caption_round_trip():
     deck = Deck(slides=[Slide(objects=[
         SlideTable(header=False, caption="My table")])])
     assert deck_from_json(deck_to_json(deck)) == deck
+
+
+def test_table_grid_styles():
+    def tex_for(grid):
+        return serialize_deck(Deck(slides=[Slide(objects=[
+            SlideTable(rows=[["a", "b"], ["c", "d"]], header=False,
+                       grid=grid, border=True)])], nav_symbols=False))
+    horiz = tex_for("horizontal")
+    assert "\\begin{tabular}{ll}" in horiz      # no vertical bars
+    assert "\\hline" in horiz                   # but horizontal rules
+    none = tex_for("none")
+    assert "\\hline" not in none
+    outer = tex_for("outer")
+    # outer = top & bottom rule only (exactly two \hline, no inner ones)
+    assert outer.count("\\hline") == 2
+
+
+def test_table_align_and_striped():
+    tex = serialize_deck(Deck(slides=[Slide(objects=[
+        SlideTable(rows=[["h"], ["1"], ["2"], ["3"]], header=True,
+                   align="right", striped=True, stripe_color="#abcdef")])],
+        nav_symbols=False))
+    assert "\\begin{tabular}{|r|}" in tex
+    assert "\\rowcolor{ksTSABCDEF}" in tex      # an alternate body row striped
+
+
+def test_table_custom_header_colour():
+    tex = serialize_deck(Deck(slides=[Slide(objects=[
+        SlideTable(rows=[["h", "i"]], header=True,
+                   header_bg="#102030", header_fg="#ffffff")])],
+        nav_symbols=False))
+    assert "\\definecolor{ksTH102030}{HTML}{102030}" in tex
+    assert "\\rowcolor{ksTH102030}" in tex
+
+
+def test_table_full_fields_round_trip():
+    deck = Deck(slides=[Slide(objects=[
+        SlideTable(align="center", grid="horizontal", rule_color="#123456",
+                   rule_width=1.5, header_bg="#222222", header_fg="#eeeeee",
+                   striped=True, stripe_color="#fafafa")])])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
+def test_table_legacy_border_migrates_to_grid():
+    from kherveslide.model import build_object
+    o = build_object({"type": "SlideTable", "rows": [["x"]], "border": False})
+    assert o.grid == "none"
+    o2 = build_object({"type": "SlideTable", "rows": [["x"]], "border": True})
+    assert o2.grid == "all"
 
 
 # --- templates ---

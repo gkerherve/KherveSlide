@@ -415,12 +415,15 @@ class BoxItem(QGraphicsObject):
 
     # -- painting helpers -----------------------------------------
     def _paint_selection(self, painter):
-        locked = self._is_locked()
         if not self.isSelected():
-            painter.setPen(QPen(QColor(150, 150, 150), 0, Qt.DashLine))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRect(self._rect)
-            self._paint_lock(painter)        # always show lock state
+            # An unselected box shows no chrome at all — the slide reads like
+            # the PDF. Hovering reveals a faint outline + lock badge so empty
+            # boxes are still discoverable and the lock stays clickable.
+            if getattr(self, "_hover", False):
+                painter.setPen(QPen(QColor(150, 150, 150), 0, Qt.DashLine))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRect(self._rect)
+                self._paint_lock(painter)
             return
         painter.setPen(QPen(QColor(40, 120, 220), 0, Qt.SolidLine))
         painter.setBrush(Qt.NoBrush)
@@ -701,37 +704,60 @@ class TableBoxItem(BoxItem):
         rows, nrows, ncols = self._dims()
         cw = self._rect.width() / ncols
         ch = self._rect.height() / nrows
+        grid = getattr(obj, "grid", "all")
+        if not getattr(obj, "border", True) and grid == "all":
+            grid = "none"
+        striped = getattr(obj, "striped", False)
+        stripe = QColor(getattr(obj, "stripe_color", "#F5F5F5") or "#F5F5F5")
+        header_bg = QColor(getattr(obj, "header_bg", "") or TABLE_HEADER_BG)
+        header_fg = QColor(getattr(obj, "header_fg", "") or TABLE_HEADER_FG)
+        rule_col = QColor(getattr(obj, "rule_color", "") or TABLE_RULE)
+        align = {"left": Qt.AlignLeft, "center": Qt.AlignHCenter,
+                 "right": Qt.AlignRight}.get(getattr(obj, "align", "left"),
+                                             Qt.AlignLeft)
         painter.fillRect(self._rect, QColor(getattr(obj, "fill", "") or "#FFFFFF"))
-        # Coloured header row (KherveTeX-style orange).
-        if obj.header and nrows >= 1:
-            painter.fillRect(QRectF(self._rect.x(), self._rect.y(),
-                                    self._rect.width(), ch),
-                             QColor(TABLE_HEADER_BG))
-        if obj.border:
-            painter.setPen(QPen(QColor(TABLE_RULE), 0))
-            for i in range(ncols + 1):
-                x = self._rect.x() + i * cw
-                painter.drawLine(QPointF(x, self._rect.y()),
-                                 QPointF(x, self._rect.bottom()))
-            for j in range(nrows + 1):
-                y = self._rect.y() + j * ch
-                painter.drawLine(QPointF(self._rect.x(), y),
-                                 QPointF(self._rect.right(), y))
+        # Row backgrounds: coloured header, optional zebra striping.
+        for r in range(nrows):
+            row_rect = QRectF(self._rect.x(), self._rect.y() + r * ch,
+                              self._rect.width(), ch)
+            if obj.header and r == 0:
+                painter.fillRect(row_rect, header_bg)
+            elif striped and (r - (1 if obj.header else 0)) % 2 == 1:
+                painter.fillRect(row_rect, stripe)
+        # Grid lines per the chosen style.
+        if grid != "none":
+            painter.setPen(QPen(rule_col,
+                                max(0.6, getattr(obj, "rule_width", 0.8)
+                                    * self._font_scale * 0.6)))
+            if grid == "all":
+                for i in range(ncols + 1):
+                    x = self._rect.x() + i * cw
+                    painter.drawLine(QPointF(x, self._rect.y()),
+                                     QPointF(x, self._rect.bottom()))
+            if grid in ("all", "horizontal"):
+                for j in range(nrows + 1):
+                    y = self._rect.y() + j * ch
+                    painter.drawLine(QPointF(self._rect.x(), y),
+                                     QPointF(self._rect.right(), y))
+            elif grid == "outer":
+                painter.drawLine(self._rect.topLeft(), self._rect.topRight())
+                painter.drawLine(self._rect.bottomLeft(),
+                                 self._rect.bottomRight())
         base_font = canvas_font(max(6, int(obj.font_pt * self._font_scale)))
         for r in range(nrows):
             is_head = obj.header and r == 0
             font = QFont(base_font)
             font.setBold(is_head)
             painter.setFont(font)
-            painter.setPen(QPen(QColor(TABLE_HEADER_FG if is_head
-                                       else (obj.color or "#000000"))))
+            painter.setPen(QPen(header_fg if is_head
+                                else QColor(obj.color or "#000000")))
             for c in range(ncols):
                 text = rows[r][c] if c < len(rows[r]) else ""
                 cell = QRectF(self._rect.x() + c * cw, self._rect.y() + r * ch,
                               cw, ch)
                 painter.drawText(cell.adjusted(5, 1, -5, -1),
-                                 int(Qt.AlignVCenter | Qt.AlignLeft
-                                     | Qt.TextWordWrap), text)
+                                 int(Qt.AlignVCenter | align | Qt.TextWordWrap),
+                                 text)
         self._paint_decoration(painter, border_only=True)
         self._paint_selection(painter)
 

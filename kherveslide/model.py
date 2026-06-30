@@ -85,6 +85,13 @@ def _default_rows() -> list[list[str]]:
     return [["", ""], ["", ""]]
 
 
+# KherveTeX-style table palette (orange header / light rules).
+TABLE_HEADER_BG = "#FCE4D6"
+TABLE_HEADER_FG = "#C55A11"
+TABLE_RULE = "#F4B183"
+TABLE_CAPTION_FG = "#808080"
+
+
 @dataclass
 class SlideTable:
     """A free-floating table. ``rows`` is a list of rows, each a list of
@@ -97,22 +104,25 @@ class SlideTable:
     rows: list[list[str]] = field(default_factory=_default_rows)
     font_pt: int = 18
     color: str = "#000000"
-    border: bool = True
+    border: bool = True        # legacy flag; migrated to ``grid`` on load
     header: bool = True        # first row styled as a coloured header
     caption: str = ""          # optional caption shown under the table
+    # --- full table styling ---
+    align: str = "left"        # cell text alignment: left | center | right
+    grid: str = "all"          # rules: all | horizontal | outer | none
+    rule_color: str = TABLE_RULE     # grid line colour
+    rule_width: float = 0.8    # grid line thickness in pt
+    header_bg: str = TABLE_HEADER_BG    # header row background
+    header_fg: str = TABLE_HEADER_FG    # header row text colour
+    striped: bool = False      # zebra-stripe the body rows
+    stripe_color: str = "#F5F5F5"       # alternate body-row colour
+    # Box frame (drawn around the whole table box, separate from the grid).
     fill: str = ""             # box background colour ("" = none)
     border_color: str = ""     # box frame colour ("" = none)
     border_width: float = 1.0
     corner: str = "sharp"
     locked: bool = True        # see SlideText.locked
     type: str = "SlideTable"
-
-
-# KherveTeX-style table palette (orange header / light rules).
-TABLE_HEADER_BG = "#FCE4D6"
-TABLE_HEADER_FG = "#C55A11"
-TABLE_RULE = "#F4B183"
-TABLE_CAPTION_FG = "#808080"
 
 
 @dataclass
@@ -290,15 +300,26 @@ def _build_object(d: dict) -> SlideObject:
         )
     if t == "SlideTable":
         rows = d.get("rows") or _default_rows()
+        border = bool(d.get("border", True))
+        # Migrate the legacy on/off ``border`` flag to the richer ``grid``.
+        grid = str(d.get("grid", "")) or ("all" if border else "none")
         return SlideTable(
             x=float(d.get("x", 0.1)), y=float(d.get("y", 0.1)),
             w=float(d.get("w", 0.5)), h=float(d.get("h", 0.25)),
             rows=[[str(c) for c in row] for row in rows],
             font_pt=int(d.get("font_pt", 18)),
             color=str(d.get("color", "#000000")),
-            border=bool(d.get("border", True)),
+            border=border,
             header=bool(d.get("header", True)),
             caption=str(d.get("caption", "")),
+            align=str(d.get("align", "left")),
+            grid=grid,
+            rule_color=str(d.get("rule_color", TABLE_RULE)),
+            rule_width=float(d.get("rule_width", 0.8)),
+            header_bg=str(d.get("header_bg", TABLE_HEADER_BG)),
+            header_fg=str(d.get("header_fg", TABLE_HEADER_FG)),
+            striped=bool(d.get("striped", False)),
+            stripe_color=str(d.get("stripe_color", "#F5F5F5")),
             fill=str(d.get("fill", "")),
             border_color=str(d.get("border_color", "")),
             border_width=float(d.get("border_width", 1.0)),
