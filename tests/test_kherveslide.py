@@ -459,6 +459,27 @@ def test_serialize_slide_background():
     assert "\\colorbox[HTML]{123456}" in tex
 
 
+def test_text_line_break_becomes_latex_break():
+    # A newline the user typed between two plain lines must render as a
+    # LaTeX line break, not collapse to a space.
+    deck = Deck(slides=[Slide(objects=[
+        SlideText(text="Column one.\nCol 2", locked=False)])], nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "Column one. \\\\" in tex
+    assert "Col 2" in tex
+
+
+def test_itemize_newlines_not_turned_into_breaks():
+    # Structural newlines inside itemize must stay as-is (no stray \\).
+    deck = Deck(slides=[Slide(objects=[SlideText(
+        text="\\begin{itemize}\n\\item A\n\\item B\n\\end{itemize}",
+        locked=False)])], nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "\\begin{itemize}" in tex
+    assert "\\item A" in tex and "\\item B" in tex
+    assert "\\item A \\\\" not in tex          # no spurious line break
+
+
 def test_serialize_empty_picture_path_skipped():
     deck = Deck(slides=[Slide(objects=[SlidePicture(path="")])])
     tex = serialize_deck(deck)

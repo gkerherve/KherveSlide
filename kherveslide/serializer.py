@@ -54,10 +54,31 @@ def _fmt(v: float) -> str:
     return f"{v:.4f}".rstrip("0").rstrip(".") or "0"
 
 
+def _is_struct_line(line: str) -> bool:
+    s = line.lstrip()
+    return (s.startswith("\\begin{") or s.startswith("\\end{")
+            or s.startswith("\\item"))
+
+
+def _apply_linebreaks(body: str) -> str:
+    """Turn a user line break (Enter → newline between two plain text lines)
+    into a LaTeX ``\\\\`` so it shows on a new line. itemize/enumerate
+    structure lines and blank-line paragraph breaks are left untouched."""
+    lines = body.split("\n")
+    if len(lines) <= 1:
+        return body
+    out = [lines[0]]
+    for prev, cur in zip(lines, lines[1:]):
+        both_plain = (prev.strip() and cur.strip()
+                      and not _is_struct_line(prev) and not _is_struct_line(cur))
+        out.append((" \\\\\n" if both_plain else "\n") + cur)
+    return "".join(out)
+
+
 def _styled_text(obj: SlideText) -> str:
     """The inner (font/colour/weight/alignment-styled) content of a text
     box, sized to the block width."""
-    body = obj.text or ""
+    body = _apply_linebreaks(obj.text or "")
     if obj.bold:
         body = f"\\textbf{{{body}}}"
     if obj.italic:
