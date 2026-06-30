@@ -17,6 +17,7 @@ from kherveslide import templates
 def _sample_deck():
     return Deck(
         title="Talk", author="Me", theme="Madrid", aspect="169",
+        plain_frames=True,
         slides=[
             Slide(title="Intro", bg="#FFEECC", objects=[
                 SlideText(x=0.1, y=0.2, w=0.5, h=0.3, text="Hello $x^2$",
@@ -98,6 +99,56 @@ def test_serialize_textblock_coordinates():
     tex = serialize_deck(deck)
     assert "\\begin{textblock}{0.4}(0.25,0.5)" in tex
     assert "\\textblockorigin{0\\paperwidth}{0\\paperheight}" in tex
+
+
+def test_decorations_shown_by_default():
+    # A fresh deck now shows theme decorations (frames are not [plain]).
+    assert Deck().plain_frames is False
+    tex = serialize_deck(Deck(theme="Madrid", slides=[Slide()],
+                              nav_symbols=False))
+    assert "[plain" not in tex
+
+
+def test_serialize_shape_rectangle_and_ellipse():
+    from kherveslide.model import SlideShape
+    deck = Deck(slides=[Slide(objects=[
+        SlideShape(shape="rect", fill="#ff0000", border_color="#0000ff",
+                   border_width=2.0, style="dashed", corner="rounded"),
+        SlideShape(shape="ellipse", border_color="#00aa00", rotation=30.0),
+    ])], nav_symbols=False, plain_frames=True)
+    tex = serialize_deck(deck)
+    assert "\\usepackage{tikz}" in tex
+    assert "\\usetikzlibrary{shapes.geometric}" in tex   # ellipse needs it
+    assert "ellipse" in tex
+    assert "rounded corners=4pt" in tex
+    assert "fill=ksfill0" in tex
+    assert "dashed" in tex
+    assert "rotate=-30" in tex                            # screen CW → tikz CCW
+
+
+def test_serialize_line_style_and_opacity():
+    deck = Deck(slides=[Slide(objects=[
+        SlideLine(arrow_end=True, style="dotted", opacity=0.4)])],
+        nav_symbols=False, plain_frames=True)
+    tex = serialize_deck(deck)
+    assert "dotted" in tex
+    assert "draw opacity=0.4" in tex
+    assert "Stealth" in tex
+
+
+def test_add_rect_appends_shape(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    from kherveslide.model import SlideShape
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.clear()
+    w._add_rect()
+    w._add_ellipse()
+    kinds = [(o.type, getattr(o, "shape", None)) for o in w.slide.objects]
+    assert ("SlideShape", "rect") in kinds
+    assert ("SlideShape", "ellipse") in kinds
 
 
 def test_serialize_frames_are_plain():
@@ -364,7 +415,7 @@ def test_serialize_line_uses_tikz():
     assert "\\usepackage{tikz}" in tex
     assert "\\usetikzlibrary{arrows.meta}" in tex
     assert "\\begin{tikzpicture}[overlay,remember picture]" in tex
-    assert "-{Stealth}" in tex
+    assert "-{Stealth" in tex                    # sized Stealth arrowhead
     assert "current page.north west" in tex
 
 

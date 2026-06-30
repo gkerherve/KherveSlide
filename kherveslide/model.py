@@ -127,13 +127,39 @@ class SlideLine:
     width_pt: float = 1.5
     arrow_start: bool = False
     arrow_end: bool = False
+    style: str = "solid"        # solid | dashed | dotted
+    opacity: float = 1.0        # 0..1
+    head_size: float = 1.0      # arrowhead scale (Stealth length multiplier)
     # A line is inherently positioned, so it is always drawn absolutely in
     # the PDF; locked only governs whether it can be dragged on the canvas.
     locked: bool = True
     type: str = "SlideLine"
 
 
-SlideObject = Union[SlideText, SlidePicture, SlideTable, SlideLine]
+@dataclass
+class SlideShape:
+    """A vector shape (rectangle or ellipse) drawn to fill its box. All of
+    its appearance — fill, outline colour/width/style, rounded corners,
+    opacity and rotation — is editable from the right-click property
+    dialog. Like a line it is always positioned absolutely in the PDF;
+    ``locked`` only governs whether it can be dragged on the canvas."""
+    x: float = 0.3
+    y: float = 0.3
+    w: float = 0.28
+    h: float = 0.22
+    shape: str = "rect"         # rect | ellipse
+    fill: str = ""              # hex fill colour ("" = no fill)
+    border_color: str = "#000000"   # outline colour ("" = no outline)
+    border_width: float = 1.5   # pt
+    style: str = "solid"        # solid | dashed | dotted
+    corner: str = "sharp"       # sharp | rounded (rectangles only)
+    opacity: float = 1.0        # 0..1
+    rotation: float = 0.0       # degrees, clockwise, about the centre
+    locked: bool = False        # freely draggable by default
+    type: str = "SlideShape"
+
+
+SlideObject = Union[SlideText, SlidePicture, SlideTable, SlideLine, SlideShape]
 
 
 # ---------------- Slide + deck ----------------
@@ -184,10 +210,10 @@ class Deck:
     color_theme: str = ""         # beamer colour theme (\usecolortheme)
     aspect: str = "169"           # "169" | "43" | "1610" | "32"
     template: str = "Blank"       # name of the template this deck started from
-    # Frames are [plain] by default (no theme title bars / footers, so they
-    # never overlap absolutely-positioned boxes). Turn this off to let the
-    # chosen beamer theme show its full decoration.
-    plain_frames: bool = True
+    # Theme decorations (title bars / footers / nav) are shown by default.
+    # Turn this on to strip them to [plain] frames (handy when absolutely
+    # positioned boxes would overlap the theme furniture).
+    plain_frames: bool = False
     # Custom page size in cm (both > 0 overrides the aspect ratio). 0 = use
     # the aspect preset (beamer's default ~12.8 x 9.6 cm for 16:9).
     page_w_cm: float = 0.0
@@ -287,7 +313,24 @@ def _build_object(d: dict) -> SlideObject:
             width_pt=float(d.get("width_pt", 1.5)),
             arrow_start=bool(d.get("arrow_start", False)),
             arrow_end=bool(d.get("arrow_end", False)),
+            style=str(d.get("style", "solid")),
+            opacity=float(d.get("opacity", 1.0)),
+            head_size=float(d.get("head_size", 1.0)),
             locked=bool(d.get("locked", True)),
+        )
+    if t == "SlideShape":
+        return SlideShape(
+            x=float(d.get("x", 0.3)), y=float(d.get("y", 0.3)),
+            w=float(d.get("w", 0.28)), h=float(d.get("h", 0.22)),
+            shape=str(d.get("shape", "rect")),
+            fill=str(d.get("fill", "")),
+            border_color=str(d.get("border_color", "#000000")),
+            border_width=float(d.get("border_width", 1.5)),
+            style=str(d.get("style", "solid")),
+            corner=str(d.get("corner", "sharp")),
+            opacity=float(d.get("opacity", 1.0)),
+            rotation=float(d.get("rotation", 0.0)),
+            locked=bool(d.get("locked", False)),
         )
     raise ValueError(f"Unknown slide object type: {t!r}")
 
@@ -352,7 +395,7 @@ def _build_deck(d: dict) -> Deck:
         color_theme=str(d.get("color_theme", "")),
         aspect=str(d.get("aspect", "169")),
         template=str(d.get("template", "Blank")),
-        plain_frames=bool(d.get("plain_frames", True)),
+        plain_frames=bool(d.get("plain_frames", False)),
         page_w_cm=float(d.get("page_w_cm", 0.0)),
         page_h_cm=float(d.get("page_h_cm", 0.0)),
         gap=float(d.get("gap", 0.0)),

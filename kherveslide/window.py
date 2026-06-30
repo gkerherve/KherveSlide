@@ -44,7 +44,7 @@ from .compiler import compile_tex, tectonic_available
 from .drawing_dialog import DrawingDialog
 from .latex_view import LatexView, EDITOR_SCHEMES
 from .model import (
-    Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine,
+    Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
     blend_over_white, deck_to_json, deck_from_json,
     object_to_dict, build_object,
     raise_object, lower_object, to_front, to_back,
@@ -607,6 +607,8 @@ class SlideWindow(QMainWindow):
         vact(icons.drawing, "Add drawing", self._add_drawing)
         vact(icons.line_tool, "Add line", self._add_line)
         vact(icons.arrow_tool, "Add arrow", self._add_arrow)
+        vact(icons.rect_tool, "Add rectangle", self._add_rect)
+        vact(icons.ellipse_tool, "Add circle / ellipse", self._add_ellipse)
         tb.addSeparator()
         # Z-order
         vact(icons.raise_box, "Raise object", lambda: self._zorder("raise"))
@@ -627,6 +629,13 @@ class SlideWindow(QMainWindow):
         self._reload_scene()
         self._select_last()
         self._touch_current()
+
+    def _add_rect(self):
+        self._add_object(SlideShape(shape="rect"), offset=True)
+
+    def _add_ellipse(self):
+        self._add_object(SlideShape(shape="ellipse", w=0.22, h=0.22),
+                         offset=True)
 
     def _enable_format(self, on, is_text=True, is_pic=False):
         for w in (self.fmt_font, self.act_bold, self.act_italic,
@@ -1691,14 +1700,21 @@ class SlideWindow(QMainWindow):
             menu.addAction("Duplicate", self._duplicate_selected)
             menu.addAction("Delete", self._delete_selected)
             menu.addSeparator()
+            positioned = isinstance(item.obj, (SlideLine, SlideShape))
             locked = getattr(item.obj, "locked", True)
-            lk = menu.addAction("Locked (beamer places it)")
+            lk = menu.addAction("Lock position (no dragging)" if positioned
+                                else "Locked (beamer places it)")
             lk.setCheckable(True)
             lk.setChecked(locked)
             lk.setToolTip("Locked: beamer lays the box out. "
                           "Unlocked: drag it anywhere on the slide.")
             lk.toggled.connect(self._set_selected_locked)
-            if not isinstance(item.obj, SlideLine):
+            if isinstance(item.obj, SlideShape):
+                menu.addAction("Shape properties…", self._shape_props_dialog)
+            elif isinstance(item.obj, SlideLine):
+                menu.addAction("Line / arrow properties…",
+                               self._line_props_dialog)
+            else:
                 menu.addAction("Box style (border / fill)…",
                                self._box_style_dialog)
             if isinstance(item.obj, SlideText) and getattr(item.obj, "block", ""):
@@ -1783,6 +1799,119 @@ class SlideWindow(QMainWindow):
             item.update()
             self._touch_current()
 
+    def _colour_button(self, state, key, *, allow_none=True):
+        """A swatch button bound to ``state[key]``. Click picks a colour;
+        right-click clears it to none (when allowed)."""
+        btn = QPushButton()
+
+        def refresh():
+            v = state[key]
+            btn.setText(v or "(none)")
+            btn.setStyleSheet(f"background:{v}; color:#fff;" if v else "")
+
+        def pick():
+            from PySide6.QtGui import QColor as _QC
+            c = QColorDialog.getColor(_QC(state[key] or "#ffffff"), self)
+            if c.isValid():
+                state[key] = c.name(); refresh()
+
+        btn.clicked.connect(pick)
+        if allow_none:
+            btn.setToolTip("Click to choose; right-click clears")
+            btn.setContextMenuPolicy(Qt.CustomContextMenu)
+            btn.customContextMenuRequested.connect(
+                lambda _p: (state.__setitem__(key, ""), refresh()))
+        refresh()
+        return btn
+
+    def _shape_props_dialog(self):
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlideShape):
+            return
+        o = item.obj
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Shape properties")
+        form = QFormLayout(dlg)
+        state = {"fill": o.fill, "border_color": o.border_color}
+
+        shape = QComboBox(); shape.addItems(["rect", "ellipse"])
+        shape.setCurrentText(o.shape)
+        form.addRow("Shape", shape)
+        form.addRow("Fill colour", self._colour_button(state, "fill"))
+        form.addRow("Outline colour",
+                    self._colour_button(state, "border_color"))
+        width = QDoubleSpinBox(); width.setRange(0.0, 20.0)
+        width.setSingleStep(0.5); width.setValue(o.border_width)
+        form.addRow("Outline width (pt)", width)
+        style = QComboBox(); style.addItems(["solid", "dashed", "dotted"])
+        style.setCurrentText(o.style)
+        form.addRow("Outline style", style)
+        corner = QComboBox(); corner.addItems(["sharp", "rounded"])
+        corner.setCurrentText(o.corner)
+        form.addRow("Corners (rect)", corner)
+        opacity = QDoubleSpinBox(); opacity.setRange(0.0, 1.0)
+        opacity.setSingleStep(0.05); opacity.setValue(o.opacity)
+        form.addRow("Opacity", opacity)
+        rot = QDoubleSpinBox(); rot.setRange(-360.0, 360.0)
+        rot.setSingleStep(5.0); rot.setValue(o.rotation)
+        form.addRow("Rotation (°)", rot)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec():
+            o.shape = shape.currentText()
+            o.fill = state["fill"]
+            o.border_color = state["border_color"]
+            o.border_width = width.value()
+            o.style = style.currentText()
+            o.corner = corner.currentText()
+            o.opacity = opacity.value()
+            o.rotation = rot.value()
+            item.update()
+            self._touch_current()
+
+    def _line_props_dialog(self):
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlideLine):
+            return
+        o = item.obj
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Line / arrow properties")
+        form = QFormLayout(dlg)
+        state = {"color": o.color}
+
+        form.addRow("Colour",
+                    self._colour_button(state, "color", allow_none=False))
+        width = QDoubleSpinBox(); width.setRange(0.1, 20.0)
+        width.setSingleStep(0.5); width.setValue(o.width_pt)
+        form.addRow("Width (pt)", width)
+        style = QComboBox(); style.addItems(["solid", "dashed", "dotted"])
+        style.setCurrentText(o.style)
+        form.addRow("Style", style)
+        a_start = QCheckBox("Arrowhead at start"); a_start.setChecked(o.arrow_start)
+        a_end = QCheckBox("Arrowhead at end"); a_end.setChecked(o.arrow_end)
+        form.addRow(a_start)
+        form.addRow(a_end)
+        head = QDoubleSpinBox(); head.setRange(0.3, 5.0)
+        head.setSingleStep(0.1); head.setValue(o.head_size)
+        form.addRow("Arrowhead size", head)
+        opacity = QDoubleSpinBox(); opacity.setRange(0.0, 1.0)
+        opacity.setSingleStep(0.05); opacity.setValue(o.opacity)
+        form.addRow("Opacity", opacity)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec():
+            o.color = state["color"] or "#000000"
+            o.width_pt = width.value()
+            o.style = style.currentText()
+            o.arrow_start = a_start.isChecked()
+            o.arrow_end = a_end.isChecked()
+            o.head_size = head.value()
+            o.opacity = opacity.value()
+            item.update()
+            self._touch_current()
+
     def _set_block_title(self):
         item = self._selected_item()
         if item is None or not isinstance(item.obj, SlideText):
@@ -1818,9 +1947,10 @@ class SlideWindow(QMainWindow):
         if self._loading:
             return
         item = self._selected_item()
-        # Lines have no editable "type"; everything else uses the combo.
-        is_line = item is not None and isinstance(item.obj, SlideLine)
-        self.type_combo.setEnabled(item is not None and not is_line)
+        # Lines and shapes have no editable "type"; everything else uses combo.
+        no_type = item is not None and isinstance(item.obj,
+                                                  (SlideLine, SlideShape))
+        self.type_combo.setEnabled(item is not None and not no_type)
         if item is None:
             self._enable_format(False)
             return
@@ -1834,7 +1964,8 @@ class SlideWindow(QMainWindow):
                 break
         self._loading = False
         is_text = isinstance(obj, SlideText)
-        self._enable_format(True, is_text=is_text, is_pic=not is_text)
+        self._enable_format(True, is_text=is_text,
+                            is_pic=isinstance(obj, SlidePicture))
         if is_text:
             self._loading = True
             self.fmt_font.setValue(obj.font_pt)

@@ -1080,6 +1080,26 @@ def arrow_tool() -> QIcon:
     return QIcon(px)
 
 
+def rect_tool() -> QIcon:
+    """A hollow rounded rectangle."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setBrush(Qt.NoBrush)
+    p.drawRoundedRect(QRectF(4, 7, 16, 10), 2.5, 2.5)
+    p.end()
+    return QIcon(px)
+
+
+def ellipse_tool() -> QIcon:
+    """A hollow circle / ellipse."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 2.0, Qt.SolidLine))
+    p.setBrush(Qt.NoBrush)
+    p.drawEllipse(QRectF(4, 5, 16, 14))
+    p.end()
+    return QIcon(px)
+
+
 def _rotate_icon(cw: bool) -> QIcon:
     """A circular arrow — rotate clockwise or counter-clockwise."""
     px, p = _new_canvas()

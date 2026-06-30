@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from .model import (
-    Slide, SlideText, SlidePicture, SlideTable, SlideLine,
+    Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
     TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE,
 )
 
@@ -772,15 +772,61 @@ class LineBoxItem(BoxItem):
         p1 = QPointF(0, 0)
         p2 = QPointF(self._rect.width(), self._rect.height())
         wpx = max(1.0, obj.width_pt * self._font_scale)
+        painter.save()
+        painter.setOpacity(max(0.0, min(1.0, getattr(obj, "opacity", 1.0))))
         pen = QPen(QColor(obj.color or "#000000"))
         pen.setWidthF(wpx)
         pen.setCapStyle(Qt.RoundCap)
+        pen.setStyle(_PEN_STYLE.get(getattr(obj, "style", "solid"),
+                                    Qt.SolidLine))
         painter.setPen(pen)
         painter.drawLine(p1, p2)
         if obj.arrow_end:
             self._arrowhead(painter, p1, p2, wpx)
         if obj.arrow_start:
             self._arrowhead(painter, p2, p1, wpx)
+        painter.restore()
+        self._paint_selection(painter)
+
+
+_PEN_STYLE = {"solid": Qt.SolidLine, "dashed": Qt.DashLine,
+              "dotted": Qt.DotLine}
+
+
+class ShapeBoxItem(BoxItem):
+    """A rectangle or ellipse with editable fill / outline / corners."""
+
+    def paint(self, painter, option, widget=None):
+        obj: SlideShape = self.obj
+        r = self._rect
+        painter.save()
+        painter.setOpacity(max(0.0, min(1.0, getattr(obj, "opacity", 1.0))))
+        if obj.rotation:
+            c = r.center()
+            painter.translate(c)
+            painter.rotate(obj.rotation)
+            painter.translate(-c)
+        if obj.fill:
+            painter.setBrush(QBrush(QColor(obj.fill)))
+        else:
+            painter.setBrush(Qt.NoBrush)
+        if obj.border_color and obj.border_width > 0:
+            pen = QPen(QColor(obj.border_color))
+            pen.setWidthF(max(1.0, obj.border_width * self._font_scale))
+            pen.setStyle(_PEN_STYLE.get(getattr(obj, "style", "solid"),
+                                        Qt.SolidLine))
+            pen.setJoinStyle(Qt.MiterJoin)
+            painter.setPen(pen)
+        else:
+            painter.setPen(Qt.NoPen)
+        if obj.shape == "ellipse":
+            painter.drawEllipse(r)
+        elif obj.corner == "rounded":
+            rad = min(r.width(), r.height()) * 0.12
+            painter.drawRoundedRect(r, rad, rad)
+        else:
+            painter.drawRect(r)
+        painter.restore()
         self._paint_selection(painter)
 
 
@@ -791,6 +837,8 @@ def make_item(obj, page_w, page_h, gap=0.0, font_scale=FONT_SCALE) -> BoxItem:
         return TableBoxItem(obj, page_w, page_h, gap, font_scale)
     if isinstance(obj, SlideLine):
         return LineBoxItem(obj, page_w, page_h, gap, font_scale)
+    if isinstance(obj, SlideShape):
+        return ShapeBoxItem(obj, page_w, page_h, gap, font_scale)
     return PictureBoxItem(obj, page_w, page_h, gap, font_scale)
 
 

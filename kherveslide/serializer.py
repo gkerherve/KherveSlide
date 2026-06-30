@@ -22,7 +22,7 @@ layout; the user composes the slide entirely from boxes.
 from __future__ import annotations
 
 from .model import (
-    Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine,
+    Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
     blend_over_white, TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE,
     TABLE_CAPTION_FG,
 )
@@ -392,27 +392,72 @@ def _theme_spec_lines(spec) -> list[str]:
     return lines
 
 
+_DASH_TIKZ = {"dashed": ", dashed", "dotted": ", dotted"}
+
+
 def _serialize_line(obj: SlideLine, gap: float, idx: int) -> str:
     span = 1 - 2 * gap
     px1, py1 = gap + obj.x * span, gap + obj.y * span
     px2, py2 = gap + (obj.x + obj.w) * span, gap + (obj.y + obj.h) * span
     colour = _hex_to_rgb_arg(obj.color) or "000000"
+    hs = max(0.3, getattr(obj, "head_size", 1.0))
+    head = f"{{Stealth[length={_fmt(2.4 * hs)}mm]}}"
     if obj.arrow_start and obj.arrow_end:
-        arrow = ", {Stealth}-{Stealth}"
+        arrow = f", {head}-{head}"
     elif obj.arrow_end:
-        arrow = ", -{Stealth}"
+        arrow = f", -{head}"
     elif obj.arrow_start:
-        arrow = ", {Stealth}-"
+        arrow = f", {head}-"
     else:
         arrow = ""
+    dash = _DASH_TIKZ.get(getattr(obj, "style", "solid"), "")
+    op = getattr(obj, "opacity", 1.0)
+    opacity = f", draw opacity={_fmt(op)}" if op < 1.0 else ""
     nw = "current page.north west"
     return (
         f"\\definecolor{{ksline{idx}}}{{HTML}}{{{colour}}}\n"
         f"\\begin{{tikzpicture}}[overlay,remember picture]\n"
-        f"\\draw[line width={_fmt(obj.width_pt)}pt,color=ksline{idx}{arrow}] "
+        f"\\draw[line width={_fmt(obj.width_pt)}pt,color=ksline{idx}"
+        f"{arrow}{dash}{opacity}] "
         f"([xshift={_fmt(px1)}\\paperwidth,yshift=-{_fmt(py1)}\\paperheight]{nw}) -- "
         f"([xshift={_fmt(px2)}\\paperwidth,yshift=-{_fmt(py2)}\\paperheight]{nw});\n"
         f"\\end{{tikzpicture}}")
+
+
+def _serialize_shape(obj: SlideShape, gap: float, idx: int) -> str:
+    span = 1 - 2 * gap
+    cx = gap + (obj.x + obj.w / 2) * span
+    cy = gap + (obj.y + obj.h / 2) * span
+    w, h = obj.w * span, obj.h * span
+    defs = ""
+    opts = [f"minimum width={_fmt(w)}\\paperwidth",
+            f"minimum height={_fmt(h)}\\paperheight", "inner sep=0pt"]
+    if obj.shape == "ellipse":
+        opts.insert(0, "ellipse")
+    elif obj.corner == "rounded":
+        opts.append("rounded corners=4pt")
+    if obj.border_color and obj.border_width > 0:
+        defs += (f"\\definecolor{{ksshape{idx}}}{{HTML}}"
+                 f"{{{_hex_to_rgb_arg(obj.border_color) or '000000'}}}\n")
+        opts.append(f"draw=ksshape{idx}")
+        opts.append(f"line width={_fmt(obj.border_width)}pt")
+        opts.append({"dashed": "dashed", "dotted": "dotted"}.get(
+            getattr(obj, "style", "solid"), "solid"))
+    if obj.fill:
+        defs += (f"\\definecolor{{ksfill{idx}}}{{HTML}}"
+                 f"{{{_hex_to_rgb_arg(obj.fill) or 'ffffff'}}}\n")
+        opts.append(f"fill=ksfill{idx}")
+    if obj.opacity < 1.0:
+        opts.append(f"opacity={_fmt(obj.opacity)}")
+    if obj.rotation:
+        opts.append(f"rotate={_fmt(-obj.rotation)}")
+    nw = "current page.north west"
+    pos = (f"([xshift={_fmt(cx)}\\paperwidth,"
+           f"yshift=-{_fmt(cy)}\\paperheight]{nw})")
+    return (defs +
+            "\\begin{tikzpicture}[overlay,remember picture]\n"
+            f"\\node[{', '.join(opts)}] at {pos} {{}};\n"
+            "\\end{tikzpicture}")
 
 
 def _overlay_object(obj, gap: float, counter: list) -> str | None:
@@ -423,6 +468,10 @@ def _overlay_object(obj, gap: float, counter: list) -> str | None:
         return _serialize_table(obj)
     if isinstance(obj, SlideLine):
         block = _serialize_line(obj, gap, counter[0])
+        counter[0] += 1
+        return block
+    if isinstance(obj, SlideShape):
+        block = _serialize_shape(obj, gap, counter[0])
         counter[0] += 1
         return block
     if isinstance(obj, SlidePicture):
@@ -470,7 +519,8 @@ def _nav_symbols_block(gap: float) -> str:
 
 
 _OBJ_LABEL = {SlideText: "text box", SlidePicture: "picture",
-              SlideTable: "table", SlideLine: "line / arrow"}
+              SlideTable: "table", SlideLine: "line / arrow",
+              SlideShape: "shape"}
 
 
 def _obj_label(obj) -> str:
@@ -508,14 +558,16 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
     # are always absolute, so they never flow. Side-by-side locked objects
     # become beamer columns.
     locked_flow = [o for o in slide.objects
-                   if getattr(o, "locked", True) and not isinstance(o, SlideLine)]
+                   if getattr(o, "locked", True)
+                   and not isinstance(o, (SlideLine, SlideShape))]
     flow = _serialize_flow(locked_flow)
     if flow:
         parts.append("\n  % beamer-placed content (flows in the frame body)")
         parts.extend(flow)
     # Unlocked objects (and all lines) are placed absolutely on top.
     for obj in slide.objects:
-        if not getattr(obj, "locked", True) or isinstance(obj, SlideLine):
+        if (not getattr(obj, "locked", True)
+                or isinstance(obj, (SlideLine, SlideShape))):
             block = _overlay_object(obj, gap, counter)
             if block:
                 parts.append(f"\n  % {_obj_label(obj)} (free-positioned)")
@@ -587,15 +639,19 @@ def serialize_deck(deck: Deck) -> str:
     lines += _theme_spec_lines(getattr(deck, "theme_spec", None))
     # lmodern: scalable fonts for the arbitrary \fontsize sizes the boxes use.
     lines.append("\\usepackage{lmodern}")
-    needs_tikz = any(isinstance(o, SlideLine) or _has_frame(o)
+    needs_tikz = any(isinstance(o, (SlideLine, SlideShape)) or _has_frame(o)
                      for s in deck.slides for o in s.objects)
     needs_opacity = any(isinstance(o, SlidePicture) and o.opacity < 1.0
+                        for s in deck.slides for o in s.objects)
+    needs_ellipse = any(isinstance(o, SlideShape) and o.shape == "ellipse"
                         for s in deck.slides for o in s.objects)
     if needs_tikz or needs_opacity:
         # tikz also drives image opacity (a node with opacity= tints it).
         lines.append("\\usepackage{tikz}")
     if needs_tikz:
         lines.append("\\usetikzlibrary{arrows.meta}")
+        if needs_ellipse:
+            lines.append("\\usetikzlibrary{shapes.geometric}")
     if any(isinstance(o, SlidePicture) and _has_crop(o)
            for s in deck.slides for o in s.objects):
         # adjustbox supplies \adjincludegraphics with \width-relative trim.
