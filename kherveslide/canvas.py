@@ -807,22 +807,121 @@ class TableBoxItem(BoxItem):
 
 
 class LineBoxItem(BoxItem):
-    """A line / arrow along the box diagonal (top-left to bottom-right)."""
+    """A line / arrow between two endpoints. Each end has its own handle and
+    can be dragged anywhere (so the line can point in any direction); the
+    box's (w, h) are the signed deltas from end 1 to end 2."""
 
     def __init__(self, obj, page_w, page_h, gap=0.0, font_scale=FONT_SCALE):
+        self._drag_end = None
+        self._suppress_write = True
         super().__init__(obj, page_w, page_h, gap, font_scale)
-        self._set_exact_rect()
+        self._resync()
+        self._suppress_write = False
 
-    def _set_exact_rect(self):
-        # Lines aren't floored to MIN_PX, so a flat line stays flat and the
-        # canvas matches the serialized geometry exactly.
-        cw, ch, _, _ = self._content()
+    # Lines use their own endpoint handles, not the 8 box handles.
+    def _handle_rects(self):
+        return {}
+
+    def _resync(self):
+        # Place the item at the bounding-box top-left and size it to the
+        # absolute extent, so a line in any direction matches its geometry.
+        cw, ch, ox, oy = self._content()
+        o = self.obj
+        left, top = min(o.x, o.x + o.w), min(o.y, o.y + o.h)
         self.prepareGeometryChange()
-        self._rect = QRectF(0, 0, self.obj.w * cw, self.obj.h * ch)
+        self._rect = QRectF(0, 0, abs(o.w) * cw, abs(o.h) * ch)
+        prev = self._suppress_write
+        self._suppress_write = True
+        self.setPos(ox + left * cw, oy + top * ch)
+        self._suppress_write = prev
+        self.update()
 
     def sync_from_model(self):
-        super().sync_from_model()
-        self._set_exact_rect()
+        self._resync()
+
+    def _endpoints_local(self):
+        cw, ch, _, _ = self._content()
+        o = self.obj
+        left, top = min(o.x, o.x + o.w), min(o.y, o.y + o.h)
+        p1 = QPointF((o.x - left) * cw, (o.y - top) * ch)
+        p2 = QPointF((o.x + o.w - left) * cw, (o.y + o.h - top) * ch)
+        return p1, p2
+
+    def _end_handles(self):
+        p1, p2 = self._endpoints_local()
+        h = HANDLE + 1
+        return {"P1": QRectF(p1.x() - h, p1.y() - h, 2 * h, 2 * h),
+                "P2": QRectF(p2.x() - h, p2.y() - h, 2 * h, 2 * h)}
+
+    def _endpoint_at(self, pos):
+        for key, rect in self._end_handles().items():
+            if rect.contains(pos):
+                return key
+        return None
+
+    # -- geometry write-back --------------------------------------
+    def _write_geometry(self):
+        # Whole-line move: derive end 1 (x, y) from the new bbox top-left,
+        # keeping the signed deltas (w, h). Endpoint drags write directly.
+        if self._drag_end is not None or getattr(self, "_suppress_write", False):
+            return
+        cw, ch, ox, oy = self._content()
+        o = self.obj
+        left = (self.pos().x() - ox) / cw
+        top = (self.pos().y() - oy) / ch
+        o.x = round(left + (0.0 if o.w >= 0 else -o.w), 4)
+        o.y = round(top + (0.0 if o.h >= 0 else -o.h), 4)
+
+    # -- mouse ----------------------------------------------------
+    def mousePressEvent(self, event):
+        if self._lock_rect().contains(event.pos()):
+            self.toggle_lock()
+            event.accept()
+            return
+        if self.isSelected():
+            h = self._endpoint_at(event.pos())
+            if h is not None:
+                self._drag_end = h
+                event.accept()
+                return
+        self._drag_end = None
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_end is None:
+            super().mouseMoveEvent(event)
+            return
+        cw, ch, ox, oy = self._content()
+        fx = (event.scenePos().x() - ox) / cw
+        fy = (event.scenePos().y() - oy) / ch
+        o = self.obj
+        if self._drag_end == "P2":
+            o.w = round(fx - o.x, 4)
+            o.h = round(fy - o.y, 4)
+        else:                            # dragging end 1; keep end 2 fixed
+            p2x, p2y = o.x + o.w, o.y + o.h
+            o.x, o.y = round(fx, 4), round(fy, 4)
+            o.w, o.h = round(p2x - o.x, 4), round(p2y - o.y, 4)
+        self._resync()
+        self.geometryChanged.emit()
+
+    def mouseReleaseEvent(self, event):
+        if self._drag_end is not None:
+            self._drag_end = None
+            self.geometryChanged.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def hoverMoveEvent(self, event):
+        if self._lock_rect().contains(event.pos()):
+            self.setCursor(Qt.PointingHandCursor)
+        elif self.isSelected() and self._endpoint_at(event.pos()):
+            self.setCursor(Qt.SizeAllCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor if self._is_locked()
+                           else Qt.SizeAllCursor)
+        super(BoxItem, self).hoverMoveEvent(event)
 
     def _arrowhead(self, painter, frm, to, wpx):
         ang = math.atan2(to.y() - frm.y(), to.x() - frm.x())
@@ -839,10 +938,10 @@ class LineBoxItem(BoxItem):
 
     def paint(self, painter, option, widget=None):
         obj: SlideLine = self.obj
-        p1 = QPointF(0, 0)
-        p2 = QPointF(self._rect.width(), self._rect.height())
+        p1, p2 = self._endpoints_local()
         wpx = max(1.0, obj.width_pt * self._font_scale)
         painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setOpacity(max(0.0, min(1.0, getattr(obj, "opacity", 1.0))))
         pen = QPen(QColor(obj.color or "#000000"))
         pen.setWidthF(wpx)
@@ -856,7 +955,23 @@ class LineBoxItem(BoxItem):
         if obj.arrow_start:
             self._arrowhead(painter, p2, p1, wpx)
         painter.restore()
-        self._paint_selection(painter)
+        self._paint_line_chrome(painter)
+
+    def _paint_line_chrome(self, painter):
+        """Endpoint handles when selected; lock badge on hover/selection."""
+        if not self.isSelected():
+            if getattr(self, "_hover", False):
+                self._paint_lock(painter)
+            return
+        painter.save()
+        painter.setBrush(QBrush(QColor(255, 255, 255)))
+        painter.setPen(QPen(QColor(40, 120, 220), 0))
+        p1, p2 = self._endpoints_local()
+        for p in (p1, p2):
+            painter.drawRect(QRectF(p.x() - HANDLE, p.y() - HANDLE,
+                                    2 * HANDLE, 2 * HANDLE))
+        painter.restore()
+        self._paint_lock(painter)
 
 
 _PEN_STYLE = {"solid": Qt.SolidLine, "dashed": Qt.DashLine,

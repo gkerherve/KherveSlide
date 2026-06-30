@@ -194,6 +194,28 @@ def test_scene_has_pasteboard_around_page():
     assert (pr.width(), pr.height()) == (s.page_w, s.page_h)
 
 
+def test_line_endpoints_any_direction():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide.canvas import LineBoxItem, page_size_px
+    from kherveslide.model import SlideLine
+    pw, ph, fs = page_size_px("169", 0.0, 0.0)
+    o = SlideLine(x=0.7, y=0.6, w=-0.4, h=-0.3)   # runs up-and-left
+    it = LineBoxItem(o, pw, ph, 0.0, fs)
+    assert abs(it._rect.width() - 0.4 * pw) < 1.0
+    assert abs(it._rect.height() - 0.3 * ph) < 1.0
+    p1, p2 = it._endpoints_local()
+    assert p1.x() > p2.x() and p1.y() > p2.y()
+
+
+def test_reversed_line_serialises_positive_width():
+    from kherveslide.model import SlideLine
+    tex = serialize_deck(Deck(slides=[Slide(objects=[
+        SlideLine(x=0.7, y=0.6, w=-0.4, h=-0.3)])], nav_symbols=False))
+    # the textblock width is the absolute extent, never negative
+    assert "\\begin{textblock}{0.4}(0.3,0.3)" in tex
+
+
 def test_serialize_line_style_and_opacity():
     deck = Deck(slides=[Slide(objects=[
         SlideLine(arrow_end=True, style="dotted", opacity=0.4)])],

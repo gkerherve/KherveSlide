@@ -459,15 +459,28 @@ def _serialize_line(obj: SlideLine, gap: float, idx: int) -> str:
     dash = _DASH_TIKZ.get(getattr(obj, "style", "solid"), "")
     op = getattr(obj, "opacity", 1.0)
     opacity = f", draw opacity={_fmt(op)}" if op < 1.0 else ""
-    wlen, hlen = "\\linewidth", f"{_fmt(obj.h)}\\TPVertModule"
+    # Endpoints may run in any direction, so place the textblock at the
+    # bounding-box corner with a positive width and draw between the two ends
+    # as box-fractions (a textblock width can't be negative).
+    left, top = min(obj.x, obj.x + obj.w), min(obj.y, obj.y + obj.h)
+    bw, bh = abs(obj.w), abs(obj.h)
+    f1x = 0.0 if bw == 0 else (obj.x - left) / bw
+    f2x = 0.0 if bw == 0 else (obj.x + obj.w - left) / bw
+    f1y = 0.0 if bh == 0 else (obj.y - top) / bh
+    f2y = 0.0 if bh == 0 else (obj.y + obj.h - top) / bh
+    wlen, hlen = "\\linewidth", f"{_fmt(bh)}\\TPVertModule"
+
+    def loc(fx, fy):
+        return f"({_fmt(fx)}\\linewidth,-{_fmt(fy * bh)}\\TPVertModule)"
+
     pic = (
         f"\\begin{{tikzpicture}}\n"
         f"\\useasboundingbox (0,0) rectangle ({wlen},-{hlen});\n"
         f"\\draw[line width={_fmt(obj.width_pt)}pt,color=ksline{idx}"
-        f"{arrow}{dash}{opacity}] (0,0) -- ({wlen},-{hlen});\n"
+        f"{arrow}{dash}{opacity}] {loc(f1x, f1y)} -- {loc(f2x, f2y)};\n"
         f"\\end{{tikzpicture}}")
     return (f"\\definecolor{{ksline{idx}}}{{HTML}}{{{colour}}}\n"
-            f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
+            f"\\begin{{textblock}}{{{_fmt(bw)}}}({_fmt(left)},{_fmt(top)})\n"
             f"{pic}\n\\end{{textblock}}")
 
 
