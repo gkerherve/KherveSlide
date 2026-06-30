@@ -185,7 +185,6 @@ class PictureEditDialog(QDialog):
         self._canvas.changed.connect(self._update_preview)
 
         root = QVBoxLayout(self)
-        root.addWidget(self._canvas, 1)
 
         tb = QToolBar()
         tb.setIconSize(QSize(22, 22))
@@ -216,7 +215,8 @@ class PictureEditDialog(QDialog):
         self._preview.setAlignment(Qt.AlignCenter)
         self._preview.setStyleSheet("border:1px solid #888;background:#fff;")
         tb.addWidget(self._preview)
-        root.addWidget(tb)
+        root.addWidget(tb)            # toolbar on top
+        root.addWidget(self._canvas, 1)
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)

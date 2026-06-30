@@ -102,10 +102,8 @@ def _text_inner(obj: SlideText) -> str:
     if block in _BLOCK_ENVS:
         title = getattr(obj, "block_title", "") or ""
         content = f"\\begin{{{block}}}{{{title}}}{content}\\end{{{block}}}"
-    fill = _hex_to_rgb_arg(obj.fill)
-    if fill:
-        return (f"\\colorbox[HTML]{{{fill}}}{{\\begin{{minipage}}{{\\linewidth}}"
-                f"{content}\\end{{minipage}}}}")
+    if _has_frame(obj):
+        return _frame_wrap(content, obj, "\\linewidth")
     return f"{{{content}\\par}}"
 
 
@@ -118,6 +116,34 @@ def _serialize_text(obj: SlideText) -> str:
 def _has_crop(obj: SlidePicture) -> bool:
     return any(getattr(obj, k, 0.0) > 0.0
                for k in ("crop_l", "crop_t", "crop_r", "crop_b"))
+
+
+def _has_frame(obj) -> bool:
+    return bool(_hex_to_rgb_arg(getattr(obj, "border_color", ""))
+                or _hex_to_rgb_arg(getattr(obj, "fill", "")))
+
+
+def _frame_wrap(inner: str, obj, text_width: str | None = None) -> str:
+    """Wrap *inner* in a tikz node giving the box a fill and/or a border
+    rectangle (sharp or rounded). Returns *inner* unchanged if neither set."""
+    bc = _hex_to_rgb_arg(getattr(obj, "border_color", ""))
+    fc = _hex_to_rgb_arg(getattr(obj, "fill", ""))
+    if not bc and not fc:
+        return inner
+    pre, opts = [], ["inner sep=3pt"]
+    if bc:
+        pre.append(f"\\definecolor{{ksBorder}}{{HTML}}{{{bc}}}")
+        w = _fmt(max(0.2, getattr(obj, "border_width", 1.0)))
+        opts += [f"draw=ksBorder", f"line width={w}pt"]
+    if fc:
+        pre.append(f"\\definecolor{{ksBoxFill}}{{HTML}}{{{fc}}}")
+        opts.append("fill=ksBoxFill")
+    if getattr(obj, "corner", "sharp") == "rounded":
+        opts.append("rounded corners=4pt")
+    if text_width:
+        opts.append(f"text width={text_width}")
+    return ("".join(pre) + "\\begin{tikzpicture}\n"
+            f"\\node[{','.join(opts)}]{{{inner}}};\n\\end{{tikzpicture}}")
 
 
 def _picture_graphic(obj: SlidePicture, rel: str = "\\paperwidth",
@@ -154,7 +180,7 @@ def _serialize_picture(obj: SlidePicture) -> str:
     if not obj.path:
         return ""
     return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
-            f"{_picture_graphic(obj)}\n"
+            f"{_frame_wrap(_picture_graphic(obj), obj)}\n"
             f"\\end{{textblock}}")
 
 
@@ -185,7 +211,7 @@ def _table_inner(obj: SlideTable) -> str:
                   f"\\textcolor{{ksTblCap}}{{{obj.caption}}}}}")
     lead = int(round(obj.font_pt * 1.2))
     sized = f"\\fontsize{{{obj.font_pt}}}{{{lead}}}\\selectfont"
-    return f"{{{sized} {table}}}"
+    return _frame_wrap(f"{{{sized} {table}}}", obj)
 
 
 def _serialize_table(obj: SlideTable) -> str:
@@ -205,7 +231,8 @@ def _flow_object(obj) -> str | None:
         return "\\begin{center}" + _table_inner(obj) + "\\end{center}"
     if isinstance(obj, SlidePicture) and obj.path:
         return ("\\begin{center}"
-                + _picture_graphic(obj, "\\textwidth", "\\textheight")
+                + _frame_wrap(
+                    _picture_graphic(obj, "\\textwidth", "\\textheight"), obj)
                 + "\\end{center}")
     return None
 
@@ -220,8 +247,8 @@ def _column_content(obj) -> str | None:
     if isinstance(obj, SlidePicture) and obj.path:
         # Fill the column width (the box width already set the column size),
         # capping the height to the box's slide-fraction.
-        return _picture_graphic(obj, rel_h="\\textheight",
-                                width_expr="\\linewidth")
+        return _frame_wrap(_picture_graphic(obj, rel_h="\\textheight",
+                                            width_expr="\\linewidth"), obj)
     return None
 
 
@@ -522,8 +549,8 @@ def serialize_deck(deck: Deck) -> str:
     lines += _theme_spec_lines(getattr(deck, "theme_spec", None))
     # lmodern: scalable fonts for the arbitrary \fontsize sizes the boxes use.
     lines.append("\\usepackage{lmodern}")
-    needs_tikz = any(isinstance(o, SlideLine) for s in deck.slides
-                     for o in s.objects)
+    needs_tikz = any(isinstance(o, SlideLine) or _has_frame(o)
+                     for s in deck.slides for o in s.objects)
     needs_opacity = any(isinstance(o, SlidePicture) and o.opacity < 1.0
                         for s in deck.slides for o in s.objects)
     if needs_tikz or needs_opacity:

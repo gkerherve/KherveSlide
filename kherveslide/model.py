@@ -42,6 +42,10 @@ class SlideText:
     align: str = "left"           # left | center | right
     bold: bool = False
     italic: bool = False
+    # Box frame: a rectangle drawn around the box. "" border = none.
+    border_color: str = ""
+    border_width: float = 1.0     # pt
+    corner: str = "sharp"         # sharp | rounded
     # Locked: beamer places the box in the standard flow (you can't drag it).
     # Unlocked: free absolute positioning at (x, y) via textpos.
     locked: bool = True
@@ -69,6 +73,10 @@ class SlidePicture:
     crop_r: float = 0.0
     crop_b: float = 0.0
     rotation: float = 0.0       # degrees, clockwise, about the centre
+    fill: str = ""              # box background colour ("" = none)
+    border_color: str = ""      # box frame colour ("" = none)
+    border_width: float = 1.0
+    corner: str = "sharp"
     locked: bool = True         # see SlideText.locked
     type: str = "SlidePicture"
 
@@ -92,6 +100,10 @@ class SlideTable:
     border: bool = True
     header: bool = True        # first row styled as a coloured header
     caption: str = ""          # optional caption shown under the table
+    fill: str = ""             # box background colour ("" = none)
+    border_color: str = ""     # box frame colour ("" = none)
+    border_width: float = 1.0
+    corner: str = "sharp"
     locked: bool = True        # see SlideText.locked
     type: str = "SlideTable"
 
@@ -225,6 +237,9 @@ def _build_object(d: dict) -> SlideObject:
             align=str(d.get("align", "left")),
             bold=bool(d.get("bold", False)),
             italic=bool(d.get("italic", False)),
+            border_color=str(d.get("border_color", "")),
+            border_width=float(d.get("border_width", 1.0)),
+            corner=str(d.get("corner", "sharp")),
             locked=bool(d.get("locked", True)),
             block=str(d.get("block", "")),
             block_title=str(d.get("block_title", "")),
@@ -241,6 +256,10 @@ def _build_object(d: dict) -> SlideObject:
             crop_r=float(d.get("crop_r", 0.0)),
             crop_b=float(d.get("crop_b", 0.0)),
             rotation=float(d.get("rotation", 0.0)),
+            fill=str(d.get("fill", "")),
+            border_color=str(d.get("border_color", "")),
+            border_width=float(d.get("border_width", 1.0)),
+            corner=str(d.get("corner", "sharp")),
             locked=bool(d.get("locked", True)),
         )
     if t == "SlideTable":
@@ -254,6 +273,10 @@ def _build_object(d: dict) -> SlideObject:
             border=bool(d.get("border", True)),
             header=bool(d.get("header", True)),
             caption=str(d.get("caption", "")),
+            fill=str(d.get("fill", "")),
+            border_color=str(d.get("border_color", "")),
+            border_width=float(d.get("border_width", 1.0)),
+            corner=str(d.get("corner", "sharp")),
             locked=bool(d.get("locked", True)),
         )
     if t == "SlideLine":

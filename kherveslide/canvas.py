@@ -417,6 +417,29 @@ class BoxItem(QGraphicsObject):
             painter.drawRect(rect)
         self._paint_lock(painter)
 
+    def _paint_decoration(self, painter, border_only=False):
+        """Box fill + border rectangle (sharp or rounded), shared by every
+        box type. No-op unless a fill or border colour is set."""
+        o = self.obj
+        fill = "" if border_only else getattr(o, "fill", "")
+        bc = getattr(o, "border_color", "")
+        bw = getattr(o, "border_width", 1.0)
+        rounded = getattr(o, "corner", "sharp") == "rounded"
+        if not fill and not bc:
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, rounded)
+        painter.setBrush(QColor(fill) if fill else Qt.NoBrush)
+        if bc and bw > 0:
+            painter.setPen(QPen(QColor(bc), max(1.0, bw * 1.5)))
+        else:
+            painter.setPen(Qt.NoPen)
+        if rounded:
+            painter.drawRoundedRect(self._rect, 10, 10)
+        else:
+            painter.drawRect(self._rect)
+        painter.restore()
+
     def _paint_lock(self, painter):
         """A bold padlock badge so the lock state reads at a glance —
         amber & closed when locked, green & open when freely positioned.
@@ -471,8 +494,7 @@ class TextBoxItem(BoxItem):
 
     def paint(self, painter, option, widget=None):
         obj: SlideText = self.obj
-        if obj.fill:
-            painter.fillRect(self._rect, QColor(obj.fill))
+        self._paint_decoration(painter)
 
         # A pure math box ($…$, \[…\]) is rendered as real maths, like the
         # equation editor's preview, rather than shown as raw LaTeX.
@@ -598,6 +620,7 @@ class PictureBoxItem(BoxItem):
                       max(1.0, (1 - cl - cr) * w), max(1.0, (1 - ct - cb) * h))
 
     def paint(self, painter, option, widget=None):
+        self._paint_decoration(painter)
         pm = self._pixmap()
         if pm is not None:
             src = self._source_rect(pm)
@@ -667,7 +690,7 @@ class TableBoxItem(BoxItem):
         rows, nrows, ncols = self._dims()
         cw = self._rect.width() / ncols
         ch = self._rect.height() / nrows
-        painter.fillRect(self._rect, QColor("#FFFFFF"))
+        painter.fillRect(self._rect, QColor(getattr(obj, "fill", "") or "#FFFFFF"))
         # Coloured header row (KherveTeX-style orange).
         if obj.header and nrows >= 1:
             painter.fillRect(QRectF(self._rect.x(), self._rect.y(),
@@ -699,6 +722,7 @@ class TableBoxItem(BoxItem):
                 painter.drawText(cell.adjusted(5, 1, -5, -1),
                                  int(Qt.AlignVCenter | Qt.AlignLeft
                                      | Qt.TextWordWrap), text)
+        self._paint_decoration(painter, border_only=True)
         self._paint_selection(painter)
 
 

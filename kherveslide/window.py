@@ -679,10 +679,12 @@ class SlideWindow(QMainWindow):
         wysiwyg.setStretchFactor(1, 1)
         wysiwyg.setSizes([220, 760])
 
-        # LEFT tabs: the WYSIWYG (default) and the live LaTeX source.
+        # LEFT tabs: the WYSIWYG (default) and the live, editable LaTeX.
         self.latex_view = LatexView()
-        self.latex_view._edit.setReadOnly(True)
         self.latex_view.set_dark(self._dark, self._theme)
+        # Editing the source recompiles that text; a slide change regenerates
+        # it from the model (overwriting manual edits).
+        self.latex_view.latexEdited.connect(self._on_latex_edited)
         self.left_tabs = QTabWidget()
         self.left_tabs.addTab(wysiwyg, "WYSIWYG")
         self.left_tabs.addTab(self.latex_view, "LaTeX")
@@ -972,7 +974,8 @@ class SlideWindow(QMainWindow):
         if self._worker is not None:
             self._compile_pending = True   # coalesce: run again when done
             return
-        tex = serialize_deck(self.deck)
+        # Compile what's in the LaTeX editor (so manual edits take effect).
+        tex = self.latex_view.source()
         workdir = Path(tempfile.gettempdir()) / "kherveslide_build"
         src_dir = self.path.parent if self.path else None
         self.statusBar().showMessage("Compiling…")
@@ -1599,6 +1602,9 @@ class SlideWindow(QMainWindow):
             lk.setToolTip("Locked: beamer lays the box out. "
                           "Unlocked: drag it anywhere on the slide.")
             lk.toggled.connect(self._set_selected_locked)
+            if not isinstance(item.obj, SlideLine):
+                menu.addAction("Box style (border / fill)…",
+                               self._box_style_dialog)
             if isinstance(item.obj, SlideText) and getattr(item.obj, "block", ""):
                 menu.addAction("Block title…", self._set_block_title)
             menu.addSeparator()
@@ -1626,6 +1632,60 @@ class SlideWindow(QMainWindow):
         paste = menu.addAction("Paste", lambda: self._paste(scene_pos))
         paste.setEnabled(self._can_paste())
         menu.exec(global_pos)
+
+    def _box_style_dialog(self):
+        item = self._selected_item()
+        if item is None or isinstance(item.obj, SlideLine):
+            return
+        o = item.obj
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Box style")
+        form = QFormLayout(dlg)
+        state = {"fill": getattr(o, "fill", ""),
+                 "border_color": getattr(o, "border_color", "")}
+
+        def colour_btn(key):
+            btn = QPushButton()
+
+            def refresh():
+                v = state[key]
+                btn.setText(v or "(none)")
+                btn.setStyleSheet(f"background:{v};" if v else "")
+
+            def pick():
+                from PySide6.QtGui import QColor as _QC
+                c = QColorDialog.getColor(_QC(state[key] or "#ffffff"), self)
+                if c.isValid():
+                    state[key] = c.name(); refresh()
+
+            btn.clicked.connect(pick)
+            btn.setToolTip("Click to choose; right-click clears")
+            btn.setContextMenuPolicy(Qt.CustomContextMenu)
+            btn.customContextMenuRequested.connect(
+                lambda _p, k=key, rf=None: (state.__setitem__(key, ""), refresh()))
+            refresh()
+            return btn
+
+        fill_btn = colour_btn("fill")
+        border_btn = colour_btn("border_color")
+        form.addRow("Fill colour", fill_btn)
+        form.addRow("Border colour", border_btn)
+        width = QDoubleSpinBox(); width.setRange(0.0, 12.0); width.setSingleStep(0.5)
+        width.setValue(getattr(o, "border_width", 1.0))
+        form.addRow("Border width (pt)", width)
+        corner = QComboBox(); corner.addItems(["sharp", "rounded"])
+        corner.setCurrentText(getattr(o, "corner", "sharp"))
+        form.addRow("Corners", corner)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec():
+            o.fill = state["fill"]
+            o.border_color = state["border_color"]
+            o.border_width = width.value()
+            o.corner = corner.currentText()
+            item.update()
+            self._touch_current()
 
     def _set_block_title(self):
         item = self._selected_item()
@@ -1789,9 +1849,17 @@ class SlideWindow(QMainWindow):
         item.obj.locked = locked
         item._apply_lock()
         if isinstance(item.obj, SlideText):
+            newly_block = block and not item.obj.block
             item.obj.block = block
             if block and not item.obj.block_title:
                 item.obj.block_title = "Block"
+            item.update()
+            self._touch_current()
+            if newly_block:
+                self.statusBar().showMessage(
+                    "Block added — right-click ▸ Block title… to rename it",
+                    6000)
+            return
         item.update()
         self._touch_current()
 
@@ -2116,7 +2184,7 @@ class SlideWindow(QMainWindow):
         try:
             workdir = Path(tempfile.gettempdir()) / "kherveslide_export"
             src_dir = self.path.parent if self.path else None
-            result = compile_tex(serialize_deck(self.deck), workdir,
+            result = compile_tex(self.latex_view.source(), workdir,
                                  basename="presentation", source_dir=src_dir)
         finally:
             QApplication.restoreOverrideCursor()
@@ -2135,9 +2203,13 @@ class SlideWindow(QMainWindow):
                 self, "Export PDF",
                 "Compilation failed; see the Console tab for the log.")
 
+    def _on_latex_edited(self, _text):
+        # The user edited the LaTeX source — recompile that text.
+        self._schedule_compile()
+
     def _compile(self):
-        """Manual compile — force it now and show the PDF."""
-        self.latex_view.set_source(serialize_deck(self.deck))
+        """Manual compile — force it now and show the PDF (compiles the
+        current LaTeX, including any manual edits)."""
         if not tectonic_available():
             self.console.setPlainText("tectonic is not available on this system.")
             self.right_tabs.setCurrentWidget(self.console)
@@ -2291,5 +2363,5 @@ class SlideWindow(QMainWindow):
                                               "LaTeX (*.tex)")
         if not path:
             return
-        Path(path).write_text(serialize_deck(self.deck), encoding="utf-8")
+        Path(path).write_text(self.latex_view.source(), encoding="utf-8")
         self.statusBar().showMessage(f"Exported {path}")

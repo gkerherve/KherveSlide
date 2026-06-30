@@ -424,7 +424,9 @@ def test_serialize_text_styling():
     assert "\\fontsize{30}" in tex
     assert "\\textcolor[HTML]{FF0000}" in tex
     assert "\\textbf{" in tex and "\\textit{" in tex
-    assert "\\colorbox[HTML]{00FF00}" in tex
+    # Fill is now drawn with the box-frame tikz node, not \colorbox.
+    assert "\\definecolor{ksBoxFill}{HTML}{00FF00}" in tex
+    assert "fill=ksBoxFill" in tex
     assert "\\centering" in tex
 
 
@@ -457,6 +459,24 @@ def test_serialize_slide_background():
     deck = Deck(slides=[Slide(bg="#123456")])
     tex = serialize_deck(deck)
     assert "\\colorbox[HTML]{123456}" in tex
+
+
+def test_box_border_uses_tikz_frame():
+    deck = Deck(slides=[Slide(objects=[
+        SlideText(text="x", border_color="#C00000", border_width=2.0,
+                  corner="rounded", locked=False)])], nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "\\usepackage{tikz}" in tex
+    assert "\\definecolor{ksBorder}{HTML}{C00000}" in tex
+    assert "draw=ksBorder" in tex and "line width=2pt" in tex
+    assert "rounded corners" in tex
+
+
+def test_no_box_frame_without_border_or_fill():
+    deck = Deck(slides=[Slide(objects=[SlideText(text="plain", locked=False)])],
+                nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "ksBorder" not in tex and "ksBoxFill" not in tex
 
 
 def test_block_text_wraps_in_beamer_block():
