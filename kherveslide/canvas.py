@@ -64,34 +64,46 @@ def _math_only(text: str) -> str | None:
 
 def latex_to_html(text: str) -> str:
     """Render a text box's LaTeX-ish content as HTML so itemize/enumerate
-    look like real bullet / numbered lists on the canvas."""
+    look like real bullet / numbered lists on the canvas — including nested
+    sub-levels (an itemize/enumerate opened inside an \\item)."""
     out: list[str] = []
-    buf: list[str] = []
-    env: str | None = None
+    tags: list[str] = []        # open list tags, outermost first
+    li_open: list[bool] = []    # is there an unclosed <li> at each level
 
-    def flush():
-        nonlocal buf, env
-        if env and buf:
-            tag = "ol" if env == "enumerate" else "ul"
-            out.append(f"<{tag}>" + "".join(f"<li>{x}</li>" for x in buf)
-                       + f"</{tag}>")
-        buf = []
+    def close_li():
+        if li_open and li_open[-1]:
+            out.append("</li>")
+            li_open[-1] = False
+
+    def close_all():
+        while tags:
+            close_li()
+            out.append(f"</{tags.pop()}>")
+            li_open.pop()
 
     for raw in (text or "").split("\n"):
         s = raw.strip()
         mb = re.match(r"\\begin\{(itemize|enumerate)\}", s)
         if mb:
-            flush(); env = mb.group(1); buf = []
+            tag = "ol" if mb.group(1) == "enumerate" else "ul"
+            out.append(f"<{tag}>")          # nests inside the open <li> if any
+            tags.append(tag)
+            li_open.append(False)
             continue
         if re.match(r"\\end\{(itemize|enumerate)\}", s):
-            flush(); env = None
+            close_li()
+            if tags:
+                out.append(f"</{tags.pop()}>")
+                li_open.pop()
             continue
-        if s.startswith("\\item"):
-            buf.append(_inline_html(s[len("\\item"):].strip()))
+        if s.startswith("\\item") and tags:
+            close_li()
+            out.append(f"<li>{_inline_html(s[len('\\item'):].strip())}")
+            li_open[-1] = True
             continue
-        flush(); env = None
+        close_all()
         out.append(f"<div>{_inline_html(s)}</div>" if s else "<br>")
-    flush()
+    close_all()
     return "".join(out) or "&nbsp;"
 
 
@@ -121,34 +133,34 @@ def document_to_latex(doc: QTextDocument) -> str:
     italic runs become \\textbf/\\textit. Other text passes through, so
     inline maths like ``$x^2$`` survives a round-trip."""
     lines: list[str] = []
-    env: str | None = None
+    stack: list[str] = []        # open envs, one per nesting level
+    _ENUM = (QTextListFormat.ListDecimal, QTextListFormat.ListLowerAlpha,
+             QTextListFormat.ListUpperAlpha, QTextListFormat.ListLowerRoman,
+             QTextListFormat.ListUpperRoman)
+
+    def close_to(depth):
+        while len(stack) > depth:
+            lines.append(f"\\end{{{stack.pop()}}}")
+
     block = doc.begin()
     while block.isValid():
         tl = block.textList()
         text = _block_latex(block)
         if tl is not None:
-            style = tl.format().style()
-            new_env = ("enumerate"
-                       if style in (QTextListFormat.ListDecimal,
-                                    QTextListFormat.ListLowerAlpha,
-                                    QTextListFormat.ListUpperAlpha,
-                                    QTextListFormat.ListLowerRoman,
-                                    QTextListFormat.ListUpperRoman)
-                       else "itemize")
-            if env != new_env:
-                if env:
-                    lines.append(f"\\end{{{env}}}")
-                lines.append(f"\\begin{{{new_env}}}")
-                env = new_env
-            lines.append(f"  \\item {text}")
+            level = max(1, tl.format().indent())
+            env = "enumerate" if tl.format().style() in _ENUM else "itemize"
+            close_to(level)                       # leave deeper levels
+            if len(stack) == level and stack[-1] != env:
+                lines.append(f"\\end{{{stack.pop()}}}")
+            while len(stack) < level:             # open up to this level
+                lines.append(f"\\begin{{{env}}}")
+                stack.append(env)
+            lines.append("  " * level + f"\\item {text}")
         else:
-            if env:
-                lines.append(f"\\end{{{env}}}")
-                env = None
+            close_to(0)
             lines.append(text)
         block = block.next()
-    if env:
-        lines.append(f"\\end{{{env}}}")
+    close_to(0)
     return "\n".join(lines).strip("\n")
 
 

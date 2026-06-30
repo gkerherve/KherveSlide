@@ -141,6 +141,15 @@ class _InlineEditor(QTextEdit):
             return True
         return super().event(e)
 
+    def insertFromMimeData(self, source):
+        # Paste text from other apps as PLAIN text so its foreign font /
+        # size / colour don't override the box — it adopts the box's own
+        # font (the editor's current char format) instead.
+        if source is not None and source.hasText():
+            self.insertPlainText(source.text())
+        else:
+            super().insertFromMimeData(source)
+
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
         self.editingFinished.emit()
@@ -148,6 +157,12 @@ class _InlineEditor(QTextEdit):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
             self.clearFocus()
+            return
+        # Tab / Shift+Tab change the list sub-level while editing a bullet or
+        # numbered list (indent in, out) — like the levels in the slide.
+        if event.key() == Qt.Key_Tab and self._change_list_level(1):
+            return
+        if event.key() == Qt.Key_Backtab and self._change_list_level(-1):
             return
         if event.modifiers() & Qt.ControlModifier:
             if event.key() == Qt.Key_B:
@@ -157,6 +172,35 @@ class _InlineEditor(QTextEdit):
                 self.toggle_italic()
                 return
         super().keyPressEvent(event)
+
+    # Bullet glyph varies with depth (disc → circle → square), matching the
+    # nested look beamer gives sub-levels.
+    _ITEMIZE_STYLES = [QTextListFormat.ListDisc, QTextListFormat.ListCircle,
+                       QTextListFormat.ListSquare]
+
+    def _change_list_level(self, delta):
+        cursor = self.textCursor()
+        lst = cursor.currentList()
+        if lst is None:
+            return False
+        fmt = lst.format()
+        new = fmt.indent() + delta
+        if new < 1:
+            return False
+        enumerated = fmt.style() in (
+            QTextListFormat.ListDecimal, QTextListFormat.ListLowerAlpha,
+            QTextListFormat.ListUpperAlpha, QTextListFormat.ListLowerRoman,
+            QTextListFormat.ListUpperRoman)
+        nf = QTextListFormat()
+        nf.setIndent(new)
+        if enumerated:
+            nf.setStyle(QTextListFormat.ListDecimal)
+        else:
+            nf.setStyle(self._ITEMIZE_STYLES[(new - 1) % len(self._ITEMIZE_STYLES)])
+        cursor.beginEditBlock()
+        cursor.createList(nf)
+        cursor.endEditBlock()
+        return True
 
     def toggle_bold(self):
         fmt = QTextCharFormat()

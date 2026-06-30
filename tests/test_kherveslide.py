@@ -1014,6 +1014,38 @@ def test_latex_to_html_itemize_is_bullet_list():
     assert "<ul>" in h and h.count("<li>") == 2
 
 
+def test_nested_itemize_round_trips():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QTextDocument
+    from kherveslide.canvas import latex_to_html, document_to_latex
+    src = ("\\begin{itemize}\n\\item parent\n\\begin{itemize}\n"
+           "\\item child\n\\end{itemize}\n\\item parent2\n\\end{itemize}")
+    html = latex_to_html(src)
+    assert "<ul><li>parent<ul>" in html        # child list nested in the <li>
+    doc = QTextDocument(); doc.setHtml(html)
+    out = document_to_latex(doc)
+    # two nested itemize environments, child indented deeper than parent
+    assert out.count("\\begin{itemize}") == 2
+    assert "    \\item child" in out
+    assert "  \\item parent2" in out
+
+
+def test_inline_editor_paste_is_plain(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtCore import QMimeData
+    from kherveslide import window
+    ed = window._InlineEditor()
+    md = QMimeData()
+    md.setHtml('<span style="font-size:48pt;color:red">Big red</span>')
+    md.setText("Big red")
+    ed.insertFromMimeData(md)
+    assert ed.toPlainText() == "Big red"
+    # nothing in the document carries the pasted 48pt size
+    assert "48" not in ed.toHtml()
+
+
 def test_latex_to_html_enumerate_is_numbered_list():
     from kherveslide.canvas import latex_to_html
     h = latex_to_html("\\begin{enumerate}\n\\item X\n\\end{enumerate}")
