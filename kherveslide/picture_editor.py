@@ -1,0 +1,258 @@
+"""Interactive picture editor: crop and rotate a :class:`SlidePicture`.
+
+The crop rectangle is defined on the *unrotated* image (the serializer
+trims first, then rotates), so the crop canvas never rotates — rotation
+is a numeric control with a small live preview of the final result.
+"""
+from __future__ import annotations
+
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap, QTransform
+from PySide6.QtWidgets import (
+    QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QHBoxLayout,
+    QLabel, QPushButton, QVBoxLayout, QWidget,
+)
+
+_HANDLE = 7.0
+_MIN_FRAC = 0.05          # the crop must keep at least this fraction each axis
+
+
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+class _CropCanvas(QWidget):
+    """Shows the image fit-to-widget with a draggable / resizable crop box.
+    Crop is stored as fractions trimmed from (left, top, right, bottom)."""
+
+    changed = Signal()
+
+    def __init__(self, pixmap: QPixmap | None, crop, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(420, 320)
+        self._pm = pixmap
+        self.l, self.t, self.r, self.b = crop
+        self._drag = None            # which handle / 'move'
+        self._press = QPointF()
+        self._start = None
+        self.setMouseTracking(True)
+
+    def set_pixmap(self, pm: QPixmap | None):
+        self._pm = pm
+        self.update()
+
+    def crop(self):
+        return (round(self.l, 4), round(self.t, 4),
+                round(self.r, 4), round(self.b, 4))
+
+    def reset(self):
+        self.l = self.t = self.r = self.b = 0.0
+        self.changed.emit()
+        self.update()
+
+    # -- geometry ---------------------------------------------------
+    def _img_rect(self) -> QRectF:
+        """Where the whole image is drawn inside the widget (fit, centred)."""
+        if self._pm is None or self._pm.isNull():
+            return QRectF(0, 0, self.width(), self.height())
+        iw, ih = self._pm.width(), self._pm.height()
+        ww, wh = self.width() - 20, self.height() - 20
+        scale = min(ww / iw, wh / ih)
+        w, h = iw * scale, ih * scale
+        return QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h)
+
+    def _crop_rect(self) -> QRectF:
+        ir = self._img_rect()
+        return QRectF(ir.x() + self.l * ir.width(),
+                      ir.y() + self.t * ir.height(),
+                      (1 - self.l - self.r) * ir.width(),
+                      (1 - self.t - self.b) * ir.height())
+
+    def _handles(self) -> dict:
+        c = self._crop_rect()
+        cx, cy = c.center().x(), c.center().y()
+        return {
+            "tl": QPointF(c.left(), c.top()), "tr": QPointF(c.right(), c.top()),
+            "bl": QPointF(c.left(), c.bottom()),
+            "br": QPointF(c.right(), c.bottom()),
+            "t": QPointF(cx, c.top()), "b": QPointF(cx, c.bottom()),
+            "l": QPointF(c.left(), cy), "r": QPointF(c.right(), cy),
+        }
+
+    def _hit(self, pos: QPointF):
+        for name, pt in self._handles().items():
+            if (abs(pos.x() - pt.x()) <= _HANDLE
+                    and abs(pos.y() - pt.y()) <= _HANDLE):
+                return name
+        if self._crop_rect().contains(pos):
+            return "move"
+        return None
+
+    # -- mouse ------------------------------------------------------
+    def mousePressEvent(self, e):
+        self._drag = self._hit(e.position())
+        self._press = e.position()
+        self._start = (self.l, self.t, self.r, self.b)
+
+    def mouseMoveEvent(self, e):
+        if self._drag is None:
+            self.setCursor(Qt.SizeAllCursor if self._hit(e.position()) == "move"
+                           else (Qt.ArrowCursor if self._hit(e.position()) is None
+                                 else Qt.CrossCursor))
+            return
+        ir = self._img_rect()
+        if ir.width() <= 0 or ir.height() <= 0:
+            return
+        dx = (e.position().x() - self._press.x()) / ir.width()
+        dy = (e.position().y() - self._press.y()) / ir.height()
+        l, t, r, b = self._start
+        if self._drag == "move":
+            dx = _clamp(dx, -l, r)
+            dy = _clamp(dy, -t, b)
+            l, r = l + dx, r - dx
+            t, b = t + dy, b - dy
+        else:
+            if "l" in self._drag:
+                l = _clamp(l + dx, 0.0, 1 - r - _MIN_FRAC)
+            if "r" in self._drag:
+                r = _clamp(r - dx, 0.0, 1 - l - _MIN_FRAC)
+            if "t" in self._drag:
+                t = _clamp(t + dy, 0.0, 1 - b - _MIN_FRAC)
+            if "b" in self._drag:
+                b = _clamp(b - dy, 0.0, 1 - t - _MIN_FRAC)
+        self.l, self.t, self.r, self.b = l, t, r, b
+        self.changed.emit()
+        self.update()
+
+    def mouseReleaseEvent(self, e):
+        self._drag = None
+
+    # -- painting ---------------------------------------------------
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        p.fillRect(self.rect(), QColor("#2b2b2b"))
+        ir = self._img_rect()
+        if self._pm is not None and not self._pm.isNull():
+            p.drawPixmap(ir, self._pm, QRectF(self._pm.rect()))
+        else:
+            p.setPen(QPen(QColor(180, 180, 180)))
+            p.drawText(ir, Qt.AlignCenter, "No image")
+            return
+        # Dim the trimmed-away border, outline the kept crop.
+        cr = self._crop_rect()
+        shade = QColor(0, 0, 0, 120)
+        p.setPen(Qt.NoPen)
+        p.setBrush(shade)
+        p.drawRect(QRectF(ir.x(), ir.y(), ir.width(), cr.top() - ir.y()))
+        p.drawRect(QRectF(ir.x(), cr.bottom(), ir.width(),
+                          ir.bottom() - cr.bottom()))
+        p.drawRect(QRectF(ir.x(), cr.top(), cr.left() - ir.x(), cr.height()))
+        p.drawRect(QRectF(cr.right(), cr.top(), ir.right() - cr.right(),
+                          cr.height()))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(40, 150, 255), 1.5))
+        p.drawRect(cr)
+        p.setBrush(QBrush(QColor(255, 255, 255)))
+        p.setPen(QPen(QColor(40, 150, 255), 1))
+        for pt in self._handles().values():
+            p.drawRect(QRectF(pt.x() - _HANDLE, pt.y() - _HANDLE,
+                              2 * _HANDLE, 2 * _HANDLE))
+
+
+class PictureEditDialog(QDialog):
+    """Crop, rotate and (optionally) replace a picture. Read the results
+    from :attr:`crop`, :attr:`rotation` and :attr:`path` after ``exec()``."""
+
+    def __init__(self, obj, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit picture — crop & rotate")
+        self.resize(640, 560)
+        self.path = obj.path
+        self.rotation = float(getattr(obj, "rotation", 0.0))
+        self._src = QPixmap(self.path) if self.path else QPixmap()
+
+        self._canvas = _CropCanvas(
+            self._src if not self._src.isNull() else None,
+            (obj.crop_l, obj.crop_t, obj.crop_r, obj.crop_b), self)
+        self._canvas.changed.connect(self._update_preview)
+
+        root = QVBoxLayout(self)
+        root.addWidget(self._canvas, 1)
+
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("Rotation°:"))
+        self._rot = QDoubleSpinBox()
+        self._rot.setRange(-180.0, 180.0)
+        self._rot.setSingleStep(1.0)
+        self._rot.setValue(self.rotation)
+        self._rot.valueChanged.connect(self._on_rot)
+        controls.addWidget(self._rot)
+        b_ccw = QPushButton("⟲ 90°")
+        b_ccw.clicked.connect(lambda: self._nudge(-90))
+        controls.addWidget(b_ccw)
+        b_cw = QPushButton("⟳ 90°")
+        b_cw.clicked.connect(lambda: self._nudge(90))
+        controls.addWidget(b_cw)
+        b_reset = QPushButton("Reset crop")
+        b_reset.clicked.connect(self._canvas.reset)
+        controls.addWidget(b_reset)
+        b_replace = QPushButton("Replace image…")
+        b_replace.clicked.connect(self._replace)
+        controls.addWidget(b_replace)
+        controls.addStretch(1)
+        self._preview = QLabel()
+        self._preview.setFixedSize(96, 96)
+        self._preview.setAlignment(Qt.AlignCenter)
+        self._preview.setStyleSheet("border:1px solid #888;background:#fff;")
+        controls.addWidget(QLabel("Result:"))
+        controls.addWidget(self._preview)
+        root.addLayout(controls)
+
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        root.addWidget(bb)
+        self._update_preview()
+
+    @property
+    def crop(self):
+        return self._canvas.crop()
+
+    def _on_rot(self, v):
+        self.rotation = float(v)
+        self._update_preview()
+
+    def _nudge(self, delta):
+        v = self._rot.value() + delta
+        while v > 180:
+            v -= 360
+        while v < -180:
+            v += 360
+        self._rot.setValue(v)
+
+    def _replace(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose image", "",
+            "Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.pdf)")
+        if path:
+            self.path = path
+            self._src = QPixmap(path)
+            self._canvas.set_pixmap(self._src if not self._src.isNull()
+                                    else None)
+            self._update_preview()
+
+    def _update_preview(self):
+        if self._src.isNull():
+            self._preview.clear()
+            return
+        l, t, r, b = self._canvas.crop()
+        w, h = self._src.width(), self._src.height()
+        cropped = self._src.copy(int(l * w), int(t * h),
+                                 max(1, int((1 - l - r) * w)),
+                                 max(1, int((1 - t - b) * h)))
+        if self.rotation:
+            cropped = cropped.transformed(
+                QTransform().rotate(self.rotation), Qt.SmoothTransformation)
+        self._preview.setPixmap(cropped.scaled(
+            92, 92, Qt.KeepAspectRatio, Qt.SmoothTransformation))

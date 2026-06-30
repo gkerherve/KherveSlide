@@ -11,6 +11,9 @@ the compiler console, kept live as you edit.
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -177,8 +180,11 @@ class SlideWindow(QMainWindow):
         m_file.addSeparator()
         m_file.addAction("Save", self._save_deck).setShortcut("Ctrl+S")
         m_file.addAction("Save As…", self._save_deck_as).setShortcut("Ctrl+Shift+S")
+        self._act_open_loc = m_file.addAction(
+            "Open file location", self._open_file_location)
         m_file.addSeparator()
         m_file.addAction("Export LaTeX (.tex)…", self._export_tex)
+        m_file.addAction("Export PDF…", self._export_pdf)
         m_file.addAction("Compile to PDF", self._compile).setShortcut("Ctrl+R")
         m_file.addSeparator()
         m_file.addAction("Download LaTeX packages (offline)…",
@@ -198,6 +204,13 @@ class SlideWindow(QMainWindow):
         m_edit.addAction("Duplicate", self._duplicate_selected).setShortcut("Ctrl+D")
         m_edit.addSeparator()
         m_edit.addAction("Page setup…", self._page_setup)
+
+        m_view = mb.addMenu("&View")
+        self.act_show_nav = m_view.addAction("Show slide navigator")
+        self.act_show_nav.setCheckable(True)
+        self.act_show_nav.setChecked(True)
+        self.act_show_nav.setShortcut("Ctrl+B")
+        self.act_show_nav.toggled.connect(self._toggle_navigator)
 
         m_pres = mb.addMenu("&Presentation")
         m_pres.addAction("Title…", self._set_deck_title)
@@ -253,7 +266,7 @@ class SlideWindow(QMainWindow):
         act(icons.file_new(), "New", self._new_deck)
         act(icons.file_open(), "Open", self._open_deck)
         act(icons.file_save(), "Save", self._save_deck)
-        act(icons.export_pdf(), "Export .tex", self._export_tex)
+        act(icons.export_pdf(), "Export PDF", self._export_pdf)
         tb.addSeparator()
         tb.addAction(self.act_undo)
         tb.addAction(self.act_redo)
@@ -396,6 +409,7 @@ class SlideWindow(QMainWindow):
         self.nav.slideMenuRequested.connect(self._slide_context_menu)
 
         nav_panel = QWidget()
+        self._nav_panel = nav_panel
         nv = QVBoxLayout(nav_panel); nv.setContentsMargins(4, 4, 4, 4)
         nv.addWidget(QLabel("Slides"))
         nv.addWidget(self.nav)
@@ -459,6 +473,7 @@ class SlideWindow(QMainWindow):
         cf = QFont("Consolas"); cf.setStyleHint(QFont.Monospace); cf.setPointSize(10)
         self.console.setFont(cf)
         self.pdf_view = PdfPreview()
+        self.pdf_view.pageChanged.connect(self._on_pdf_page_changed)
         self.right_tabs = QTabWidget()
         self.right_tabs.addTab(self.pdf_view, "PDF")
         self.right_tabs.addTab(self.console, "Console")
@@ -731,7 +746,32 @@ class SlideWindow(QMainWindow):
         if isinstance(item, TextBoxItem):
             self._edit_text_item(item)
         elif isinstance(item, PictureBoxItem):
-            self._pick_image_for(item)
+            self._edit_picture(item)
+
+    def _edit_picture(self, item=None):
+        item = item or self._selected_item()
+        if item is None or not isinstance(item.obj, SlidePicture):
+            return
+        from .picture_editor import PictureEditDialog
+        dlg = PictureEditDialog(item.obj, self)
+        if not dlg.exec():
+            return
+        o = item.obj
+        o.path = dlg.path
+        o.crop_l, o.crop_t, o.crop_r, o.crop_b = dlg.crop
+        o.rotation = dlg.rotation
+        item._pix_path = None        # force pixmap reload if path changed
+        item.update()
+        self._touch_current()
+
+    def _rotate_selected(self, delta):
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlidePicture):
+            return
+        a = (getattr(item.obj, "rotation", 0.0) + delta) % 360
+        item.obj.rotation = a - 360 if a > 180 else a
+        item.update()
+        self._touch_current()
 
     def _begin_inline_edit(self, rect, initial, *, font_pt, commit):
         """Float a *rich* editor over *rect* (lists show as real bullets,
@@ -872,6 +912,13 @@ class SlideWindow(QMainWindow):
             return
         self.current = row
         self._reload_scene()
+        # Jump the PDF preview to the matching page (each slide is one page).
+        self.pdf_view.go_to_page(row)
+
+    def _on_pdf_page_changed(self, page):
+        # The PDF nav bar moved to another page — select the matching slide.
+        if 0 <= page < len(self.deck.slides) and page != self.current:
+            self.nav.setCurrentRow(page)
 
     def _on_reorder(self, order):
         self.deck.slides = [self.deck.slides[i] for i in order]
@@ -1187,6 +1234,11 @@ class SlideWindow(QMainWindow):
             menu.addAction("Send to back", lambda: self._zorder("back"))
             if isinstance(item.obj, SlidePicture):
                 menu.addSeparator()
+                menu.addAction("Crop && rotate…", self._edit_picture)
+                menu.addAction("Rotate left 90°",
+                               lambda: self._rotate_selected(-90))
+                menu.addAction("Rotate right 90°",
+                               lambda: self._rotate_selected(90))
                 lock = menu.addAction("Lock aspect ratio")
                 lock.setCheckable(True)
                 lock.setChecked(item.obj.keep_aspect)
@@ -1508,7 +1560,65 @@ class SlideWindow(QMainWindow):
         if ok:
             self.store.delete(name)
 
+    # ---------------- view ----------------
+    def _toggle_navigator(self, show):
+        self._nav_panel.setVisible(show)
+
+    def _open_file_location(self):
+        if self.path is None:
+            QMessageBox.information(
+                self, "Open file location",
+                "Save the presentation first — it has no file yet.")
+            return
+        target = Path(self.path).resolve()
+        try:
+            if sys.platform == "win32":
+                # /select highlights the file in a new Explorer window.
+                subprocess.run(["explorer", "/select,", str(target)])
+            elif sys.platform == "darwin":
+                subprocess.run(["open", "-R", str(target)])
+            else:
+                subprocess.run(["xdg-open", str(target.parent)])
+        except OSError as e:
+            QMessageBox.warning(self, "Open file location", str(e))
+
     # ---------------- compile / IO ----------------
+    def _export_pdf(self):
+        if not tectonic_available():
+            QMessageBox.warning(
+                self, "Export PDF",
+                "tectonic is not available, so the PDF cannot be built.")
+            return
+        default = (str(self.path.with_suffix(".pdf")) if self.path
+                   else "presentation.pdf")
+        out, _ = QFileDialog.getSaveFileName(
+            self, "Export PDF", default, "PDF document (*.pdf)")
+        if not out:
+            return
+        self.statusBar().showMessage("Exporting PDF…")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            workdir = Path(tempfile.gettempdir()) / "kherveslide_export"
+            src_dir = self.path.parent if self.path else None
+            result = compile_tex(serialize_deck(self.deck), workdir,
+                                 basename="presentation", source_dir=src_dir)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if result.ok and result.pdf_path:
+            try:
+                shutil.copyfile(result.pdf_path, out)
+            except OSError as e:
+                QMessageBox.warning(self, "Export PDF", str(e))
+                return
+            self.statusBar().showMessage(f"Exported PDF to {out}")
+        else:
+            self.console.setPlainText(self._clean_log(result.log))
+            self.right_tabs.setCurrentWidget(self.console)
+            self.statusBar().showMessage("PDF export failed — see Console tab")
+            QMessageBox.warning(
+                self, "Export PDF",
+                "Compilation failed; see the Console tab for the log.")
+
     def _compile(self):
         """Manual compile — force it now and show the PDF."""
         self.latex_view.set_source(serialize_deck(self.deck))

@@ -60,6 +60,12 @@ class SlidePicture:
     path: str = ""
     keep_aspect: bool = True    # lock aspect ratio by default (no distortion)
     opacity: float = 1.0        # 0..1 image transparency
+    # Fraction trimmed from each edge of the source image (0..0.9 each side).
+    crop_l: float = 0.0
+    crop_t: float = 0.0
+    crop_r: float = 0.0
+    crop_b: float = 0.0
+    rotation: float = 0.0       # degrees, clockwise, about the centre
     locked: bool = True         # see SlideText.locked
     type: str = "SlidePicture"
 
@@ -211,6 +217,11 @@ def _build_object(d: dict) -> SlideObject:
             path=str(d.get("path", "")),
             keep_aspect=bool(d.get("keep_aspect", True)),
             opacity=float(d.get("opacity", 1.0)),
+            crop_l=float(d.get("crop_l", 0.0)),
+            crop_t=float(d.get("crop_t", 0.0)),
+            crop_r=float(d.get("crop_r", 0.0)),
+            crop_b=float(d.get("crop_b", 0.0)),
+            rotation=float(d.get("rotation", 0.0)),
             locked=bool(d.get("locked", True)),
         )
     if t == "SlideTable":

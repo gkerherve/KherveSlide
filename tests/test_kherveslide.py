@@ -377,6 +377,39 @@ def test_serialize_empty_picture_path_skipped():
     assert "\\includegraphics" not in tex
 
 
+def test_serialize_picture_crop_uses_adjustbox():
+    deck = Deck(slides=[Slide(objects=[
+        SlidePicture(path="a.png", crop_l=0.1, crop_t=0.2, crop_r=0.05,
+                     crop_b=0.0, locked=False)])])
+    tex = serialize_deck(deck)
+    assert "\\usepackage{adjustbox}" in tex
+    assert "\\adjincludegraphics[" in tex
+    # graphicx trim order is left bottom right top.
+    assert "trim={0.1\\width} {0\\height} {0.05\\width} {0.2\\height}" in tex
+
+
+def test_serialize_picture_no_adjustbox_without_crop():
+    deck = Deck(slides=[Slide(objects=[
+        SlidePicture(path="a.png", locked=False)])])
+    tex = serialize_deck(deck)
+    assert "adjustbox" not in tex
+    assert "\\includegraphics[" in tex
+
+
+def test_serialize_picture_rotation_uses_rotatebox():
+    deck = Deck(slides=[Slide(objects=[
+        SlidePicture(path="a.png", rotation=90, locked=False)])])
+    tex = serialize_deck(deck)
+    assert "\\rotatebox[origin=c]{90}{" in tex
+
+
+def test_picture_crop_rotate_round_trip():
+    deck = Deck(slides=[Slide(objects=[
+        SlidePicture(path="a.png", crop_l=0.1, crop_b=0.2, rotation=45.0,
+                     locked=False)])])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
 # --- tables ---
 
 def test_table_round_trip():

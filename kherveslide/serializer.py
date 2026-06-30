@@ -87,13 +87,29 @@ def _serialize_text(obj: SlideText) -> str:
             f"\\end{{textblock}}")
 
 
+def _has_crop(obj: SlidePicture) -> bool:
+    return any(getattr(obj, k, 0.0) > 0.0
+               for k in ("crop_l", "crop_t", "crop_r", "crop_b"))
+
+
 def _picture_graphic(obj: SlidePicture, rel: str = "\\paperwidth",
                      rel_h: str = "\\paperheight") -> str:
     path = obj.path.replace("\\", "/")
     opts = f"width={_fmt(obj.w)}{rel},height={_fmt(obj.h)}{rel_h}"
     if obj.keep_aspect:
         opts += ",keepaspectratio"
-    graphic = f"\\includegraphics[{opts}]{{{path}}}"
+    if _has_crop(obj):
+        # adjustbox lets trim use \width/\height (the image's natural size),
+        # so a fractional crop needs no knowledge of the pixel dimensions.
+        # graphicx trim order is: left bottom right top.
+        trim = (f"trim={{{_fmt(obj.crop_l)}\\width}} {{{_fmt(obj.crop_b)}\\height}} "
+                f"{{{_fmt(obj.crop_r)}\\width}} {{{_fmt(obj.crop_t)}\\height}}")
+        graphic = f"\\adjincludegraphics[{trim},clip,{opts}]{{{path}}}"
+    else:
+        graphic = f"\\includegraphics[{opts}]{{{path}}}"
+    angle = getattr(obj, "rotation", 0.0)
+    if angle:
+        graphic = f"\\rotatebox[origin=c]{{{_fmt(angle)}}}{{{graphic}}}"
     if obj.opacity < 1.0:
         graphic = f"\\transparent{{{_fmt(max(0.0, obj.opacity))}}}{graphic}"
     return graphic
@@ -317,6 +333,10 @@ def serialize_deck(deck: Deck) -> str:
     if any(isinstance(o, SlidePicture) and o.opacity < 1.0
            for s in deck.slides for o in s.objects):
         lines.append("\\usepackage{transparent}")
+    if any(isinstance(o, SlidePicture) and _has_crop(o)
+           for s in deck.slides for o in s.objects):
+        # adjustbox supplies \adjincludegraphics with \width-relative trim.
+        lines.append("\\usepackage{adjustbox}")
     if any(isinstance(o, SlideTable) for s in deck.slides for o in s.objects):
         lines.append("\\usepackage{colortbl}")
         for name, hexv in (("ksTblHead", TABLE_HEADER_BG),

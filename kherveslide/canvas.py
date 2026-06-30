@@ -531,18 +531,43 @@ class PictureBoxItem(BoxItem):
     def _aspect_locked(self):
         return bool(self.obj.keep_aspect)
 
+    def _source_rect(self, pm: QPixmap) -> QRectF:
+        """The kept (un-cropped) region of the source pixmap."""
+        o = self.obj
+        cl = max(0.0, min(0.9, getattr(o, "crop_l", 0.0)))
+        ct = max(0.0, min(0.9, getattr(o, "crop_t", 0.0)))
+        cr = max(0.0, min(0.9, getattr(o, "crop_r", 0.0)))
+        cb = max(0.0, min(0.9, getattr(o, "crop_b", 0.0)))
+        w, h = pm.width(), pm.height()
+        return QRectF(cl * w, ct * h,
+                      max(1.0, (1 - cl - cr) * w), max(1.0, (1 - ct - cb) * h))
+
     def paint(self, painter, option, widget=None):
         pm = self._pixmap()
         if pm is not None:
-            mode = (Qt.KeepAspectRatio if self.obj.keep_aspect
-                    else Qt.IgnoreAspectRatio)
-            scaled = pm.scaled(self._rect.size().toSize(), mode,
-                               Qt.SmoothTransformation)
-            x = self._rect.x() + (self._rect.width() - scaled.width()) / 2
-            y = self._rect.y() + (self._rect.height() - scaled.height()) / 2
+            src = self._source_rect(pm)
+            # Target rect inside the box, honouring the *cropped* aspect.
+            if self.obj.keep_aspect and src.height() > 0:
+                ratio = src.width() / src.height()
+                tw, th = self._rect.width(), self._rect.height()
+                if tw / th > ratio:
+                    tw = th * ratio
+                else:
+                    th = tw / ratio
+            else:
+                tw, th = self._rect.width(), self._rect.height()
+            cx = self._rect.x() + self._rect.width() / 2
+            cy = self._rect.y() + self._rect.height() / 2
+            target = QRectF(cx - tw / 2, cy - th / 2, tw, th)
             painter.save()
             painter.setOpacity(max(0.0, min(1.0, self.obj.opacity)))
-            painter.drawPixmap(QPointF(x, y), scaled)
+            angle = getattr(self.obj, "rotation", 0.0)
+            if angle:
+                painter.translate(cx, cy)
+                painter.rotate(angle)
+                painter.translate(-cx, -cy)
+            painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+            painter.drawPixmap(target, pm, src)
             painter.restore()
         else:
             painter.fillRect(self._rect, QColor(235, 235, 235))
