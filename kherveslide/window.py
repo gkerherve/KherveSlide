@@ -216,6 +216,12 @@ class SlideWindow(QMainWindow):
         m_slide.addAction("Frame title…", self._set_frame_title)
         m_slide.addAction("Background colour…", self._pick_slide_bg)
         m_slide.addAction("Clear background", self._clear_slide_bg)
+        m_slide.addSeparator()
+        self.act_free = m_slide.addAction("Free positioning")
+        self.act_free.setCheckable(True)
+        self.act_free.setToolTip("On: place objects yourself. "
+                                 "Off: standard beamer layout (auto-placed).")
+        self.act_free.toggled.connect(self._toggle_free)
 
         m_insert = mb.addMenu("&Insert")
         m_insert.addAction("Text box", self._add_text)
@@ -517,10 +523,14 @@ class SlideWindow(QMainWindow):
                     lambda it=item: self._on_double_click(it))
             self.scene.addItem(item)
             self._items.append(item)
+        self.scene.free = self.slide.free
         if self.view.fit_mode:
             self.view.fit_to_window()
         self._enable_format(False)
         self._sync_top_fields()
+        self.act_free.blockSignals(True)
+        self.act_free.setChecked(self.slide.free)
+        self.act_free.blockSignals(False)
         self._loading = False
         self._refresh_latex()
 
@@ -1369,6 +1379,12 @@ class SlideWindow(QMainWindow):
 
     def _toggle_nav_symbols(self, on):
         self.deck.nav_symbols = on
+        self._recompile_now()
+
+    def _toggle_free(self, on):
+        self.slide.free = on
+        self.scene.free = on
+        self.scene.update()
         self._recompile_now()
 
     def _open_theme_builder(self):

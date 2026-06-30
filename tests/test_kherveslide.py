@@ -179,6 +179,29 @@ def test_background_alpha_round_trip():
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
+# --- per-slide layout mode ---
+
+def test_free_slide_uses_textpos():
+    deck = Deck(slides=[Slide(free=True, objects=[SlideText(text="Hi")])])
+    tex = serialize_deck(deck)
+    assert "\\begin{textblock}" in tex
+
+
+def test_standard_slide_flows_no_textpos():
+    deck = Deck(slides=[Slide(free=False, title="Heading", objects=[
+        SlideText(text="Body"),
+        SlideText(text="\\begin{itemize}\\item a\\end{itemize}")])])
+    tex = serialize_deck(deck)
+    assert "\\frametitle{Heading}" in tex
+    assert "\\begin{textblock}" not in tex
+    assert "Body" in tex
+
+
+def test_free_round_trip():
+    deck = Deck(slides=[Slide(free=False)])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
 # --- picture: opacity + clipboard helpers ---
 
 def test_picture_defaults_locked_aspect():

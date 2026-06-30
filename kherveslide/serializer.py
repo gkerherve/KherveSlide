@@ -72,38 +72,42 @@ def _styled_text(obj: SlideText) -> str:
     return f"{align_cmd}{sized} {body}"
 
 
-def _serialize_text(obj: SlideText) -> str:
+def _text_inner(obj: SlideText) -> str:
     content = _styled_text(obj)
     fill = _hex_to_rgb_arg(obj.fill)
     if fill:
-        inner = (f"\\colorbox[HTML]{{{fill}}}{{\\begin{{minipage}}{{\\linewidth}}"
-                 f"{content}\\end{{minipage}}}}")
-    else:
-        inner = f"{{{content}\\par}}"
+        return (f"\\colorbox[HTML]{{{fill}}}{{\\begin{{minipage}}{{\\linewidth}}"
+                f"{content}\\end{{minipage}}}}")
+    return f"{{{content}\\par}}"
+
+
+def _serialize_text(obj: SlideText) -> str:
     return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
-            f"{inner}\n"
+            f"{_text_inner(obj)}\n"
             f"\\end{{textblock}}")
+
+
+def _picture_graphic(obj: SlidePicture, rel: str = "\\paperwidth",
+                     rel_h: str = "\\paperheight") -> str:
+    path = obj.path.replace("\\", "/")
+    opts = f"width={_fmt(obj.w)}{rel},height={_fmt(obj.h)}{rel_h}"
+    if obj.keep_aspect:
+        opts += ",keepaspectratio"
+    graphic = f"\\includegraphics[{opts}]{{{path}}}"
+    if obj.opacity < 1.0:
+        graphic = f"\\transparent{{{_fmt(max(0.0, obj.opacity))}}}{graphic}"
+    return graphic
 
 
 def _serialize_picture(obj: SlidePicture) -> str:
     if not obj.path:
         return ""
-    path = obj.path.replace("\\", "/")
-    if obj.keep_aspect:
-        opts = (f"width={_fmt(obj.w)}\\paperwidth,"
-                f"height={_fmt(obj.h)}\\paperheight,keepaspectratio")
-    else:
-        opts = (f"width={_fmt(obj.w)}\\paperwidth,"
-                f"height={_fmt(obj.h)}\\paperheight")
-    graphic = f"\\includegraphics[{opts}]{{{path}}}"
-    if obj.opacity < 1.0:
-        graphic = f"\\transparent{{{_fmt(max(0.0, obj.opacity))}}}{graphic}"
     return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
-            f"{graphic}\n"
+            f"{_picture_graphic(obj)}\n"
             f"\\end{{textblock}}")
 
 
-def _serialize_table(obj: SlideTable) -> str:
+def _table_inner(obj: SlideTable) -> str:
     rows = obj.rows or [[""]]
     ncols = max((len(r) for r in rows), default=1)
     sep = "|" if obj.border else ""
@@ -130,9 +134,33 @@ def _serialize_table(obj: SlideTable) -> str:
                   f"\\textcolor{{ksTblCap}}{{{obj.caption}}}}}")
     lead = int(round(obj.font_pt * 1.2))
     sized = f"\\fontsize{{{obj.font_pt}}}{{{lead}}}\\selectfont"
+    return f"{{{sized} {table}}}"
+
+
+def _serialize_table(obj: SlideTable) -> str:
     return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
-            f"{{{sized} {table}}}\n"
+            f"{_table_inner(obj)}\n"
             f"\\end{{textblock}}")
+
+
+def _serialize_slide_standard(slide: Slide) -> str:
+    """Standard beamer frame: content flows in the body, beamer places it."""
+    parts = ["\\begin{frame}"]
+    if slide.title:
+        parts.append(f"\\frametitle{{{slide.title}}}")
+    for obj in slide.objects:
+        if isinstance(obj, SlideText):
+            parts.append(_text_inner(obj) + "\\medskip")
+        elif isinstance(obj, SlideTable):
+            parts.append("\\begin{center}" + _table_inner(obj)
+                         + "\\end{center}")
+        elif isinstance(obj, SlidePicture) and obj.path:
+            parts.append("\\begin{center}"
+                         + _picture_graphic(obj, "\\textwidth", "\\textheight")
+                         + "\\end{center}")
+        # Lines have no flow position, so they're omitted in standard mode.
+    parts.append("\\end{frame}")
+    return "\n".join(parts)
 
 
 _SIZE_MACRO = {"small": "\\small", "normal": "\\normalsize",
@@ -217,6 +245,8 @@ def _serialize_line(obj: SlideLine, gap: float, idx: int) -> str:
 
 def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
                      counter: list | None = None) -> str:
+    if not slide.free:
+        return _serialize_slide_standard(slide)
     parts = ["\\begin{frame}[plain]" if plain else "\\begin{frame}"]
     # A frame title makes the chosen theme render its standard title bar.
     if slide.title:

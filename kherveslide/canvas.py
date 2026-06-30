@@ -564,6 +564,7 @@ class SlideScene(QGraphicsScene):
         super().__init__()
         self.aspect = aspect
         self.page_color = "#FFFFFF"   # current slide background
+        self.free = True              # False = standard beamer layout
         self.gap = 0.0
         self.page_w = scene_width(aspect)
         self.page_h = SCENE_H
@@ -603,6 +604,15 @@ class SlideScene(QGraphicsScene):
                            (1 - 2 * g) * self.page_w, (1 - 2 * g) * self.page_h)
             painter.setPen(QPen(QColor(120, 160, 210), 0, Qt.DashLine))
             painter.drawRect(guide)
+
+    def drawForeground(self, painter, rect):
+        if not self.free:
+            # Positions are only a guide here — beamer lays the slide out.
+            painter.setPen(QColor(150, 90, 0))
+            f = QFont("Helvetica"); f.setPixelSize(16); painter.setFont(f)
+            painter.drawText(QRectF(8, 6, self.page_w - 16, 24),
+                             int(Qt.AlignLeft | Qt.AlignTop),
+                             "Standard beamer layout — beamer auto-places content")
 
 
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".pdf")

@@ -115,6 +115,9 @@ class Slide:
     title: str = ""               # optional \frametitle
     bg: str = ""                  # hex background colour, "" = theme default
     bg_alpha: float = 1.0         # background opacity 0..1 (blended over white)
+    # True: free positioning (absolute textpos). False: standard beamer
+    # layout — content flows in the frame body and beamer places it.
+    free: bool = True
     type: str = "Slide"
 
 
@@ -240,6 +243,7 @@ def _build_slide(d: dict) -> Slide:
         title=str(d.get("title", "")),
         bg=str(d.get("bg", "")),
         bg_alpha=float(d.get("bg_alpha", 1.0)),
+        free=bool(d.get("free", True)),
     )
 
 
