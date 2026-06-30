@@ -886,6 +886,24 @@ def test_latex_view_find():
     assert v.find("absent-word") is False
 
 
+def test_latex_editor_scheme_overrides_app_theme():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide.latex_view import LatexView, EDITOR_SCHEMES
+    v = LatexView()
+    # A named scheme paints its own background regardless of dark/light.
+    v.set_editor_scheme("Monokai")
+    assert v.editor_scheme() == "Monokai"
+    assert EDITOR_SCHEMES["Monokai"]["bg"] in v._edit.styleSheet()
+    # The app theme must not clobber a chosen scheme.
+    v.set_dark(False, None)
+    assert EDITOR_SCHEMES["Monokai"]["bg"] in v._edit.styleSheet()
+    # Reverting to "Match app theme" follows the app again.
+    v.set_editor_scheme(None)
+    assert v.editor_scheme() is None
+    assert "#ffffff" in v._edit.styleSheet()
+
+
 def test_placement_combo_sets_box_locked(monkeypatch):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])

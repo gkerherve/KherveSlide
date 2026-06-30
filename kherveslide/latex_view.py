@@ -73,6 +73,63 @@ _DARK_COLORS = {
 }
 
 
+_MONOKAI_COLORS = {
+    "command": "#66d9ef", "keyword": "#f92672", "env": "#a6e22e",
+    "option": "#fd971f", "number": "#ae81ff", "special": "#f92672",
+    "brace": "#f8f8f2", "math_fg": "#e6db74", "comment": "#75715e",
+    "section_bg": "#3e3d32", "section_fg": "#a6e22e",
+    "math_bg": "#2d2e26", "figure_bg": "#2d3326", "figure_fg": "#a6e22e",
+    "table_bg": "#332b26", "table_fg": "#fd971f",
+    "list_bg": "#2e2e2a", "list_fg": "#cfcfc2",
+    "abstract_bg": "#332f26", "abstract_fg": "#e6db74",
+    "cite_bg": "#2f2833", "cite_fg": "#ae81ff",
+    "code_bg": "#2d2e26", "code_fg": "#66d9ef",
+}
+_SOLARIZED_LIGHT_COLORS = {
+    "command": "#268bd2", "keyword": "#d33682", "env": "#2aa198",
+    "option": "#cb4b16", "number": "#859900", "special": "#dc322f",
+    "brace": "#b58900", "math_fg": "#6c71c4", "comment": "#93a1a1",
+    "section_bg": "#eee8d5", "section_fg": "#268bd2",
+    "math_bg": "#eee8d5", "figure_bg": "#eef3e0", "figure_fg": "#859900",
+    "table_bg": "#f6ecd8", "table_fg": "#cb4b16",
+    "list_bg": "#f1ece0", "list_fg": "#657b83",
+    "abstract_bg": "#f3eed8", "abstract_fg": "#b58900",
+    "cite_bg": "#f0e8ec", "cite_fg": "#d33682",
+    "code_bg": "#eee8d5", "code_fg": "#268bd2",
+}
+_SOLARIZED_DARK_COLORS = {
+    "command": "#268bd2", "keyword": "#d33682", "env": "#2aa198",
+    "option": "#cb4b16", "number": "#859900", "special": "#dc322f",
+    "brace": "#b58900", "math_fg": "#6c71c4", "comment": "#586e75",
+    "section_bg": "#073642", "section_fg": "#268bd2",
+    "math_bg": "#073642", "figure_bg": "#0a3a2a", "figure_fg": "#859900",
+    "table_bg": "#0a3340", "table_fg": "#cb4b16",
+    "list_bg": "#073642", "list_fg": "#93a1a1",
+    "abstract_bg": "#0a3540", "abstract_fg": "#b58900",
+    "cite_bg": "#0a2f40", "cite_fg": "#d33682",
+    "code_bg": "#073642", "code_fg": "#268bd2",
+}
+
+# Named editor colour schemes for the LaTeX source view. Each bundles the
+# syntax palette with the editor background/foreground and the line-number
+# gutter colours. "Match app theme" (None) follows the app Appearance.
+EDITOR_SCHEMES: dict[str, dict] = {
+    "Default (light)": {"colors": _LIGHT_COLORS, "bg": "#ffffff",
+                        "fg": "#1c1c1c", "gutter_bg": "#f0f0f0",
+                        "gutter_fg": "#999999"},
+    "Dark": {"colors": _DARK_COLORS, "bg": "#1e1e1e", "fg": "#d4d4d4",
+             "gutter_bg": "#252526", "gutter_fg": "#858585"},
+    "Monokai": {"colors": _MONOKAI_COLORS, "bg": "#272822", "fg": "#f8f8f2",
+                "gutter_bg": "#2d2e28", "gutter_fg": "#75715e"},
+    "Solarized Light": {"colors": _SOLARIZED_LIGHT_COLORS, "bg": "#fdf6e3",
+                        "fg": "#657b83", "gutter_bg": "#eee8d5",
+                        "gutter_fg": "#93a1a1"},
+    "Solarized Dark": {"colors": _SOLARIZED_DARK_COLORS, "bg": "#002b36",
+                       "fg": "#93a1a1", "gutter_bg": "#073642",
+                       "gutter_fg": "#586e75"},
+}
+
+
 # ---- multi-line block state encoding ----
 # QSyntaxHighlighter stores an int per block via setCurrentBlockState.
 _STATE_NORMAL = 0
@@ -140,17 +197,25 @@ class LatexHighlighter(QSyntaxHighlighter):
     def __init__(self, parent: QTextDocument, dark: bool = False):
         super().__init__(parent)
         self._dark = dark
+        self._colors = _DARK_COLORS if dark else _LIGHT_COLORS
         self._build_rules()
 
     def set_dark(self, dark: bool) -> None:
-        if dark == self._dark:
+        if dark == self._dark and self._colors in (_LIGHT_COLORS, _DARK_COLORS):
             return
         self._dark = dark
+        self._colors = _DARK_COLORS if dark else _LIGHT_COLORS
+        self._build_rules()
+        self.rehighlight()
+
+    def set_colors(self, colors: dict[str, str]) -> None:
+        """Drive the syntax palette from an explicit editor colour scheme."""
+        self._colors = colors
         self._build_rules()
         self.rehighlight()
 
     def _build_rules(self) -> None:
-        c = _DARK_COLORS if self._dark else _LIGHT_COLORS
+        c = self._colors
         # Each rule is (regex, format, capture-group). Group 0 = whole match.
         # Later rules win on overlapping characters, so order is significant.
         self._rules: list[tuple[QRegularExpression, QTextCharFormat, int]] = []
@@ -362,6 +427,7 @@ class _NumberedPlainTextEdit(QPlainTextEdit):
         self._line_area = _LineNumberArea(self)
         self._dark = False
         self._theme: dict[str, str] | None = None
+        self._gutter_override: tuple[str, str] | None = None
         self.blockCountChanged.connect(lambda _: self._update_line_area_width())
         self.updateRequest.connect(self._update_line_area)
         self._update_line_area_width()
@@ -369,6 +435,11 @@ class _NumberedPlainTextEdit(QPlainTextEdit):
     def set_dark(self, dark: bool, theme: dict[str, str] | None = None) -> None:
         self._dark = dark
         self._theme = theme
+        self._line_area.update()
+
+    def set_gutter(self, override: tuple[str, str] | None) -> None:
+        """Force explicit (bg, fg) gutter colours, or None to follow theme."""
+        self._gutter_override = override
         self._line_area.update()
 
     def line_number_area_width(self) -> int:
@@ -397,7 +468,11 @@ class _NumberedPlainTextEdit(QPlainTextEdit):
     def line_number_area_paint(self, event) -> None:
         painter = QPainter(self._line_area)
         t = self._theme
-        if t:
+        if self._gutter_override:
+            bg, fg = self._gutter_override
+            painter.fillRect(event.rect(), QColor(bg))
+            num_color = QColor(fg)
+        elif t:
             painter.fillRect(event.rect(), QColor(t["surface"]))
             num_color = QColor(t["text_muted"])
         elif self._dark:
@@ -461,6 +536,12 @@ class LatexView(QWidget):
         self._extra_context_actions: list[tuple[str, object]] = []
         self._edit.setContextMenuPolicy(Qt.CustomContextMenu)
         self._edit.customContextMenuRequested.connect(self._show_context_menu)
+
+        # Editor colour scheme: None = follow the app Appearance theme;
+        # otherwise an EDITOR_SCHEMES key that overrides it.
+        self._scheme: str | None = None
+        self._last_dark = False
+        self._last_theme: dict[str, str] | None = None
 
     # ----- public API -----
 
@@ -546,8 +627,13 @@ class LatexView(QWidget):
         menu.exec(self._edit.viewport().mapToGlobal(pos))
 
     def set_dark(self, dark: bool, theme: dict[str, str] | None = None) -> None:
+        self._last_dark = dark
+        self._last_theme = theme
+        if self._scheme is not None:
+            return  # an explicit editor scheme overrides the app theme
         self._highlighter.set_dark(dark)
         self._edit.set_dark(dark, theme)
+        self._edit.set_gutter(None)
         if theme:
             self._edit.setStyleSheet(
                 f"QPlainTextEdit {{ background: {theme['base']};"
@@ -558,6 +644,24 @@ class LatexView(QWidget):
         else:
             self._edit.setStyleSheet(
                 "QPlainTextEdit { background: #ffffff; color: #1c1c1c; }")
+
+    def editor_scheme(self) -> str | None:
+        return self._scheme
+
+    def set_editor_scheme(self, name: str | None) -> None:
+        """Apply a named EDITOR_SCHEMES palette, or None to follow the app
+        Appearance theme."""
+        if name is not None and name not in EDITOR_SCHEMES:
+            name = None
+        self._scheme = name
+        if name is None:
+            self.set_dark(self._last_dark, self._last_theme)
+            return
+        s = EDITOR_SCHEMES[name]
+        self._highlighter.set_colors(s["colors"])
+        self._edit.setStyleSheet(
+            f"QPlainTextEdit {{ background: {s['bg']}; color: {s['fg']}; }}")
+        self._edit.set_gutter((s["gutter_bg"], s["gutter_fg"]))
 
     # ----- autocomplete -----
 

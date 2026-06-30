@@ -151,6 +151,22 @@ FONT_SCALE = SCENE_H / 272.8
 HANDLE = 9.0                    # half-size of a resize handle, in px
 MIN_PX = 24.0                   # smallest box dimension
 
+# WYSIWYG body font. Calibri (with the metric-compatible Carlito as a
+# fallback) reads much closer to beamer's Latin Modern than Qt's Helvetica
+# substitute did; the trailing families keep it sane on other machines.
+CANVAS_FONT_FAMILIES = ["Calibri", "Carlito", "Segoe UI", "Helvetica"]
+
+
+def canvas_font(pixel_size: int = 0, *, stretch: int = 0) -> QFont:
+    """A QFont using the WYSIWYG body family stack."""
+    f = QFont(CANVAS_FONT_FAMILIES[0])
+    f.setFamilies(CANVAS_FONT_FAMILIES)
+    if pixel_size:
+        f.setPixelSize(pixel_size)
+    if stretch:
+        f.setStretch(stretch)
+    return f
+
 _ASPECT_RATIO = {              # width : height multiplier
     "169": 16 / 9, "1610": 16 / 10, "43": 4 / 3,
     "32": 3 / 2, "54": 5 / 4, "141": 1.41,
@@ -517,12 +533,7 @@ class TextBoxItem(BoxItem):
         if getattr(obj, "block", ""):
             body_top = self._paint_block(painter)
 
-        font = QFont("Helvetica")
-        font.setPixelSize(max(6, int(obj.font_pt * self._font_scale)))
-        # Helvetica is ~10% wider per glyph than the PDF's Latin Modern, so
-        # the same text wrapped a line early on the canvas. Condensing the
-        # width (height unchanged) lines the canvas wrap up with the PDF.
-        font.setStretch(90)
+        font = canvas_font(max(6, int(obj.font_pt * self._font_scale)))
         font.setBold(obj.bold)
         font.setItalic(obj.italic)
 
@@ -567,7 +578,7 @@ class TextBoxItem(BoxItem):
         painter.fillRect(body, QColor(c.red(), c.green(), c.blue(), 28))
         painter.fillRect(hdr, c)
         painter.setPen(QColor("#ffffff"))
-        f = QFont("Helvetica"); f.setPixelSize(max(8, int(bh * 0.6)))
+        f = canvas_font(max(8, int(bh * 0.6)))
         f.setBold(True); painter.setFont(f)
         painter.drawText(hdr.adjusted(6, 0, -6, 0),
                          int(Qt.AlignVCenter | Qt.AlignLeft),
@@ -706,8 +717,7 @@ class TableBoxItem(BoxItem):
                 y = self._rect.y() + j * ch
                 painter.drawLine(QPointF(self._rect.x(), y),
                                  QPointF(self._rect.right(), y))
-        base_font = QFont("Helvetica")
-        base_font.setPixelSize(max(6, int(obj.font_pt * self._font_scale)))
+        base_font = canvas_font(max(6, int(obj.font_pt * self._font_scale)))
         for r in range(nrows):
             is_head = obj.header and r == 0
             font = QFont(base_font)

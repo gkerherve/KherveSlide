@@ -38,11 +38,11 @@ from . import icons, spellcheck, templates, themes, version_string
 from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
     make_item, page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
-    _dropped_image,
+    canvas_font, _dropped_image,
 )
 from .compiler import compile_tex, tectonic_available
 from .drawing_dialog import DrawingDialog
-from .latex_view import LatexView
+from .latex_view import LatexView, EDITOR_SCHEMES
 from .model import (
     Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine,
     blend_over_white, deck_to_json, deck_from_json,
@@ -249,6 +249,10 @@ class SlideWindow(QMainWindow):
 
         self._theme_name = QSettings("kherveDOC", "KherveSlide").value(
             "theme_name", "Light")
+        self._editor_scheme = QSettings("kherveDOC", "KherveSlide").value(
+            "editor_scheme", None) or None
+        if self._editor_scheme not in EDITOR_SCHEMES:
+            self._editor_scheme = None
         # (action, icon-factory) pairs so a theme switch can recolour icons.
         self._themed_icons: list = []
         self._update_title()
@@ -343,6 +347,24 @@ class SlideWindow(QMainWindow):
             a.triggered.connect(lambda _=False, n=name: self._apply_named_theme(n))
             self._theme_group.addAction(a)
             self._theme_actions[name] = a
+
+        # Syntax-highlighting colour scheme for the LaTeX source editor,
+        # independent of the app Appearance theme.
+        m_eds = m_view.addMenu("LaTeX editor theme")
+        self._eds_group = QActionGroup(self)
+        a = m_eds.addAction("Match app theme")
+        a.setCheckable(True)
+        a.setChecked(self._editor_scheme is None)
+        a.triggered.connect(lambda _=False: self._set_editor_scheme(None))
+        self._eds_group.addAction(a)
+        m_eds.addSeparator()
+        for name in EDITOR_SCHEMES:
+            a = m_eds.addAction(name)
+            a.setCheckable(True)
+            a.setChecked(name == self._editor_scheme)
+            a.triggered.connect(
+                lambda _=False, n=name: self._set_editor_scheme(n))
+            self._eds_group.addAction(a)
 
         # One Theme menu for everything that shapes the slide's look: the
         # presentation theme (whole look) AND the colour theme (colours
@@ -687,6 +709,7 @@ class SlideWindow(QMainWindow):
         # LEFT tabs: the WYSIWYG (default) and the live, editable LaTeX.
         self.latex_view = LatexView()
         self.latex_view.set_dark(self._dark, self._theme)
+        self.latex_view.set_editor_scheme(self._editor_scheme)
         # Editing the source recompiles that text; a slide change regenerates
         # it from the model (overwriting manual edits).
         self.latex_view.latexEdited.connect(self._on_latex_edited)
@@ -699,6 +722,10 @@ class SlideWindow(QMainWindow):
         self.console = QPlainTextEdit(); self.console.setReadOnly(True)
         cf = QFont("Consolas"); cf.setStyleHint(QFont.Monospace); cf.setPointSize(10)
         self.console.setFont(cf)
+        # Terminal look: black background, light text — independent of theme.
+        self.console.setStyleSheet(
+            "QPlainTextEdit { background: #0c0c0c; color: #e6e6e6;"
+            " selection-background-color: #444; }")
         self.pdf_view = PdfPreview()
         self.right_tabs = QTabWidget()
         self.right_tabs.addTab(self.pdf_view, "PDF")
@@ -1142,8 +1169,7 @@ class SlideWindow(QMainWindow):
         not \\item source); on focus-out call commit(latex)."""
         self._cancel_edit()
         editor = _InlineEditor()
-        f = QFont("Helvetica")
-        f.setPixelSize(max(8, int(font_pt * self._font_scale)))
+        f = canvas_font(max(8, int(font_pt * self._font_scale)))
         editor.setFont(f)
         editor.setHtml(latex_to_html(initial))
         editor.setStyleSheet(
@@ -2176,6 +2202,15 @@ class SlideWindow(QMainWindow):
         if act is not None and not act.isChecked():
             act.setChecked(True)
         self.statusBar().showMessage(f"Theme: {name}", 3000)
+
+    def _set_editor_scheme(self, name):
+        """Pick a syntax-colour scheme for the LaTeX source editor."""
+        self._editor_scheme = name
+        self.latex_view.set_editor_scheme(name)
+        QSettings("kherveDOC", "KherveSlide").setValue(
+            "editor_scheme", name or "")
+        self.statusBar().showMessage(
+            f"LaTeX editor theme: {name or 'Match app theme'}", 3000)
 
     def _open_file_location(self):
         if self.path is None:
