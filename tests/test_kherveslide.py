@@ -450,6 +450,19 @@ def test_latex_to_html_inline_formatting():
     assert "<i>yo</i>" in latex_to_html("\\textit{yo}")
 
 
+def test_math_only_detects_pure_equations():
+    from kherveslide.canvas import _math_only
+    assert _math_only("$\\dfrac{x}{y}$") == "\\dfrac{x}{y}"
+    assert _math_only("  $a+b$  ") == "a+b"
+    assert _math_only("\\[E=mc^2\\]") == "E=mc^2"
+    assert _math_only("\\(x\\)") == "x"
+    # Prose with inline math, or trailing text, is not a pure equation.
+    assert _math_only("Hello $x$ world") is None
+    assert _math_only("$a$ and $b$") is None
+    assert _math_only("plain text") is None
+    assert _math_only("") is None
+
+
 def test_rich_edit_round_trip_keeps_lists():
     # Editing renders bullets (not \item); committing turns them back into
     # itemize. Needs a Qt app for QTextDocument.

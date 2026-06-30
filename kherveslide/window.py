@@ -431,6 +431,11 @@ class SlideWindow(QMainWindow):
         self.f_deck_author = QLineEdit()
         self.f_deck_author.setPlaceholderText("Author")
         self.f_deck_author.editingFinished.connect(self._apply_deck_author)
+        self.chk_free = QCheckBox("Free")
+        self.chk_free.setToolTip("Free positioning. Uncheck for standard "
+                                 "beamer layout (auto-placed).")
+        self.chk_free.toggled.connect(self._toggle_free)
+        hl.addWidget(self.chk_free)
         hl.addWidget(QLabel("Frame:"))
         hl.addWidget(self.f_frame_title, 3)
         hl.addWidget(QLabel("Title:"))
@@ -528,9 +533,10 @@ class SlideWindow(QMainWindow):
             self.view.fit_to_window()
         self._enable_format(False)
         self._sync_top_fields()
-        self.act_free.blockSignals(True)
-        self.act_free.setChecked(self.slide.free)
-        self.act_free.blockSignals(False)
+        for w in (self.act_free, self.chk_free):
+            w.blockSignals(True)
+            w.setChecked(self.slide.free)
+            w.blockSignals(False)
         self._loading = False
         self._refresh_latex()
 
@@ -1385,6 +1391,10 @@ class SlideWindow(QMainWindow):
         self.slide.free = on
         self.scene.free = on
         self.scene.update()
+        for w in (self.act_free, self.chk_free):   # keep both controls in sync
+            w.blockSignals(True)
+            w.setChecked(on)
+            w.blockSignals(False)
         self._recompile_now()
 
     def _open_theme_builder(self):

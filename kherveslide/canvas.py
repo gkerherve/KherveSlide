@@ -40,6 +40,20 @@ def _inline_html(s: str) -> str:
     return s
 
 
+def _math_only(text: str) -> str | None:
+    """If *text* is a single math expression ($…$, \\[…\\] or \\(…\\)),
+    return the inner LaTeX; otherwise None."""
+    t = (text or "").strip()
+    if len(t) >= 2 and t.startswith("$") and t.endswith("$") \
+            and "$" not in t[1:-1]:
+        return t[1:-1].strip()
+    if t.startswith("\\[") and t.endswith("\\]"):
+        return t[2:-2].strip()
+    if t.startswith("\\(") and t.endswith("\\)"):
+        return t[2:-2].strip()
+    return None
+
+
 def latex_to_html(text: str) -> str:
     """Render a text box's LaTeX-ish content as HTML so itemize/enumerate
     look like real bullet / numbered lists on the canvas."""
@@ -366,6 +380,22 @@ class TextBoxItem(BoxItem):
         obj: SlideText = self.obj
         if obj.fill:
             painter.fillRect(self._rect, QColor(obj.fill))
+
+        # A pure math box ($…$, \[…\]) is rendered as real maths, like the
+        # equation editor's preview, rather than shown as raw LaTeX.
+        inner = _math_only(obj.text)
+        if inner is not None:
+            from . import equations
+            pm = equations.render_live_preview(inner, 24)
+            if pm is not None and not pm.isNull():
+                area = self._rect.adjusted(4, 2, -4, -2)
+                scaled = pm.scaled(area.size().toSize(), Qt.KeepAspectRatio,
+                                   Qt.SmoothTransformation)
+                x = self._rect.x() + (self._rect.width() - scaled.width()) / 2
+                y = self._rect.y() + (self._rect.height() - scaled.height()) / 2
+                painter.drawPixmap(QPointF(x, y), scaled)
+                self._paint_selection(painter)
+                return
 
         font = QFont("Helvetica")
         font.setPixelSize(max(6, int(obj.font_pt * self._font_scale)))
