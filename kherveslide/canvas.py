@@ -959,6 +959,25 @@ class SlideView(QGraphicsView):
         self.setAcceptDrops(True)
         self.fit_mode = True
 
+    def mousePressEvent(self, event):
+        # Alt+click cycles selection down through overlapping boxes, so a
+        # shape hidden under a text box can still be picked (the topmost box
+        # otherwise swallows every click).
+        if event.button() == Qt.LeftButton \
+                and (event.modifiers() & Qt.AltModifier) and self.scene():
+            sp = self.mapToScene(event.position().toPoint())
+            stack = [it for it in self.scene().items(sp)
+                     if isinstance(it, BoxItem)]   # topmost first
+            if stack:
+                cur = [it for it in stack if it.isSelected()]
+                nxt = (stack[(stack.index(cur[0]) + 1) % len(stack)]
+                       if cur else stack[0])
+                self.scene().clearSelection()
+                nxt.setSelected(True)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
     def keyPressEvent(self, event):
         # Delete the selected object — but NOT while editing text: then the
         # inline editor is the scene's focus item and must get Delete itself.

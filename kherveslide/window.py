@@ -1706,7 +1706,10 @@ class SlideWindow(QMainWindow):
             return
         item = self._selected_item()
         if item is not None:
+            # Clipboard first, with Paste right next to Copy.
             menu.addAction("Copy", self._copy_selected)
+            paste = menu.addAction("Paste", lambda: self._paste(scene_pos))
+            paste.setEnabled(self._can_paste())
             menu.addAction("Cut", self._cut_selected)
             menu.addAction("Duplicate", self._duplicate_selected)
             menu.addAction("Delete", self._delete_selected)
@@ -1720,19 +1723,6 @@ class SlideWindow(QMainWindow):
             lk.setToolTip("Locked: beamer lays the box out. "
                           "Unlocked: drag it anywhere on the slide.")
             lk.toggled.connect(self._set_selected_locked)
-            if isinstance(item.obj, SlideShape):
-                menu.addAction("Shape properties…", self._shape_props_dialog)
-            elif isinstance(item.obj, SlideLine):
-                menu.addAction("Line / arrow properties…",
-                               self._line_props_dialog)
-            elif isinstance(item.obj, SlideTable):
-                menu.addAction("Table properties…", self._table_props_dialog)
-            else:
-                menu.addAction("Box style (border / fill)…",
-                               self._box_style_dialog)
-            if isinstance(item.obj, SlideText) and getattr(item.obj, "block", ""):
-                menu.addAction("Block title…", self._set_block_title)
-            menu.addSeparator()
             menu.addAction("Bring to front", lambda: self._zorder("front"))
             menu.addAction("Send to back", lambda: self._zorder("back"))
             if isinstance(item.obj, SlidePicture):
@@ -1753,7 +1743,22 @@ class SlideWindow(QMainWindow):
                 pst.setEnabled(self._clipboard_has_image())
                 exp = menu.addAction("Export to PNG…", self._export_picture_png)
                 exp.setEnabled(bool(item.obj.path))
+            # Property dialogs live at the very bottom of the menu.
             menu.addSeparator()
+            if isinstance(item.obj, SlideShape):
+                menu.addAction("Shape properties…", self._shape_props_dialog)
+            elif isinstance(item.obj, SlideLine):
+                menu.addAction("Line / arrow properties…",
+                               self._line_props_dialog)
+            elif isinstance(item.obj, SlideTable):
+                menu.addAction("Table properties…", self._table_props_dialog)
+            else:
+                menu.addAction("Box style (border / fill)…",
+                               self._box_style_dialog)
+            if isinstance(item.obj, SlideText) and getattr(item.obj, "block", ""):
+                menu.addAction("Block title…", self._set_block_title)
+            menu.exec(global_pos)
+            return
         paste = menu.addAction("Paste", lambda: self._paste(scene_pos))
         paste.setEnabled(self._can_paste())
         menu.exec(global_pos)
