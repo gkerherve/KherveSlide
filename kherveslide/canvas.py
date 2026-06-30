@@ -252,8 +252,8 @@ class BoxItem(QGraphicsObject):
                 for h, (x, y) in pts.items()}
 
     def _handle_at(self, pos: QPointF) -> int | None:
-        if self._is_locked():
-            return None
+        # Locked boxes can still be *resized* (e.g. to size a picture or set
+        # a column's width) — they just can't be dragged to a new position.
         for h, rect in self._handle_rects().items():
             if rect.contains(pos):
                 return h
@@ -409,11 +409,12 @@ class BoxItem(QGraphicsObject):
         painter.setPen(QPen(QColor(40, 120, 220), 0, Qt.SolidLine))
         painter.setBrush(Qt.NoBrush)
         painter.drawRect(self._rect)
-        if not locked:                       # resize handles only when free
-            painter.setBrush(QBrush(QColor(255, 255, 255)))
-            painter.setPen(QPen(QColor(40, 120, 220), 0))
-            for rect in self._handle_rects().values():
-                painter.drawRect(rect)
+        # Resize handles are shown even when locked (resize is allowed; only
+        # moving is blocked), so a locked picture's size can be set.
+        painter.setBrush(QBrush(QColor(255, 255, 255)))
+        painter.setPen(QPen(QColor(40, 120, 220), 0))
+        for rect in self._handle_rects().values():
+            painter.drawRect(rect)
         self._paint_lock(painter)
 
     def _paint_lock(self, painter):

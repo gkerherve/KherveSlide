@@ -575,8 +575,27 @@ def test_slide_layout_unknown_falls_back_to_blank():
 def test_new_slide_layouts_present():
     names = templates.slide_layout_names()
     for n in ("Title only", "Three columns", "Comparison",
-              "Picture left + bullets", "Full picture", "Quote"):
+              "Picture left + bullets", "Full picture", "Quote",
+              "Two images + text", "Text + two images", "Three pictures"):
         assert n in names
+
+
+def test_picture_layouts_serialize():
+    for n in ("Two images + text", "Text + two images", "Three pictures"):
+        deck = Deck(slides=[templates.instantiate_slide_layout(n)])
+        serialize_deck(deck)
+
+
+def test_locked_column_picture_fills_column():
+    # A locked picture in a column fills the column width (\linewidth),
+    # not box-fraction × column width (which made it tiny).
+    deck = Deck(slides=[Slide(objects=[
+        SlidePicture(x=0.06, y=0.3, w=0.4, h=0.5, path="a.png", locked=True),
+        SlideText(x=0.54, y=0.3, w=0.4, h=0.5, text="text", locked=True)])],
+        nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "\\begin{columns}" in tex
+    assert "width=\\linewidth" in tex
 
 
 def test_comparison_layout_serializes_as_columns():

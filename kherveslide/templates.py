@@ -223,6 +223,44 @@ def _lay_quote() -> Slide:
     ])
 
 
+# The multi-picture layouts are free-positioned (locked=False) so the
+# stacked pictures land exactly where placed and stay freely resizable —
+# a stacked-images-beside-text arrangement can't be expressed as a single
+# row of beamer columns.
+def _free_heading() -> SlideText:
+    return SlideText(x=0.06, y=0.05, w=0.88, h=0.1, text="Heading",
+                     font_pt=30, bold=True, align="left", locked=False)
+
+
+def _lay_two_images_left() -> Slide:
+    return Slide(objects=[
+        _free_heading(),
+        SlidePicture(x=0.06, y=0.20, w=0.40, h=0.34, path="", locked=False),
+        SlidePicture(x=0.06, y=0.58, w=0.40, h=0.34, path="", locked=False),
+        SlideText(x=0.52, y=0.20, w=0.42, h=0.72, locked=False,
+                  text="Describe the pictures here.", font_pt=20),
+    ])
+
+
+def _lay_two_images_right() -> Slide:
+    return Slide(objects=[
+        _free_heading(),
+        SlideText(x=0.06, y=0.20, w=0.42, h=0.72, locked=False,
+                  text="Describe the pictures here.", font_pt=20),
+        SlidePicture(x=0.54, y=0.20, w=0.40, h=0.34, path="", locked=False),
+        SlidePicture(x=0.54, y=0.58, w=0.40, h=0.34, path="", locked=False),
+    ])
+
+
+def _lay_three_pictures() -> Slide:
+    return Slide(objects=[
+        _free_heading(),
+        SlidePicture(x=0.04, y=0.24, w=0.29, h=0.6, path="", locked=False),
+        SlidePicture(x=0.355, y=0.24, w=0.29, h=0.6, path="", locked=False),
+        SlidePicture(x=0.67, y=0.24, w=0.29, h=0.6, path="", locked=False),
+    ])
+
+
 _SLIDE_LAYOUTS: dict[str, callable] = {
     "Blank": _lay_blank,
     "Title": _lay_title,
@@ -233,6 +271,9 @@ _SLIDE_LAYOUTS: dict[str, callable] = {
     "Comparison": _lay_comparison,
     "Picture + text": _lay_picture_text,
     "Picture left + bullets": _lay_picture_left,
+    "Two images + text": _lay_two_images_left,
+    "Text + two images": _lay_two_images_right,
+    "Three pictures": _lay_three_pictures,
     "Full picture": _lay_full_picture,
     "Quote": _lay_quote,
     "Section divider": _lay_section,

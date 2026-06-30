@@ -93,9 +93,12 @@ def _has_crop(obj: SlidePicture) -> bool:
 
 
 def _picture_graphic(obj: SlidePicture, rel: str = "\\paperwidth",
-                     rel_h: str = "\\paperheight") -> str:
+                     rel_h: str = "\\paperheight",
+                     width_expr: str | None = None) -> str:
     path = obj.path.replace("\\", "/")
-    opts = f"width={_fmt(obj.w)}{rel},height={_fmt(obj.h)}{rel_h}"
+    # width_expr overrides the box-fraction width (used to fill a column).
+    w = width_expr or f"{_fmt(obj.w)}{rel}"
+    opts = f"width={w},height={_fmt(obj.h)}{rel_h}"
     if obj.keep_aspect:
         opts += ",keepaspectratio"
     if _has_crop(obj):
@@ -187,7 +190,10 @@ def _column_content(obj) -> str | None:
     if isinstance(obj, SlideTable):
         return _table_inner(obj)
     if isinstance(obj, SlidePicture) and obj.path:
-        return _picture_graphic(obj, "\\linewidth", "\\textheight")
+        # Fill the column width (the box width already set the column size),
+        # capping the height to the box's slide-fraction.
+        return _picture_graphic(obj, rel_h="\\textheight",
+                                width_expr="\\linewidth")
     return None
 
 
