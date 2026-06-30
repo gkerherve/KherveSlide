@@ -904,6 +904,33 @@ def test_paste_image_fills_selected_picture_box(monkeypatch):
     assert item.obj.path                        # picture now has a file
 
 
+def test_drawing_dialog_background_and_fill():
+    from PySide6.QtWidgets import QApplication, QGraphicsRectItem
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QPixmap, QColor, QImage, QPainter
+    from PySide6.QtCore import QRectF, Qt
+    import tempfile
+    from pathlib import Path
+    from kherveslide.drawing_dialog import DrawingDialog
+    wd = Path(tempfile.mkdtemp(prefix="ks_dd_"))
+    src = wd / "bg.png"
+    pm = QPixmap(60, 40); pm.fill(QColor("#3478f6")); pm.save(str(src))
+    dlg = DrawingDialog(wd, None, background_path=src)
+    assert dlg._bg_item is not None
+    assert dlg._scene.sceneRect().width() == 60
+    # A fill colour applies to a shape.
+    dlg._canvas.set_fill(QColor("#ff0000"))
+    item = QGraphicsRectItem(QRectF(5, 5, 20, 15))
+    item.setBrush(dlg._canvas._brush())
+    assert item.brush().color().name() == "#ff0000"
+    dlg._scene.addItem(item)
+    img = QImage(60, 40, QImage.Format_ARGB32); img.fill(Qt.transparent)
+    p = QPainter(img); dlg._scene.render(p, QRectF(img.rect()),
+                                         dlg._scene.sceneRect()); p.end()
+    assert img.pixelColor(40, 30).name() == "#3478f6"     # background kept
+    assert img.pixelColor(12, 11).name() == "#ff0000"     # fill drawn
+
+
 def test_picture_editor_remove_background():
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])

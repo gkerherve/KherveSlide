@@ -22,7 +22,7 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QAction, QActionGroup, QBrush, QColor, QFont, QImage, QKeySequence,
-    QPainter, QPainterPath, QPen,
+    QPainter, QPainterPath, QPen, QPixmap,
 )
 from PySide6.QtWidgets import (
     QButtonGroup, QColorDialog, QDialog, QDialogButtonBox, QGraphicsEllipseItem,
@@ -63,6 +63,7 @@ class _Canvas(QGraphicsView):
         self._tool = "pen"
         self._pen_color = QColor("#000000")
         self._pen_width = 2
+        self._fill: QColor | None = None    # shape fill ("fill with colour")
         self._font_size = 14
         self._origin: QPointF | None = None
         self._active_item = None
@@ -86,6 +87,12 @@ class _Canvas(QGraphicsView):
 
     def set_width(self, width: int) -> None:
         self._pen_width = max(1, int(width))
+
+    def set_fill(self, color: QColor | None) -> None:
+        self._fill = color
+
+    def _brush(self) -> QBrush:
+        return QBrush(self._fill) if self._fill else QBrush(Qt.NoBrush)
 
     def set_font_size(self, size: int) -> None:
         self._font_size = max(8, int(size))
@@ -171,6 +178,7 @@ class _Canvas(QGraphicsView):
             self._active_item = QGraphicsRectItem(
                 QRectF(scene_pos, scene_pos))
             self._active_item.setPen(self._pen())
+            self._active_item.setBrush(self._brush())
             self._active_item.setData(_DATA_TOOL, "rect")
             self.scene().addItem(self._active_item)
         elif self._tool == "ellipse":
@@ -178,6 +186,7 @@ class _Canvas(QGraphicsView):
             self._active_item = QGraphicsEllipseItem(
                 QRectF(scene_pos, scene_pos))
             self._active_item.setPen(self._pen())
+            self._active_item.setBrush(self._brush())
             self._active_item.setData(_DATA_TOOL, "ellipse")
             self.scene().addItem(self._active_item)
         elif self._tool == "arrow":
@@ -273,7 +282,8 @@ class _Canvas(QGraphicsView):
                 self.scene().addItem(item)
 
     def clear_all(self) -> None:
-        items = list(self.scene().items())
+        items = [it for it in self.scene().items()
+                 if it.data(_DATA_TOOL) != "background"]
         for it in items:
             self.scene().removeItem(it)
         if items:
@@ -444,14 +454,18 @@ class DrawingDialog(QDialog):
     drawingSaved = Signal(str)   # absolute path to the saved PNG
 
     def __init__(self, images_dir: Path, parent: QWidget | None = None,
-                 existing_path: Path | None = None):
+                 existing_path: Path | None = None,
+                 background_path: Path | None = None):
         super().__init__(parent)
         self._images_dir = Path(images_dir)
         self._images_dir.mkdir(parents=True, exist_ok=True)
         self._saved_path: Path | None = None
         self._existing_path = Path(existing_path) if existing_path else None
+        self._bg_item = None
 
-        if self._existing_path:
+        if background_path:
+            self.setWindowTitle("Annotate image")
+        elif self._existing_path:
             self.setWindowTitle("Edit Drawing")
         else:
             self.setWindowTitle("Drawing")
@@ -461,6 +475,16 @@ class DrawingDialog(QDialog):
         self._scene = QGraphicsScene(self)
         self._scene.setSceneRect(0, 0, 1200, 800)
         self._canvas = _Canvas(self._scene, self)
+
+        # Optional background image to draw on top of.
+        if background_path:
+            bg = QPixmap(str(background_path))
+            if not bg.isNull():
+                self._scene.setSceneRect(0, 0, bg.width(), bg.height())
+                self._bg_item = self._scene.addPixmap(bg)
+                self._bg_item.setZValue(-1000)
+                self._bg_item.setData(_DATA_TOOL, "background")
+                self._canvas.set_grid_visible(False)
 
         # ---- tool toolbar ------------------------------------------------
         tb = QToolBar(self)
@@ -537,6 +561,27 @@ class DrawingDialog(QDialog):
         self._width_slider.valueChanged.connect(
             lambda v: self._width_label.setText(f"{v} px"))
         palette_row.addSpacing(16)
+        # Fill colour for rectangles / ellipses ("fill with colour").
+        palette_row.addWidget(QLabel("Fill:"))
+        none_btn = QPushButton("∅")
+        none_btn.setFixedSize(22, 22)
+        none_btn.setToolTip("No fill")
+        none_btn.clicked.connect(lambda: self._canvas.set_fill(None))
+        palette_row.addWidget(none_btn)
+        for color in _PALETTE[1:]:        # skip black; keep the bright colours
+            btn = QPushButton()
+            btn.setFixedSize(22, 22)
+            btn.setStyleSheet(f"background:{color}; border:1px solid #888;")
+            btn.setToolTip(f"Fill {color}")
+            btn.clicked.connect(
+                lambda checked=False, c=color: self._canvas.set_fill(QColor(c)))
+            palette_row.addWidget(btn)
+        fill_custom = QPushButton("…")
+        fill_custom.setFixedSize(28, 22)
+        fill_custom.setToolTip("Pick a custom fill colour")
+        fill_custom.clicked.connect(self._pick_fill_color)
+        palette_row.addWidget(fill_custom)
+        palette_row.addSpacing(16)
         palette_row.addWidget(QLabel("Font:"))
         self._font_spin = QSpinBox()
         self._font_spin.setRange(8, 72)
@@ -581,22 +626,41 @@ class DrawingDialog(QDialog):
         if c.isValid():
             self._canvas.set_color(c)
 
+    def _pick_fill_color(self) -> None:
+        c = QColorDialog.getColor(QColor("#ffffff"), self, "Pick fill colour")
+        if c.isValid():
+            self._canvas.set_fill(c)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._bg_item is not None:
+            self._canvas.fitInView(self._scene.sceneRect(),
+                                   Qt.KeepAspectRatio)
+
     def _accept_and_save(self) -> None:
         items = list(self._scene.items())
         if not items:
             self.reject()
             return
-        bounds = self._scene.itemsBoundingRect()
-        if bounds.isEmpty():
-            self.reject()
-            return
-        pad = 16
-        bounds.adjust(-pad, -pad, pad, pad)
-        scale = 2
-        img = QImage(int(bounds.width() * scale),
-                     int(bounds.height() * scale),
-                     QImage.Format_ARGB32)
-        img.fill(QColor("white"))
+        if self._bg_item is not None:
+            # Annotating an image: render the whole image (background +
+            # drawings) at the image's own resolution, transparent elsewhere.
+            bounds = self._scene.sceneRect()
+            img = QImage(int(bounds.width()), int(bounds.height()),
+                         QImage.Format_ARGB32)
+            img.fill(Qt.transparent)
+        else:
+            bounds = self._scene.itemsBoundingRect()
+            if bounds.isEmpty():
+                self.reject()
+                return
+            pad = 16
+            bounds.adjust(-pad, -pad, pad, pad)
+            scale = 2
+            img = QImage(int(bounds.width() * scale),
+                         int(bounds.height() * scale),
+                         QImage.Format_ARGB32)
+            img.fill(QColor("white"))
         painter = QPainter(img)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.TextAntialiasing, True)

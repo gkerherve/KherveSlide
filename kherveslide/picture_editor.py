@@ -206,6 +206,8 @@ class PictureEditDialog(QDialog):
         tb.addAction(icons.paste(), "Paste from clipboard", self._paste)
         tb.addAction(icons.remove_bg(), "Make the background transparent",
                      self._remove_background)
+        tb.addAction(icons.drawing(), "Draw / annotate (pen, lines, fill)…",
+                     self._annotate)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
@@ -260,6 +262,17 @@ class PictureEditDialog(QDialog):
         p = d / f"pasted_{i:03d}.png"
         img.save(str(p), "PNG")
         self._set_image(str(p))
+
+    def _annotate(self):
+        """Open the drawing dialog with this image as the background, so the
+        user can draw on it (pen, lines, shapes, fill); bake the result back."""
+        if self._src.isNull() or not self.path:
+            return
+        from .drawing_dialog import DrawingDialog
+        d = Path(tempfile.gettempdir()) / "kherveslide_pasted"
+        dlg = DrawingDialog(d, self, background_path=Path(self.path))
+        if dlg.exec() and dlg.saved_path():
+            self._set_image(str(dlg.saved_path()))
 
     def _set_image(self, path):
         self.path = path
