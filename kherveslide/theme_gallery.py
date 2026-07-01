@@ -11,7 +11,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QThread, Signal
+from PySide6.QtCore import QSize, QStandardPaths, Qt, QThread, Signal
 from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QListWidget,
@@ -104,6 +104,36 @@ def _bundled_preview(theme: str) -> QPixmap | None:
     return None
 
 
+def _disk_cache_dir() -> Path:
+    """Persistent on-disk cache for compiled theme×colour previews so each
+    combination is only ever rendered once (then loads instantly)."""
+    base = QStandardPaths.writableLocation(QStandardPaths.CacheLocation)
+    d = Path(base or (Path.home() / ".cache")) / "kherveslide_theme_previews"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _disk_cache_path(theme: str, color: str, aspect: str) -> Path:
+    safe = f"{theme}__{color or 'default'}__{aspect}.png".replace("/", "-")
+    return _disk_cache_dir() / safe
+
+
+def _load_disk_preview(theme: str, color: str, aspect: str) -> QPixmap | None:
+    p = _disk_cache_path(theme, color, aspect)
+    if p.exists():
+        pm = QPixmap(str(p))
+        if not pm.isNull():
+            return pm
+    return None
+
+
+def _save_disk_preview(pm: QPixmap, theme: str, color: str, aspect: str) -> None:
+    try:
+        pm.save(str(_disk_cache_path(theme, color, aspect)), "PNG")
+    except Exception:
+        pass
+
+
 class ThemeGallery(QDialog):
     """Modal gallery. After exec(), ``chosen`` holds the picked theme and
     ``chosen_color`` the picked colour theme."""
@@ -168,8 +198,11 @@ class ThemeGallery(QDialog):
         pending = []
         for theme in self._themes:
             k = _key(theme, color)
-            if k not in self._cache and not color:
-                pm = _bundled_preview(theme)   # instant default previews
+            if k not in self._cache:
+                # persistent disk cache first, then bundled defaults
+                pm = _load_disk_preview(theme, color, self._aspect)
+                if pm is None and not color:
+                    pm = _bundled_preview(theme)   # instant default previews
                 if pm is not None:
                     self._cache[k] = pm
             if k in self._cache:
@@ -202,6 +235,7 @@ class ThemeGallery(QDialog):
             pm = _render_first_page(pdf_path, _PREVIEW_W)
             if pm is not None:
                 self._cache[_key(theme, color)] = pm
+                _save_disk_preview(pm, theme, color, self._aspect)  # persist
                 # Only update the visible grid if it's still this colour.
                 if color == self._current_color and theme in self._items:
                     self._items[theme].setIcon(QIcon(pm))

@@ -735,6 +735,20 @@ def test_group_select_move_and_ungroup(monkeypatch):
     assert all(o.group == 0 for o in w.slide.objects)
 
 
+def test_theme_preview_disk_cache_round_trips():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QPixmap, QColor
+    from kherveslide import theme_gallery as tg
+    pm = QPixmap(120, 70); pm.fill(QColor("#123456"))
+    tg._save_disk_preview(pm, "ZzTestTheme", "zzcol", "169")
+    loaded = tg._load_disk_preview("ZzTestTheme", "zzcol", "169")
+    assert loaded is not None and not loaded.isNull()
+    # a different colour / aspect is a cache miss
+    assert tg._load_disk_preview("ZzTestTheme", "other", "169") is None
+    assert tg._load_disk_preview("ZzTestTheme", "zzcol", "43") is None
+
+
 def test_superscript_subscript_round_trip():
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
