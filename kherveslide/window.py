@@ -309,6 +309,7 @@ class SlideWindow(QMainWindow):
         self._edit_proxy = None
         self._edit_commit = None
         self._edit_hidden_item = None
+        self._sel_guard = False
         self._font_scale = FONT_SCALE
 
         # Auto-compile: debounce edits, run tectonic off-thread.
@@ -388,6 +389,10 @@ class SlideWindow(QMainWindow):
         m_edit.addAction("Cut", self._cut_selected).setShortcut("Ctrl+X")
         m_edit.addAction("Paste", self._paste).setShortcut("Ctrl+V")
         m_edit.addAction("Duplicate", self._duplicate_selected).setShortcut("Ctrl+D")
+        m_edit.addSeparator()
+        m_edit.addAction("Group", self._group_selected).setShortcut("Ctrl+G")
+        m_edit.addAction(
+            "Ungroup", self._ungroup_selected).setShortcut("Ctrl+Shift+G")
         m_edit.addSeparator()
         m_edit.addAction("Find…", self._show_find).setShortcut("Ctrl+F")
         m_edit.addAction("Check spelling…", self._check_spelling).setShortcut("F7")
@@ -844,6 +849,8 @@ class SlideWindow(QMainWindow):
         self.scene.grid_frac = 1.0 / max(2, getattr(self, "_grid_divisions", 40))
         self.scene.selectionChanged.connect(self._on_selection)
         self.view = SlideView(self.scene)
+        # Rubber-band selection on empty canvas; drag on an item moves it.
+        self.view.setDragMode(QGraphicsView.RubberBandDrag)
         self.view.imageDropped.connect(self._on_image_dropped)
         self.view.deleteRequested.connect(self._delete_selected)
         self.view.contextMenuRequested.connect(self._canvas_context_menu)
@@ -1796,12 +1803,74 @@ class SlideWindow(QMainWindow):
             self._items[-1].setSelected(True)
 
     def _delete_selected(self):
-        item = self._selected_item()
-        if item is None:
+        objs = [it.obj for it in self._selected_items()]
+        if not objs:
             return
-        self.slide.objects.remove(item.obj)
+        for o in objs:
+            if o in self.slide.objects:
+                self.slide.objects.remove(o)
         self._reload_scene()
         self._touch_current()
+
+    def _selected_items(self):
+        out = []
+        for it in self._items:
+            try:
+                if it.isSelected():
+                    out.append(it)
+            except RuntimeError:
+                continue
+        return out
+
+    def _extend_group_selection(self):
+        """When any selected object belongs to a group, select the whole
+        group so it moves / deletes as one."""
+        sel = self._selected_items()
+        gids = {getattr(it.obj, "group", 0) for it in sel
+                if getattr(it.obj, "group", 0)}
+        if not gids:
+            return
+        self._sel_guard = True
+        try:
+            for it in self._items:
+                try:
+                    if getattr(it.obj, "group", 0) in gids \
+                            and not it.isSelected():
+                        it.setSelected(True)
+                except RuntimeError:
+                    continue
+        finally:
+            self._sel_guard = False
+
+    def _next_group_id(self):
+        ids = [getattr(o, "group", 0) for o in self.slide.objects]
+        return (max(ids) if ids else 0) + 1
+
+    def _group_selected(self):
+        objs = [it.obj for it in self._selected_items()]
+        if len(objs) < 2:
+            self.statusBar().showMessage(
+                "Select two or more objects to group", 4000)
+            return
+        gid = self._next_group_id()
+        for o in objs:
+            o.group = gid
+        self._touch_current()
+        self.statusBar().showMessage(f"Grouped {len(objs)} objects", 4000)
+
+    def _ungroup_selected(self):
+        gids = {getattr(it.obj, "group", 0) for it in self._selected_items()
+                if getattr(it.obj, "group", 0)}
+        if not gids:
+            self.statusBar().showMessage("No group selected", 4000)
+            return
+        n = 0
+        for o in self.slide.objects:
+            if getattr(o, "group", 0) in gids:
+                o.group = 0
+                n += 1
+        self._touch_current()
+        self.statusBar().showMessage(f"Ungrouped {n} objects", 4000)
 
     def _zorder(self, how):
         item = self._selected_item()
@@ -1974,6 +2043,13 @@ class SlideWindow(QMainWindow):
             menu.addAction("Duplicate", self._duplicate_selected)
             menu.addAction("Delete", self._delete_selected)
             menu.addSeparator()
+            sel = self._selected_items()
+            if len(sel) > 1:
+                menu.addAction("Group", self._group_selected)
+            if any(getattr(it.obj, "group", 0) for it in sel):
+                menu.addAction("Ungroup", self._ungroup_selected)
+            if len(sel) > 1 or any(getattr(it.obj, "group", 0) for it in sel):
+                menu.addSeparator()
             positioned = isinstance(item.obj, (SlideLine, SlideShape))
             locked = getattr(item.obj, "locked", True)
             lk = menu.addAction("Lock position (no dragging)" if positioned
@@ -2166,7 +2242,16 @@ class SlideWindow(QMainWindow):
     def _on_selection(self):
         if self._loading:
             return
-        item = self._selected_item()
+        if not self._sel_guard:
+            self._extend_group_selection()
+        selected = self._selected_items()
+        # With several boxes selected the per-object combo / format toolbar
+        # is ambiguous, so disable them (Group / Delete / drag still work).
+        if len(selected) > 1:
+            self.type_combo.setEnabled(False)
+            self._enable_format(False)
+            return
+        item = selected[0] if selected else None
         # Lines and shapes have no editable "type"; everything else uses combo.
         no_type = item is not None and isinstance(item.obj,
                                                   (SlideLine, SlideShape))

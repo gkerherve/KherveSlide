@@ -56,6 +56,8 @@ class SlideText:
     # Optional beamer block wrapper: "" | block | alertblock | exampleblock.
     block: str = ""
     block_title: str = ""
+    # Grouping tag: objects sharing a non-zero id select / move together.
+    group: int = 0
     type: str = "SlideText"
 
 
@@ -86,6 +88,7 @@ class SlidePicture:
     shadow: bool = False
     corner_radius: float = 4.0
     locked: bool = True         # see SlideText.locked
+    group: int = 0
     type: str = "SlidePicture"
 
 
@@ -134,6 +137,7 @@ class SlideTable:
     shadow: bool = False
     corner_radius: float = 4.0
     locked: bool = True        # see SlideText.locked
+    group: int = 0
     type: str = "SlideTable"
 
 
@@ -156,6 +160,7 @@ class SlideLine:
     # the PDF; locked only governs whether it can be dragged on the canvas.
     # Unlocked by default so a fresh line / arrow can be moved right away.
     locked: bool = False
+    group: int = 0
     type: str = "SlideLine"
 
 
@@ -179,6 +184,7 @@ class SlideShape:
     opacity: float = 1.0        # 0..1
     rotation: float = 0.0       # degrees, clockwise, about the centre
     locked: bool = False        # freely draggable by default
+    group: int = 0
     type: str = "SlideShape"
 
 
@@ -303,6 +309,7 @@ def _build_object(d: dict) -> SlideObject:
             locked=bool(d.get("locked", True)),
             block=str(d.get("block", "")),
             block_title=str(d.get("block_title", "")),
+            group=int(d.get("group", 0)),
         )
     if t == "SlidePicture":
         return SlidePicture(
@@ -325,6 +332,7 @@ def _build_object(d: dict) -> SlideObject:
             shadow=bool(d.get("shadow", False)),
             corner_radius=float(d.get("corner_radius", 4.0)),
             locked=bool(d.get("locked", True)),
+            group=int(d.get("group", 0)),
         )
     if t == "SlideTable":
         rows = d.get("rows") or _default_rows()
@@ -357,6 +365,7 @@ def _build_object(d: dict) -> SlideObject:
             shadow=bool(d.get("shadow", False)),
             corner_radius=float(d.get("corner_radius", 4.0)),
             locked=bool(d.get("locked", True)),
+            group=int(d.get("group", 0)),
         )
     if t == "SlideLine":
         return SlideLine(
@@ -370,6 +379,7 @@ def _build_object(d: dict) -> SlideObject:
             opacity=float(d.get("opacity", 1.0)),
             head_size=float(d.get("head_size", 1.0)),
             locked=bool(d.get("locked", True)),
+            group=int(d.get("group", 0)),
         )
     if t == "SlideShape":
         return SlideShape(
@@ -384,6 +394,7 @@ def _build_object(d: dict) -> SlideObject:
             opacity=float(d.get("opacity", 1.0)),
             rotation=float(d.get("rotation", 0.0)),
             locked=bool(d.get("locked", False)),
+            group=int(d.get("group", 0)),
         )
     raise ValueError(f"Unknown slide object type: {t!r}")
 

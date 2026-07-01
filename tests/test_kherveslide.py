@@ -711,6 +711,55 @@ def test_grid_divisions_changeable(monkeypatch):
     assert abs(gx40 - gx20 / 2) < 0.5      # finer grid → half the spacing
 
 
+def test_group_select_move_and_ungroup(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    from kherveslide.model import SlideShape, SlideText
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.clear()
+    w.slide.objects += [SlideShape(shape="rect"), SlideText(text="a"),
+                        SlideShape(shape="ellipse")]
+    w._reload_scene()
+    for it in w._items[:2]:
+        it.setSelected(True)
+    w._group_selected()
+    gids = [o.group for o in w.slide.objects]
+    assert gids[0] == gids[1] != 0 and gids[2] == 0
+    # Selecting one group member selects the whole group.
+    w.scene.clearSelection()
+    w._items[0].setSelected(True)
+    assert len(w._selected_items()) == 2
+    w._ungroup_selected()
+    assert all(o.group == 0 for o in w.slide.objects)
+
+
+def test_group_round_trips():
+    from kherveslide.model import SlideShape
+    deck = Deck(slides=[Slide(objects=[
+        SlideShape(shape="rect", group=5), SlideShape(shape="ellipse", group=5)])])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
+def test_delete_removes_all_selected(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    from kherveslide.model import SlideShape
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.clear()
+    w.slide.objects += [SlideShape(shape="rect"), SlideShape(shape="ellipse"),
+                        SlideShape(shape="triangle")]
+    w._reload_scene()
+    w._items[0].setSelected(True)
+    w._items[2].setSelected(True)
+    w._delete_selected()
+    assert len(w.slide.objects) == 1
+    assert w.slide.objects[0].shape == "ellipse"
+
+
 def test_grid_snap_menu_actions_drive_scene(monkeypatch):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
