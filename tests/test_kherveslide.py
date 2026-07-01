@@ -804,12 +804,18 @@ def test_theme_preview_disk_cache_round_trips():
     from PySide6.QtGui import QPixmap, QColor
     from kherveslide import theme_gallery as tg
     pm = QPixmap(120, 70); pm.fill(QColor("#123456"))
-    tg._save_disk_preview(pm, "ZzTestTheme", "zzcol", "169")
-    loaded = tg._load_disk_preview("ZzTestTheme", "zzcol", "169")
-    assert loaded is not None and not loaded.isNull()
-    # a different colour / aspect is a cache miss
-    assert tg._load_disk_preview("ZzTestTheme", "other", "169") is None
-    assert tg._load_disk_preview("ZzTestTheme", "zzcol", "43") is None
+    # The cache now lives in the package's theme_previews_generated folder, so
+    # clean up the test's file rather than leaving it there to be committed.
+    path = tg._disk_cache_path("ZzTestTheme", "zzcol", "169")
+    try:
+        tg._save_disk_preview(pm, "ZzTestTheme", "zzcol", "169")
+        loaded = tg._load_disk_preview("ZzTestTheme", "zzcol", "169")
+        assert loaded is not None and not loaded.isNull()
+        # a different colour / aspect is a cache miss
+        assert tg._load_disk_preview("ZzTestTheme", "other", "169") is None
+        assert tg._load_disk_preview("ZzTestTheme", "zzcol", "43") is None
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def test_superscript_subscript_round_trip():
