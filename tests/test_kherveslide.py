@@ -1498,6 +1498,41 @@ def test_type_combo_changes_box_type(monkeypatch):
     assert not hasattr(w, "theme_combo")
 
 
+def test_manual_latex_edits_are_not_overwritten(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    assert w._latex_overridden is False
+    # Hand-edit the source and enter manual-edit mode.
+    edited = w.latex_view.source() + "\n% MANUAL EDIT"
+    w.latex_view._edit.setPlainText(edited)
+    w._on_latex_edited(w.latex_view.source())
+    assert w._latex_overridden is True
+    # A slide change (which regenerates the source) must NOT overwrite it.
+    w._refresh_latex()
+    assert "% MANUAL EDIT" in w.latex_view.source()
+    # Regenerating from the slides drops the override and the manual edit.
+    w._regenerate_latex_from_slides()
+    assert w._latex_overridden is False
+    assert "% MANUAL EDIT" not in w.latex_view.source()
+
+
+def test_deck_replace_clears_latex_override(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.latex_view._edit.setPlainText("junk")
+    w._on_latex_edited("junk")
+    assert w._latex_overridden is True
+    w._new_deck()          # deck replacement re-syncs the source
+    assert w._latex_overridden is False
+    assert "junk" not in w.latex_view.source()
+
+
 def test_nav_tickbox_and_menu_stay_in_sync(monkeypatch):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])

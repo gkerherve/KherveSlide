@@ -400,6 +400,9 @@ class SlideWindow(QMainWindow):
         self._compile_pending = False
         self._dl_worker: _DownloadWorker | None = None
         self._gen_worker = None      # theme-preview batch generator
+        # True once the user hand-edits the LaTeX: slide changes then stop
+        # overwriting the source until they "Regenerate from slides".
+        self._latex_overridden = False
         self._git_worker: _GitNetworkWorker | None = None
         self._pending_commit_msg: str | None = None
         self._theme_cache: dict = {}   # theme name -> preview QPixmap
@@ -1092,9 +1095,12 @@ class SlideWindow(QMainWindow):
         self.latex_view = LatexView()
         self.latex_view.set_dark(self._dark, self._theme)
         self.latex_view.set_editor_scheme(self._editor_scheme)
-        # Editing the source recompiles that text; a slide change regenerates
-        # it from the model (overwriting manual edits).
+        # Editing the source recompiles that text and enters "manual edit"
+        # mode, in which slide changes no longer overwrite the source until
+        # the user regenerates it from the WYSIWYG slides.
         self.latex_view.latexEdited.connect(self._on_latex_edited)
+        self.latex_view.regenerateRequested.connect(
+            self._regenerate_latex_from_slides)
         self.left_tabs = QTabWidget()
         self.left_tabs.addTab(wysiwyg, "WYSIWYG")
         self.left_tabs.addTab(self.latex_view, "LaTeX")
@@ -1351,16 +1357,41 @@ class SlideWindow(QMainWindow):
             self._recompile_now()
 
     def _refresh_latex(self):
-        self.latex_view.set_source(serialize_deck(self.deck))
+        # Don't clobber hand-edited LaTeX: while the source is manually
+        # overridden, a slide change updates the model (and undo) but leaves
+        # the editor text alone — the PDF compiles from the edited source.
+        if not self._latex_overridden:
+            self.latex_view.set_source(serialize_deck(self.deck))
         self._schedule_compile()
         if not self._loading and not self._restoring:
             self._undo_timer.start()   # debounced snapshot for undo
+
+    def _regenerate_latex_from_slides(self):
+        """Leave manual-edit mode: discard the hand-edited LaTeX and rebuild
+        the source from the WYSIWYG slides."""
+        self._latex_overridden = False
+        self.latex_view.set_overridden(False)
+        self.latex_view.set_source(serialize_deck(self.deck))
+        self._schedule_compile()
+        self.statusBar().showMessage("LaTeX regenerated from the slides", 3000)
+
+    def _resync_latex_after_deck_replace(self):
+        """A fresh / reverted deck (open, new, import, undo): the manual LaTeX
+        edits belonged to the previous deck, so drop override mode and re-sync
+        the source to the new deck."""
+        self._latex_overridden = False
+        if hasattr(self, "latex_view"):
+            self.latex_view.set_overridden(False)
+            self.latex_view.set_source(serialize_deck(self.deck))
 
     # ---------------- undo / redo ----------------
     def _reset_history(self):
         self._history = [deck_to_json(self.deck)]
         self._hist_index = 0
         self._update_undo_actions()
+        # A fresh deck (open / new / import / template) — drop any manual LaTeX
+        # override and re-sync the source to it.
+        self._resync_latex_after_deck_replace()
 
     def _capture_state(self):
         if self._restoring:
@@ -1400,6 +1431,7 @@ class SlideWindow(QMainWindow):
                 self.deck.slides = [Slide()]
             self.current = min(self.current, len(self.deck.slides) - 1)
             self._reload_all()
+            self._resync_latex_after_deck_replace()
         finally:
             self._restoring = False
         self._update_undo_actions()
@@ -3203,7 +3235,11 @@ class SlideWindow(QMainWindow):
                 "Compilation failed; see the Console tab for the log.")
 
     def _on_latex_edited(self, _text):
-        # The user edited the LaTeX source — recompile that text.
+        # The user edited the LaTeX source — enter manual-edit mode so slide
+        # changes stop overwriting it, and recompile the edited text.
+        if not self._latex_overridden:
+            self._latex_overridden = True
+            self.latex_view.set_overridden(True)
         self._schedule_compile()
 
     def _compile(self):

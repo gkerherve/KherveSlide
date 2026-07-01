@@ -13,7 +13,8 @@ from PySide6.QtGui import (
     QTextDocument,
 )
 from PySide6.QtWidgets import (
-    QCompleter, QMenu, QPlainTextEdit, QVBoxLayout, QWidget,
+    QCompleter, QHBoxLayout, QLabel, QMenu, QPlainTextEdit, QPushButton,
+    QVBoxLayout, QWidget,
 )
 
 
@@ -506,6 +507,7 @@ class LatexView(QWidget):
     """Two-way editable LaTeX source view with autocomplete."""
 
     latexEdited = Signal(str)
+    regenerateRequested = Signal()      # user clicked "Regenerate from slides"
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -522,8 +524,26 @@ class LatexView(QWidget):
         self._completer.setModel(QStringListModel(_LATEX_COMMANDS, self._completer))
         self._completer.activated.connect(self._insert_completion)
 
+        # Banner shown when the user has manually edited the source: it warns
+        # that the slides won't overwrite the edits and offers to re-sync.
+        self._banner = QWidget()
+        _bl = QHBoxLayout(self._banner)
+        _bl.setContentsMargins(8, 4, 8, 4)
+        _lbl = QLabel("Manual LaTeX edits — the slides won't overwrite them.")
+        _btn = QPushButton("Regenerate from slides")
+        _btn.setToolTip("Discard the manual LaTeX edits and rebuild the source "
+                        "from the WYSIWYG slides")
+        _btn.clicked.connect(lambda: self.regenerateRequested.emit())
+        _bl.addWidget(_lbl)
+        _bl.addStretch(1)
+        _bl.addWidget(_btn)
+        self._banner.setStyleSheet(
+            "QWidget { background:#fff3cd; } QLabel { color:#664d03; }")
+        self._banner.hide()
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._banner)
         layout.addWidget(self._edit)
 
         self._suppress_signal = False
@@ -563,6 +583,10 @@ class LatexView(QWidget):
 
     def source(self) -> str:
         return self._edit.toPlainText()
+
+    def set_overridden(self, on: bool) -> None:
+        """Show/hide the 'manual LaTeX edits' banner."""
+        self._banner.setVisible(on)
 
     def find(self, text: str, backwards: bool = False) -> bool:
         """Find *text* from the cursor, wrapping around. Returns True if a
