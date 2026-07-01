@@ -91,15 +91,17 @@ class _CompileWorker(QThread):
     done = Signal(object)   # CompileResult
     line = Signal(str)      # a live tectonic output line
 
-    def __init__(self, tex, workdir, src_dir):
+    def __init__(self, tex, workdir, src_dir, skip_images=False):
         super().__init__()
         self._tex = tex
         self._workdir = workdir
         self._src_dir = src_dir
+        self._skip_images = skip_images
 
     def run(self):
         result = compile_tex(self._tex, self._workdir, "slides",
                              source_dir=self._src_dir,
+                             skip_images=self._skip_images,
                              on_line=lambda s: self.line.emit(s))
         self.done.emit(result)
 
@@ -378,6 +380,11 @@ class SlideWindow(QMainWindow):
         self._auto_timer.timeout.connect(self._start_compile)
         self._auto_compile = QSettings("kherveDOC", "KherveSlide").value(
             "auto_compile", True, type=bool)
+        # Skip images: compile with placeholders instead of loading pictures,
+        # for faster previews while iterating. A compile-only convenience —
+        # not saved to the presentation or the exported .tex.
+        self._skip_images = QSettings("kherveDOC", "KherveSlide").value(
+            "skip_images", False, type=bool)
 
         self._theme_name = QSettings("kherveDOC", "KherveSlide").value(
             "theme_name", "Light")
@@ -813,20 +820,30 @@ class SlideWindow(QMainWindow):
         self._themed_icons.append((self.act_pic, icons.image_box))
 
         # Compile controls pushed to the far right (as in KherveDOC/KherveTeX):
-        # a manual Run and an Auto toggle.
+        # a Skip-images toggle, an Auto toggle, and a green Refresh button.
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
-        self.act_compile = QAction(icons.compile_pdf(), "Compile", self)
-        self.act_compile.setToolTip("Compile now (Ctrl+R)")
-        self.act_compile.triggered.connect(self._compile)
-        tb.addAction(self.act_compile)
-        self._themed_icons.append((self.act_compile, icons.compile_pdf))
+        self.act_skip_img = QAction(icons.compile_no_images(),
+                                    "Skip images", self)
+        self.act_skip_img.setCheckable(True)
+        self.act_skip_img.setToolTip("Skip images for faster compiles — draws "
+                                     "placeholders instead of loading pictures")
+        self.act_skip_img.setChecked(self._skip_images)
+        self.act_skip_img.toggled.connect(self._toggle_skip_images)
+        tb.addAction(self.act_skip_img)
+        self._themed_icons.append((self.act_skip_img, icons.compile_no_images))
         self.chk_auto = QCheckBox("Auto")
         self.chk_auto.setToolTip("Auto-compile shortly after each change")
         self.chk_auto.setChecked(self._auto_compile)
         self.chk_auto.toggled.connect(self._toggle_auto_compile)
         tb.addWidget(self.chk_auto)
+        # Green circular refresh — compile now — on the far right.
+        self.act_compile = QAction(icons.refresh(), "Refresh", self)
+        self.act_compile.setToolTip("Refresh — compile now (Ctrl+R)")
+        self.act_compile.triggered.connect(self._compile)
+        tb.addAction(self.act_compile)
+        self._themed_icons.append((self.act_compile, icons.refresh))
 
         self._enable_format(False)
 
@@ -1372,6 +1389,16 @@ class SlideWindow(QMainWindow):
             "Auto-compile ON" if on else "Auto-compile OFF — use Compile",
             3000)
 
+    def _toggle_skip_images(self, on):
+        self._skip_images = on
+        QSettings("kherveDOC", "KherveSlide").setValue("skip_images", on)
+        self.statusBar().showMessage(
+            "Skip images ON — faster compiles (placeholders shown)"
+            if on else "Skip images OFF — pictures included", 3000)
+        if tectonic_available():
+            self._auto_timer.stop()
+            self._start_compile()
+
     def _start_compile(self):
         if not tectonic_available():
             return
@@ -1387,7 +1414,7 @@ class SlideWindow(QMainWindow):
         src_dir = self.path.parent if self.path else None
         self._downloaded_this_run = False
         self._set_compile_status("Compiling…", "busy")
-        worker = _CompileWorker(tex, workdir, src_dir)
+        worker = _CompileWorker(tex, workdir, src_dir, self._skip_images)
         worker.done.connect(self._on_compiled)
         worker.line.connect(self._on_compile_line)
         worker.finished.connect(self._on_worker_finished)

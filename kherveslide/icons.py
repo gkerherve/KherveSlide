@@ -875,6 +875,25 @@ def auto_compile_on() -> QIcon:
     return QIcon(px)
 
 
+def refresh() -> QIcon:
+    """Green circular arrow — refresh / compile now."""
+    px, p = _new_canvas()
+    green = QColor("#5fba7d") if _dark else QColor("#2a8c4a")
+    p.setPen(QPen(green, 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setBrush(Qt.NoBrush)
+    path = QPainterPath()
+    path.arcMoveTo(QRectF(4, 4, 16, 16), 60)
+    path.arcTo(QRectF(4, 4, 16, 16), 60, -300)
+    p.drawPath(path)
+    tip = path.currentPosition()
+    p.setPen(Qt.NoPen); p.setBrush(QBrush(green))
+    p.drawPolygon([QPointF(tip.x() - 4, tip.y() - 1),
+                   QPointF(tip.x() + 1, tip.y() - 5),
+                   QPointF(tip.x() + 1, tip.y() + 3)])
+    p.end()
+    return QIcon(px)
+
+
 def auto_compile_off() -> QIcon:
     """Circular arrow (sync) with a diagonal strike — auto-compile is OFF."""
     px, p = _new_canvas()
