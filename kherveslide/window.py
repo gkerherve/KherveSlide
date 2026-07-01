@@ -31,8 +31,8 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox, QFileDialog, QFormLayout, QGraphicsView, QHBoxLayout,
     QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit,
-    QPushButton, QSpinBox, QSplitter, QTabWidget, QTextEdit, QToolBar,
-    QToolButton, QVBoxLayout, QWidget,
+    QPushButton, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QTextEdit,
+    QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from . import git_backend, icons, shapes, spellcheck, templates, themes, version_string
@@ -333,6 +333,8 @@ class SlideWindow(QMainWindow):
         self._auto_timer.setSingleShot(True)
         self._auto_timer.setInterval(900)
         self._auto_timer.timeout.connect(self._start_compile)
+        self._auto_compile = QSettings("kherveDOC", "KherveSlide").value(
+            "auto_compile", True, type=bool)
 
         self._theme_name = QSettings("kherveDOC", "KherveSlide").value(
             "theme_name", "Light")
@@ -641,7 +643,6 @@ class SlideWindow(QMainWindow):
         tb.addAction(self.act_redo)
         tb.addSeparator()
         act(icons.templates_icon, "Templates", self._templates_menu)
-        act(icons.compile_pdf, "Compile", self._compile)
         act(icons.export_pdf, "Export PDF", self._export_pdf)
         tb.addSeparator()
         act(icons.zoom_out, "Zoom out", lambda: self.view.zoom_by(1 / 1.25))
@@ -685,6 +686,13 @@ class SlideWindow(QMainWindow):
         self._fmt_tb = ftb
 
         ftb.addWidget(QLabel(" Font "))
+        self.fmt_family = QComboBox()
+        for label, key in (("Default", ""), ("Sans-serif", "sf"),
+                           ("Serif", "rm"), ("Monospace", "tt")):
+            self.fmt_family.addItem(label, key)
+        self.fmt_family.setToolTip("Font type of the selected text box")
+        self.fmt_family.currentIndexChanged.connect(self._set_font_family)
+        ftb.addWidget(self.fmt_family)
         self.fmt_font = QSpinBox(); self.fmt_font.setRange(6, 160)
         self.fmt_font.setToolTip("Font size (pt)")
         self.fmt_font.valueChanged.connect(self._apply_text_format)
@@ -744,6 +752,22 @@ class SlideWindow(QMainWindow):
         self.act_pic.triggered.connect(self._pick_image)
         ftb.addAction(self.act_pic)
         self._themed_icons.append((self.act_pic, icons.image_box))
+
+        # Compile controls pushed to the far right (as in KherveDOC/KherveTeX):
+        # a manual Run and an Auto toggle.
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        tb.addWidget(spacer)
+        self.act_compile = QAction(icons.compile_pdf(), "Compile", self)
+        self.act_compile.setToolTip("Compile now (Ctrl+R)")
+        self.act_compile.triggered.connect(self._compile)
+        tb.addAction(self.act_compile)
+        self._themed_icons.append((self.act_compile, icons.compile_pdf))
+        self.chk_auto = QCheckBox("Auto")
+        self.chk_auto.setToolTip("Auto-compile shortly after each change")
+        self.chk_auto.setChecked(self._auto_compile)
+        self.chk_auto.toggled.connect(self._toggle_auto_compile)
+        tb.addWidget(self.chk_auto)
 
         self._enable_format(False)
 
@@ -827,10 +851,21 @@ class SlideWindow(QMainWindow):
         self._add_object(SlideShape(shape=key, w=w, h=h), offset=True)
 
     def _enable_format(self, on, is_text=True, is_pic=False):
-        for w in (self.fmt_font, self.act_bold, self.act_italic,
-                  self.act_textcolor, self.act_fill, *self._align_actions.values()):
+        for w in (self.fmt_font, self.fmt_family, self.act_bold,
+                  self.act_italic, self.act_textcolor, self.act_fill,
+                  *self._align_actions.values()):
             w.setEnabled(on and is_text)
         self.act_pic.setEnabled(on and is_pic)
+
+    def _set_font_family(self):
+        if self._loading:
+            return
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlideText):
+            return
+        item.obj.font_family = self.fmt_family.currentData()
+        item.update()
+        self._touch_current()
 
     # ---------------- layout ----------------
     def _build_ui(self):
@@ -1218,9 +1253,21 @@ class SlideWindow(QMainWindow):
     # ---------------- auto-compile ----------------
     def _schedule_compile(self):
         """Debounce: (re)start the timer so a compile fires shortly after
-        the last change. Skipped while bulk-loading."""
-        if not self._loading and tectonic_available():
+        the last change. Skipped while bulk-loading or when auto-compile off."""
+        if (not self._loading and self._auto_compile
+                and tectonic_available()):
             self._auto_timer.start()
+
+    def _toggle_auto_compile(self, on):
+        self._auto_compile = on
+        QSettings("kherveDOC", "KherveSlide").setValue("auto_compile", on)
+        if on:
+            self._schedule_compile()
+        else:
+            self._auto_timer.stop()
+        self.statusBar().showMessage(
+            "Auto-compile ON" if on else "Auto-compile OFF — use Compile",
+            3000)
 
     def _start_compile(self):
         if not tectonic_available():
@@ -2274,6 +2321,8 @@ class SlideWindow(QMainWindow):
         if is_text:
             self._loading = True
             self.fmt_font.setValue(obj.font_pt)
+            fi = self.fmt_family.findData(getattr(obj, "font_family", ""))
+            self.fmt_family.setCurrentIndex(fi if fi >= 0 else 0)
             self.act_bold.setChecked(obj.bold)
             self.act_italic.setChecked(obj.italic)
             self._align_actions.get(obj.align, self._align_actions["left"]).setChecked(True)

@@ -187,6 +187,19 @@ def canvas_font(pixel_size: int = 0, *, stretch: int = 0) -> QFont:
         f.setStretch(stretch)
     return f
 
+
+def _apply_font_family(font: QFont, family: str) -> None:
+    """Reflect a box's LaTeX font type (rm/sf/tt) on the canvas."""
+    if family == "rm":
+        font.setFamilies(["Latin Modern Roman", "Georgia", "Times New Roman",
+                          "serif"])
+        font.setStyleHint(QFont.Serif)
+    elif family == "tt":
+        font.setFamilies(["Consolas", "Courier New", "monospace"])
+        font.setStyleHint(QFont.Monospace)
+    elif family == "sf":
+        font.setStyleHint(QFont.SansSerif)  # keep the sans body stack
+
 _ASPECT_RATIO = {              # width : height multiplier
     "169": 16 / 9, "1610": 16 / 10, "43": 4 / 3,
     "32": 3 / 2, "54": 5 / 4, "141": 1.41,
@@ -604,6 +617,7 @@ class TextBoxItem(BoxItem):
             body_top = self._paint_block(painter)
 
         font = canvas_font(max(6, int(obj.font_pt * self._font_scale)))
+        _apply_font_family(font, getattr(obj, "font_family", ""))
         font.setBold(obj.bold)
         font.setItalic(obj.italic)
 

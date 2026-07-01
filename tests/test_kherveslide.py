@@ -735,6 +735,39 @@ def test_group_select_move_and_ungroup(monkeypatch):
     assert all(o.group == 0 for o in w.slide.objects)
 
 
+def test_font_family_serialises():
+    for key, cmd in (("rm", "\\rmfamily"), ("sf", "\\sffamily"),
+                     ("tt", "\\ttfamily")):
+        tex = serialize_deck(Deck(slides=[Slide(objects=[
+            SlideText(text="x", font_family=key, locked=True)])],
+            nav_symbols=False))
+        assert cmd in tex
+    plain = serialize_deck(Deck(slides=[Slide(objects=[
+        SlideText(text="x", locked=True)])], nav_symbols=False))
+    assert "rmfamily" not in plain and "ttfamily" not in plain
+
+
+def test_font_family_round_trips():
+    deck = Deck(slides=[Slide(objects=[SlideText(text="x", font_family="tt")])])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
+def test_auto_compile_toggle_gates_scheduling(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: True)
+    w = window.SlideWindow()
+    w._toggle_auto_compile(False)
+    assert w._auto_compile is False
+    w._auto_timer.stop()
+    w._schedule_compile()
+    assert not w._auto_timer.isActive()      # gated off
+    w._toggle_auto_compile(True)
+    w._schedule_compile()
+    assert w._auto_timer.isActive()
+
+
 def test_group_round_trips():
     from kherveslide.model import SlideShape
     deck = Deck(slides=[Slide(objects=[

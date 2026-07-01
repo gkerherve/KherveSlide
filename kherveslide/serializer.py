@@ -87,11 +87,13 @@ def _styled_text(obj: SlideText) -> str:
     color = _hex_to_rgb_arg(obj.color)
     if color and color != "000000":
         body = f"\\textcolor[HTML]{{{color}}}{{{body}}}"
+    fam = {"rm": "\\rmfamily", "sf": "\\sffamily",
+           "tt": "\\ttfamily"}.get(getattr(obj, "font_family", ""), "")
     align_cmd = {"center": "\\centering", "right": "\\raggedleft",
                  "left": "\\raggedright"}.get(obj.align, "\\raggedright")
     lead = int(round(obj.font_pt * 1.2))
     sized = f"\\fontsize{{{obj.font_pt}}}{{{lead}}}\\selectfont"
-    return f"{align_cmd}{sized} {body}"
+    return f"{align_cmd}{fam}{sized} {body}"
 
 
 # Coloured beamer blocks take their title as {title}; theorem-like

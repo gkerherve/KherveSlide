@@ -37,6 +37,7 @@ class SlideText:
     h: float = 0.15
     text: str = "Text"
     font_pt: int = 20
+    font_family: str = ""         # "" theme | rm serif | sf sans | tt mono
     color: str = "#000000"        # hex, foreground
     fill: str = ""                # hex box background, "" = transparent
     align: str = "left"           # left | center | right
@@ -294,6 +295,7 @@ def _build_object(d: dict) -> SlideObject:
             w=float(d.get("w", 0.4)), h=float(d.get("h", 0.15)),
             text=str(d.get("text", "")),
             font_pt=int(d.get("font_pt", 20)),
+            font_family=str(d.get("font_family", "")),
             color=str(d.get("color", "#000000")),
             fill=str(d.get("fill", "")),
             align=str(d.get("align", "left")),
