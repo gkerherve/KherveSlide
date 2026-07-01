@@ -42,7 +42,9 @@ def _inline_html(s: str) -> str:
     s = re.sub(r"\\emph\{([^}]*)\}", r"<i>\1</i>", s)
     s = re.sub(r"\\textsuperscript\{([^}]*)\}", r"<sup>\1</sup>", s)
     s = re.sub(r"\\textsubscript\{([^}]*)\}", r"<sub>\1</sub>", s)
-    s = re.sub(r"\$([^$]*)\$", r"\1", s)          # show maths source, no $
+    # Keep inline-maths delimiters ($…$) visible: stripping them meant that
+    # editing a box (and committing) silently dropped the $ and turned maths
+    # into plain text. Showing the source lets it round-trip intact.
     s = s.replace("\\textbar{}", "|").replace("\\textbar", "|")
     s = s.replace("\\\\", "<br>")
     s = s.replace("\\&", "&amp;").replace("\\%", "%").replace("\\_", "_")

@@ -1667,6 +1667,42 @@ def test_inline_editor_bolds_only_the_selection():
     assert "beta" in out and "\\textbf{beta}" not in out
 
 
+def test_inline_maths_round_trip():
+    # Editing a box with inline maths must keep the $…$ (it used to be stripped
+    # on display and then lost on commit).
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QTextDocument
+    from kherveslide.canvas import latex_to_html, document_to_latex
+    doc = QTextDocument()
+    doc.setHtml(latex_to_html("Energy $E = mc^2$ here"))
+    assert document_to_latex(doc) == "Energy $E = mc^2$ here"
+
+
+def test_inline_editor_copy_keeps_formatting():
+    # Copying a selection from one KherveSlide box and pasting into another
+    # preserves bullets, bold/italic and maths (foreign content stays plain,
+    # see test_inline_editor_paste_is_plain).
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    from kherveslide.canvas import latex_to_html, document_to_latex
+    src = ("\\begin{itemize}\n\\item First\n"
+           "\\item \\textbf{Second} $x^2$\n\\end{itemize}")
+    a = window._InlineEditor()
+    a.setHtml(latex_to_html(src))
+    a.selectAll()
+    a.copy()
+    cb = QApplication.clipboard().mimeData()
+    assert cb.hasFormat(window._InlineEditor._TEXT_MIME)
+    b = window._InlineEditor()
+    b.paste()
+    out = document_to_latex(b.document())
+    assert "\\begin{itemize}" in out and out.count("\\item") == 2
+    assert "\\textbf{Second}" in out
+    assert "$x^2$" in out
+
+
 def test_rich_edit_round_trip_keeps_lists():
     # Editing renders bullets (not \item); committing turns them back into
     # itemize. Needs a Qt app for QTextDocument.

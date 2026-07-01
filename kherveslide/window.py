@@ -158,6 +158,11 @@ class _InlineEditor(QTextEdit):
     # Toggled from the View menu; persisted in QSettings.
     spellcheck_enabled = True
 
+    # Clipboard tag carrying a selection's LaTeX source, so copy/paste between
+    # KherveSlide text boxes preserves bullets, bold/italic and maths (native
+    # rich paste would also drag foreign fonts/colours in).
+    _TEXT_MIME = "application/x-kherveslide-text"
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._speller = spellcheck.SpellHighlighter(self.document())
@@ -179,11 +184,44 @@ class _InlineEditor(QTextEdit):
             return True
         return super().event(e)
 
+    def _selection_latex(self) -> str | None:
+        cur = self.textCursor()
+        if not cur.hasSelection():
+            return None
+        from PySide6.QtGui import QTextCursor, QTextDocument
+        tmp = QTextDocument()
+        QTextCursor(tmp).insertFragment(cur.selection())
+        return document_to_latex(tmp)
+
+    def copy(self):
+        # Put the selection's LaTeX on the clipboard (plus plain text for other
+        # apps) so a paste into another KherveSlide box restores its formatting
+        # exactly. (PySide doesn't reliably call createMimeDataFromSelection,
+        # so we build the clipboard here.)
+        latex = self._selection_latex()
+        if latex is None:
+            return
+        md = QMimeData()
+        md.setText(self.textCursor().selection().toPlainText())
+        md.setData(self._TEXT_MIME, QByteArray(latex.encode("utf-8")))
+        QApplication.clipboard().setMimeData(md)
+
+    def cut(self):
+        cur = self.textCursor()
+        if cur.hasSelection():
+            self.copy()
+            cur.removeSelectedText()
+            self.setTextCursor(cur)
+
     def insertFromMimeData(self, source):
-        # Paste text from other apps as PLAIN text so its foreign font /
-        # size / colour don't override the box — it adopts the box's own
-        # font (the editor's current char format) instead.
-        if source is not None and source.hasText():
+        # Content copied from another KherveSlide box carries its LaTeX source
+        # — paste it back with bullets / bold / italic / maths preserved.
+        # Foreign content still pastes as PLAIN text so its font / size /
+        # colour don't override the box (it adopts the box's own font).
+        if source is not None and source.hasFormat(self._TEXT_MIME):
+            latex = bytes(source.data(self._TEXT_MIME)).decode("utf-8", "replace")
+            self.insertHtml(latex_to_html(latex))
+        elif source is not None and source.hasText():
             self.insertPlainText(source.text())
         else:
             super().insertFromMimeData(source)
