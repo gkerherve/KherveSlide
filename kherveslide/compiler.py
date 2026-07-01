@@ -420,6 +420,7 @@ def compile_tex(
     skip_images: bool = False,
     use_compile_range: bool = False,
     on_line=None,
+    only_cached: bool = False,
 ) -> CompileResult:
     """Write `tex_source` to `workdir/basename.tex` and compile with tectonic.
 
@@ -490,8 +491,12 @@ def compile_tex(
         "--keep-logs",
         "--synctex",
         "--outdir", str(workdir),
-        str(tex_path),
     ]
+    if only_cached:
+        # Compile using ONLY tectonic's local cache (never the network) — used
+        # to detect whether the offline packages are already warmed.
+        cmd.append("--only-cached")
+    cmd.append(str(tex_path))
     if on_line is not None:
         # Streaming mode: read tectonic's output line by line so the caller
         # can report live progress (e.g. "downloading …" the first time).

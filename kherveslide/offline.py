@@ -48,11 +48,34 @@ def _documents() -> list[tuple[str, str]]:
     return docs
 
 
-def download_offline(on_output=None) -> bool:
-    """Compile a representative doc for every theme/colour/package combo so
-    tectonic caches them. Returns True if all compiled."""
+def packages_cached() -> bool:
+    """True when tectonic can compile a representative KherveSlide document
+    from its LOCAL CACHE alone (``--only-cached``, no network).
+
+    Lets the app notice an already-warmed cache — packages fetched on an
+    earlier run, or by the sister app / another install sharing tectonic's
+    cache — instead of relying solely on a per-machine settings flag (which is
+    why a prior download "wasn't seen"). The tectonic cache persists on disk,
+    so once warm it stays warm."""
     if not tectonic_available():
         return False
+    wd = Path(tempfile.gettempdir()) / "kherveslide_cachecheck"
+    tex = ("\\documentclass[aspectratio=169]{beamer}" + _PKGS
+           + "\\geometry{papersize={20cm,12cm}}" + _BODY)
+    return compile_tex(tex, wd, "probe", only_cached=True).ok
+
+
+def download_offline(on_output=None) -> bool:
+    """Compile a representative doc for every theme/colour/package combo so
+    tectonic caches them. Returns True if all compiled (or already cached)."""
+    if not tectonic_available():
+        return False
+    # Already warmed? Then there's nothing to fetch — detect it up front so we
+    # don't re-cache everything on each launch / click.
+    if packages_cached():
+        if on_output:
+            on_output("Offline packages already cached — nothing to download.")
+        return True
     wd = Path(tempfile.gettempdir()) / "kherveslide_warm"
     docs = _documents()
     n = len(docs)
