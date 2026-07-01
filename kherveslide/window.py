@@ -361,6 +361,7 @@ class SlideWindow(QMainWindow):
         self._worker: _CompileWorker | None = None
         self._compile_pending = False
         self._dl_worker: _DownloadWorker | None = None
+        self._gen_worker = None      # theme-preview batch generator
         self._git_worker: _GitNetworkWorker | None = None
         self._pending_commit_msg: str | None = None
         self._theme_cache: dict = {}   # theme name -> preview QPixmap
@@ -566,6 +567,8 @@ class SlideWindow(QMainWindow):
         m_ctheme.aboutToShow.connect(self._sync_theme_menus)
         m_theme.addSeparator()
         m_theme.addAction("Preview themes…", self._open_theme_gallery)
+        m_theme.addAction("Generate all theme previews…",
+                          self._generate_all_previews)
         m_theme.addAction("Custom theme builder…", self._open_theme_builder)
         m_theme.addSeparator()
         self.act_deco = QAction("Show theme decorations", self, checkable=True)
@@ -833,17 +836,22 @@ class SlideWindow(QMainWindow):
         self.act_skip_img.toggled.connect(self._toggle_skip_images)
         tb.addAction(self.act_skip_img)
         self._themed_icons.append((self.act_skip_img, icons.compile_no_images))
-        self.chk_auto = QCheckBox("Auto")
-        self.chk_auto.setToolTip("Auto-compile shortly after each change")
-        self.chk_auto.setChecked(self._auto_compile)
-        self.chk_auto.toggled.connect(self._toggle_auto_compile)
-        tb.addWidget(self.chk_auto)
-        # Green circular refresh — compile now — on the far right.
-        self.act_compile = QAction(icons.refresh(), "Refresh", self)
-        self.act_compile.setToolTip("Refresh — compile now (Ctrl+R)")
-        self.act_compile.triggered.connect(self._compile)
-        tb.addAction(self.act_compile)
-        self._themed_icons.append((self.act_compile, icons.refresh))
+        # Force compile — a play button that always compiles now.
+        self.act_force = QAction(icons.play(), "Compile now", self)
+        self.act_force.setToolTip("Compile now (Ctrl+R)")
+        self.act_force.triggered.connect(self._compile)
+        tb.addAction(self.act_force)
+        self._themed_icons.append((self.act_force, icons.play))
+        # Auto-compile toggle — the circular-refresh icon is active (green)
+        # when on and struck-through when off; no separate "Auto" checkbox.
+        self.act_auto = QAction(self._auto_icon(), "Auto-compile", self)
+        self.act_auto.setCheckable(True)
+        self.act_auto.setChecked(self._auto_compile)
+        self.act_auto.setToolTip("Auto-compile shortly after each change "
+                                 "(click to turn on / off)")
+        self.act_auto.toggled.connect(self._toggle_auto_compile)
+        tb.addAction(self.act_auto)
+        self._themed_icons.append((self.act_auto, self._auto_icon))
 
         self._enable_format(False)
 
@@ -1378,16 +1386,24 @@ class SlideWindow(QMainWindow):
                 and tectonic_available()):
             self._auto_timer.start()
 
+    def _auto_icon(self):
+        """The refresh-toggle icon: green circular arrow when auto-compile is
+        on, struck-through when off."""
+        return (icons.auto_compile_on() if self._auto_compile
+                else icons.auto_compile_off())
+
     def _toggle_auto_compile(self, on):
         self._auto_compile = on
         QSettings("kherveDOC", "KherveSlide").setValue("auto_compile", on)
+        if hasattr(self, "act_auto"):
+            self.act_auto.setIcon(self._auto_icon())
         if on:
             self._schedule_compile()
         else:
             self._auto_timer.stop()
         self.statusBar().showMessage(
-            "Auto-compile ON" if on else "Auto-compile OFF — use Compile",
-            3000)
+            "Auto-compile ON" if on else "Auto-compile OFF — use the play "
+            "button to compile", 3000)
 
     def _toggle_skip_images(self, on):
         self._skip_images = on
@@ -1541,6 +1557,8 @@ class SlideWindow(QMainWindow):
             self._worker.wait(4000)
         if self._dl_worker is not None:
             self._dl_worker.wait(2000)
+        if self._gen_worker is not None:
+            self._gen_worker.wait(4000)
         if self in SlideWindow._extra_windows:
             SlideWindow._extra_windows.remove(self)
         super().closeEvent(event)
@@ -2732,6 +2750,63 @@ class SlideWindow(QMainWindow):
             self.act_deco.setChecked(True)
             self.act_deco.blockSignals(False)
             self._recompile_now()
+
+    def _generate_all_previews(self):
+        """Pre-render every theme x colour preview to the on-disk cache, in the
+        background, so the gallery is instant from then on (nothing to compile
+        when you open it). Skips combos already cached, so it's resumable."""
+        from .theme_gallery import uncached_combos, GenerateAllWorker
+        if getattr(self, "_gen_worker", None) is not None:
+            QMessageBox.information(self, "Theme previews",
+                                    "Preview generation is already running.")
+            return
+        if not tectonic_available():
+            QMessageBox.warning(self, "Theme previews",
+                                "tectonic is not available.")
+            return
+        combos = uncached_combos(_THEMES, _COLOUR_THEMES, self.deck.aspect)
+        if not combos:
+            QMessageBox.information(
+                self, "Theme previews",
+                "All theme previews are already generated and cached.")
+            return
+        total = len(combos)
+        if QMessageBox.question(
+                self, "Generate all theme previews",
+                f"Render {total} theme x colour previews to disk?\n\n"
+                "This runs in the background and can take several minutes, "
+                "but afterwards the theme gallery opens instantly.") \
+                != QMessageBox.Yes:
+            return
+        workdir = Path(tempfile.gettempdir()) / "kherveslide_genprev"
+        self._gen_worker = GenerateAllWorker(combos, self.deck.aspect, workdir)
+        self._gen_worker.compiled.connect(self._on_preview_generated)
+        self._gen_worker.finished.connect(self._on_gen_finished)
+        self.console.appendPlainText(
+            f"Generating {total} theme x colour previews to disk…")
+        self.right_tabs.setCurrentWidget(self.console)
+        self.statusBar().showMessage(f"Generating theme previews… 0/{total}")
+        self._gen_worker.start()
+
+    def _on_preview_generated(self, done, total, theme, color, pdf):
+        if pdf:
+            from .theme_gallery import (_render_first_page, _save_disk_preview,
+                                        _key, _PREVIEW_W)
+            pm = _render_first_page(pdf, _PREVIEW_W)
+            if pm is not None:
+                _save_disk_preview(pm, theme, color, self.deck.aspect)
+                self._theme_cache[_key(theme, color)] = pm
+        if done % 10 == 0 or done == total:
+            self.statusBar().showMessage(
+                f"Generating theme previews… {done}/{total}")
+
+    def _on_gen_finished(self):
+        worker = getattr(self, "_gen_worker", None)
+        self._gen_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        self.statusBar().showMessage("Theme previews generated ✓", 5000)
+        self.console.appendPlainText("✓ All theme previews cached to disk.")
 
     def _set_colour_theme(self, name):
         self.deck.color_theme = name

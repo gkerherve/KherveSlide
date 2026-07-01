@@ -134,6 +134,41 @@ def _save_disk_preview(pm: QPixmap, theme: str, color: str, aspect: str) -> None
         pass
 
 
+def uncached_combos(themes, colors, aspect) -> list[tuple[str, str]]:
+    """Every (theme, colour) pair that doesn't yet have a saved preview on
+    disk — the work list for pre-generating the whole gallery once."""
+    return [(t, c) for c in colors for t in themes
+            if not _disk_cache_path(t, c, aspect).exists()]
+
+
+class GenerateAllWorker(QThread):
+    """Compiles every requested (theme, colour) sample so the main thread can
+    render each to a pixmap and save it in the on-disk preview cache. Emits
+    per-item progress; rendering stays on the GUI thread (Qt PDF wants it)."""
+
+    compiled = Signal(int, int, str, str, str)   # done, total, theme, colour, pdf
+
+    def __init__(self, combos, aspect, workdir):
+        super().__init__()
+        self._combos = combos
+        self._aspect = aspect
+        self._workdir = workdir
+
+    def run(self):
+        n = len(self._combos)
+        for i, (theme, color) in enumerate(self._combos, 1):
+            pdf = ""
+            try:
+                tex = serialize_deck(_sample_deck(theme, color, self._aspect))
+                tag = f"gen_{theme}_{color or 'default'}".replace("/", "-")
+                r = compile_tex(tex, self._workdir / tag, "p")
+                if r.ok and r.pdf_path:
+                    pdf = str(r.pdf_path)
+            except Exception:
+                pdf = ""
+            self.compiled.emit(i, n, theme, color, pdf)
+
+
 class ThemeGallery(QDialog):
     """Modal gallery. After exec(), ``chosen`` holds the picked theme and
     ``chosen_color`` the picked colour theme."""

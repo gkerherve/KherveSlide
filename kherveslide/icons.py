@@ -875,6 +875,17 @@ def auto_compile_on() -> QIcon:
     return QIcon(px)
 
 
+def play() -> QIcon:
+    """Green play triangle — force / compile now."""
+    px, p = _new_canvas()
+    green = QColor("#5fba7d") if _dark else QColor("#2a8c4a")
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(green))
+    p.drawPolygon([QPointF(6, 4), QPointF(6, 20), QPointF(20, 12)])
+    p.end()
+    return QIcon(px)
+
+
 def grid() -> QIcon:
     """A small 3x3 grid — snap-to-grid toggle."""
     px, p = _new_canvas()
