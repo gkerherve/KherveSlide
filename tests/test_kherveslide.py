@@ -322,9 +322,28 @@ def test_page_number_round_trip():
 
 
 def test_nav_symbols_shown_by_default():
-    # The prev/next symbols are overlaid at the bottom-right of each frame
-    # (works on plain frames too), with beamer's own placement cleared.
+    # _sample_deck uses plain frames, where beamer drops the native symbols
+    # with the footline — so we overlay them per frame and clear beamer's own.
     tex = serialize_deck(_sample_deck())
+    assert "\\insertslidenavigationsymbol" in tex
+    assert "\\setbeamertemplate{navigation symbols}{}" in tex
+
+
+def test_nav_symbols_native_on_decorated_frames():
+    # On decorated (non-plain) frames beamer shows the navigation symbols
+    # natively, so we neither clear its template nor overlay them per frame —
+    # no repeated per-slide navigation block.
+    deck = Deck(slides=[Slide(objects=[SlideText(text="Hi", locked=True)])],
+                plain_frames=False, nav_symbols=True)
+    tex = serialize_deck(deck)
+    assert "\\insertslidenavigationsymbol" not in tex
+    assert "\\setbeamertemplate{navigation symbols}{}" not in tex
+
+
+def test_nav_symbols_overlaid_on_plain_frames():
+    deck = Deck(slides=[Slide(objects=[SlideText(text="Hi", locked=True)])],
+                plain_frames=True, nav_symbols=True)
+    tex = serialize_deck(deck)
     assert "\\insertslidenavigationsymbol" in tex
     assert "\\setbeamertemplate{navigation symbols}{}" in tex
 

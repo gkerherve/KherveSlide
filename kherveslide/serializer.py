@@ -802,7 +802,9 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
                 parts.append(f"\n  % {_obj_label(objs[i])} (free-positioned)")
                 parts.append(block)
             i += 1
-    if nav_symbols:
+    if nav_symbols and plain:
+        # Plain frames drop beamer's native symbols along with the footline,
+        # so overlay them here; decorated frames show the native ones instead.
         parts.append("\n  % navigation symbols (bottom-right)")
         parts.append(_nav_symbols_block(gap))
     if page_number and page_number != "none":
@@ -910,10 +912,14 @@ def serialize_deck(deck: Deck) -> str:
         f"\\setlength{{\\TPVertModule}}{{{span}\\paperheight}}",
         f"\\textblockorigin{{{_fmt(g)}\\paperwidth}}{{{_fmt(g)}\\paperheight}}",
     ]
-    # Always clear beamer's own placement; when enabled we re-insert the
-    # symbols at the bottom-right of each frame ourselves (works on plain
-    # frames too, where the theme footline — and its symbols — are gone).
-    lines.append("\\setbeamertemplate{navigation symbols}{}")
+    # Navigation symbols. On decorated frames beamer already shows them at the
+    # bottom-right, so we leave its template alone — the native, single-command
+    # behaviour, with no per-frame overlay. We only clear the template (and
+    # re-insert the symbols per frame via textpos) for plain frames, where
+    # beamer drops them along with the footline; or clear it outright to hide
+    # them when the user turned them off.
+    if not (deck.nav_symbols and not deck.plain_frames):
+        lines.append("\\setbeamertemplate{navigation symbols}{}")
     lines += _header_footer_lines(deck)
     if deck.title:
         lines.append(f"\\title{{{deck.title}}}")

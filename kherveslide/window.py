@@ -1464,6 +1464,7 @@ class SlideWindow(QMainWindow):
         if not auto:
             self.right_tabs.setCurrentWidget(self.console)
         self.statusBar().showMessage("Downloading LaTeX packages…")
+        self._dl_auto = auto
         self._dl_worker = _DownloadWorker()
         self._dl_worker.line.connect(self.console.appendPlainText)
         self._dl_worker.done.connect(self._on_download_done)
@@ -1473,9 +1474,27 @@ class SlideWindow(QMainWindow):
     def _on_download_done(self, ok):
         self.statusBar().showMessage(
             "LaTeX packages ready (offline)" if ok else "Package download failed")
+        auto = getattr(self, "_dl_auto", False)
         if ok:
             QSettings("kherveDOC", "KherveSlide").setValue(
                 "offline_packages_v2", True)
+            self.console.appendPlainText(
+                "✓ Offline LaTeX packages are ready — you can now compile to "
+                "PDF without an internet connection.")
+            if not auto:
+                QMessageBox.information(
+                    self, "Offline LaTeX packages",
+                    "All LaTeX packages have been downloaded.\n\n"
+                    "KherveSlide can now compile to PDF fully offline.")
+        else:
+            self.console.appendPlainText(
+                "✗ Package download failed — check your internet connection "
+                "and try again.")
+            if not auto:
+                QMessageBox.warning(
+                    self, "Offline LaTeX packages",
+                    "The download did not complete. Check your internet "
+                    "connection and try again.")
 
     def _on_dl_finished(self):
         worker = self._dl_worker
