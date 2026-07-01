@@ -51,7 +51,10 @@ from .model import (
 )
 from .navigator import SlideNavigator
 from .preview import PdfPreview
-from .serializer import serialize_deck
+from .serializer import serialize_deck, _ALL_BLOCK_ENVS
+
+_COLOURED_BLOCKS = {"block", "alertblock", "exampleblock"}
+_TEXT_KINDS = {"text", "equation"} | _ALL_BLOCK_ENVS
 
 
 # The full set of beamer's built-in presentation themes and colour themes
@@ -553,6 +556,13 @@ class SlideWindow(QMainWindow):
                             ("Block", "block"),
                             ("Alert block", "alertblock"),
                             ("Example block", "exampleblock"),
+                            ("Theorem", "theorem"),
+                            ("Definition", "definition"),
+                            ("Corollary", "corollary"),
+                            ("Lemma", "lemma"),
+                            ("Example (thm)", "example"),
+                            ("Proof", "proof"),
+                            ("Fact", "fact"),
                             ("Equation", "equation"),
                             ("Image", "image"),
                             ("Table", "table")):
@@ -2319,7 +2329,7 @@ class SlideWindow(QMainWindow):
             return "table"
         if isinstance(obj, SlideText):
             block = getattr(obj, "block", "")
-            if block in ("block", "alertblock", "exampleblock"):
+            if block in _ALL_BLOCK_ENVS:
                 return block
             if "$" in (obj.text or ""):
                 return "equation"
@@ -2340,10 +2350,9 @@ class SlideWindow(QMainWindow):
 
         # Text-family changes are lossless: keep the same SlideText, just
         # retag its block / equation styling.
-        if kind in ("text", "block", "alertblock", "exampleblock", "equation") \
-                and isinstance(obj, SlideText):
+        if kind in _TEXT_KINDS and isinstance(obj, SlideText):
             obj.block = "" if kind in ("text", "equation") else kind
-            if obj.block and not obj.block_title:
+            if obj.block in _COLOURED_BLOCKS and not obj.block_title:
                 obj.block_title = "Block"
             if kind == "equation" and "$" not in (obj.text or ""):
                 t = (obj.text or "").strip()
@@ -2371,11 +2380,11 @@ class SlideWindow(QMainWindow):
         """Return a new object of *kind* carrying *src*'s geometry."""
         geo = dict(x=src.x, y=src.y, w=src.w, h=src.h,
                    locked=getattr(src, "locked", True))
-        if kind in ("text", "block", "alertblock", "exampleblock", "equation"):
+        if kind in _TEXT_KINDS:
             text = getattr(src, "text", "") or ""
             block = "" if kind in ("text", "equation") else kind
             o = SlideText(text=text or "Text", block=block, **geo)
-            if block:
+            if block in _COLOURED_BLOCKS:
                 o.block_title = "Block"
             if kind == "equation":
                 t = text.strip()

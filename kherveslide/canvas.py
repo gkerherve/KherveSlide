@@ -617,13 +617,32 @@ class TextBoxItem(BoxItem):
 
     _BLOCK_COLORS = {"block": QColor("#3b5ba9"),
                      "alertblock": QColor("#b03a3a"),
-                     "exampleblock": QColor("#2e7d4f")}
+                     "exampleblock": QColor("#2e7d4f"),
+                     "theorem": QColor("#3b5ba9"),
+                     "definition": QColor("#3b5ba9"),
+                     "corollary": QColor("#3b5ba9"),
+                     "lemma": QColor("#3b5ba9"),
+                     "example": QColor("#2e7d4f"),
+                     "proof": QColor("#6b7280"),
+                     "fact": QColor("#3b5ba9")}
+    # Environments whose title beamer prints as "Name." even without a title.
+    _THEOREM_LABELS = {"theorem": "Theorem", "definition": "Definition",
+                       "corollary": "Corollary", "lemma": "Lemma",
+                       "example": "Example", "proof": "Proof",
+                       "fact": "Fact"}
 
     def _paint_block(self, painter) -> float:
         """Draw the block's coloured title bar + tinted body; return the
         y where the body text should start."""
         obj = self.obj
         c = self._BLOCK_COLORS.get(obj.block, self._BLOCK_COLORS["block"])
+        # Theorem-like environments always show a label (e.g. "Theorem"),
+        # with the optional title in parentheses.
+        if obj.block in self._THEOREM_LABELS:
+            label = self._THEOREM_LABELS[obj.block]
+            title = f"{label} ({obj.block_title})" if obj.block_title else label
+        else:
+            title = obj.block_title or ""
         bh = max(16.0, obj.font_pt * self._font_scale * 0.85)
         hdr = QRectF(self._rect.x(), self._rect.y(), self._rect.width(), bh)
         body = QRectF(self._rect.x(), hdr.bottom(), self._rect.width(),
@@ -635,8 +654,7 @@ class TextBoxItem(BoxItem):
         f = canvas_font(max(8, int(bh * 0.6)))
         f.setBold(True); painter.setFont(f)
         painter.drawText(hdr.adjusted(6, 0, -6, 0),
-                         int(Qt.AlignVCenter | Qt.AlignLeft),
-                         obj.block_title or "")
+                         int(Qt.AlignVCenter | Qt.AlignLeft), title)
         painter.restore()
         return hdr.bottom()
 

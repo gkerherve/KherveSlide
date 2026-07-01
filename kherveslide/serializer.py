@@ -94,15 +94,23 @@ def _styled_text(obj: SlideText) -> str:
     return f"{align_cmd}{sized} {body}"
 
 
+# Coloured beamer blocks take their title as {title}; theorem-like
+# environments (built into beamer) take it as [title].
 _BLOCK_ENVS = {"block", "alertblock", "exampleblock"}
+_THEOREM_ENVS = {"theorem", "definition", "corollary", "lemma", "example",
+                 "proof", "fact"}
+_ALL_BLOCK_ENVS = _BLOCK_ENVS | _THEOREM_ENVS
 
 
 def _text_inner(obj: SlideText) -> str:
     content = _styled_text(obj)
     block = getattr(obj, "block", "")
+    title = getattr(obj, "block_title", "") or ""
     if block in _BLOCK_ENVS:
-        title = getattr(obj, "block_title", "") or ""
         content = f"\\begin{{{block}}}{{{title}}}{content}\\end{{{block}}}"
+    elif block in _THEOREM_ENVS:
+        arg = f"[{title}]" if title else ""
+        content = f"\\begin{{{block}}}{arg}{content}\\end{{{block}}}"
     if _has_frame(obj):
         return _frame_wrap(content, obj, "\\linewidth")
     return f"{{{content}\\par}}"
@@ -272,7 +280,7 @@ def _flow_object(obj) -> str | None:
         # is exactly as wide as it looks on the canvas. Plain (non-block)
         # text still flows full width.
         block = getattr(obj, "block", "")
-        if block in _BLOCK_ENVS:
+        if block in _ALL_BLOCK_ENVS:
             w = max(0.15, min(1.0, obj.w))
             if w < 0.97:
                 return ("\\par\\begin{center}\n"

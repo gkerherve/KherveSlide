@@ -655,6 +655,34 @@ def test_box_style_full_options():
     assert deck_from_json(deck_to_json(deck)) == deck
 
 
+def test_theorem_block_uses_bracket_title():
+    t = SlideText(text="a^2+b^2=c^2", block="theorem",
+                  block_title="Pythagoras", locked=True)
+    tex = serialize_deck(Deck(slides=[Slide(objects=[t])], nav_symbols=False))
+    assert "\\begin{theorem}[Pythagoras]" in tex
+    assert "\\end{theorem}" in tex
+
+
+def test_theorem_block_without_title_has_no_bracket():
+    t = SlideText(text="Q.E.D.", block="proof", locked=True)
+    tex = serialize_deck(Deck(slides=[Slide(objects=[t])], nav_symbols=False))
+    assert "\\begin{proof}" in tex
+    assert "\\begin{proof}[" not in tex
+
+
+def test_coloured_block_still_uses_brace_title():
+    t = SlideText(text="body", block="alertblock", block_title="Warning",
+                  locked=True)
+    tex = serialize_deck(Deck(slides=[Slide(objects=[t])], nav_symbols=False))
+    assert "\\begin{alertblock}{Warning}" in tex
+
+
+def test_line_and_arrow_unlocked_by_default():
+    from kherveslide.model import SlideLine
+    assert SlideLine().locked is False
+    assert SlideLine(arrow_end=True).locked is False
+
+
 def test_beamer_placed_block_honours_width():
     # A narrow beamer-placed block is wrapped in a sized minipage so it is
     # exactly as wide as its box; a full-width one is not.

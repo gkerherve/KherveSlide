@@ -154,7 +154,8 @@ class SlideLine:
     head_size: float = 1.0      # arrowhead scale (Stealth length multiplier)
     # A line is inherently positioned, so it is always drawn absolutely in
     # the PDF; locked only governs whether it can be dragged on the canvas.
-    locked: bool = True
+    # Unlocked by default so a fresh line / arrow can be moved right away.
+    locked: bool = False
     type: str = "SlideLine"
 
 
