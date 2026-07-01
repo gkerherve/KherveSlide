@@ -618,6 +618,32 @@ def _overlay_behind(obj, gap: float, counter: list) -> str | None:
     return None
 
 
+def _master_background_block(master, gap: float, counter: list) -> list[str]:
+    """Render the master slide's objects as the bottom background layer of a
+    frame — painted behind the slide's own content. Master objects are always
+    absolute (never flowed, whatever their ``locked`` flag): text / pictures /
+    tables via textpos, lines / shapes via the overlay (remember picture) tikz
+    emitters, same as a slide's own "behind" shapes. List order = z-order, so
+    later master objects paint on top of earlier ones (but all under the
+    slide). ``counter`` is the deck-wide index shared with the slide so line /
+    shape colour names never collide."""
+    blocks: list[str] = []
+    for o in getattr(master, "objects", []):
+        if isinstance(o, SlideLine):
+            blocks.append(_serialize_line_bg(o, gap, counter[0]))
+            counter[0] += 1
+        elif isinstance(o, SlideShape):
+            blocks.append(_serialize_shape_bg(o, gap, counter[0]))
+            counter[0] += 1
+        elif isinstance(o, SlideText):
+            blocks.append(_serialize_text(o))
+        elif isinstance(o, SlideTable):
+            blocks.append(_serialize_table(o))
+        elif isinstance(o, SlidePicture):
+            blocks.append(_serialize_picture(o))
+    return [b for b in blocks if b]
+
+
 def _overlay_object(obj, gap: float, counter: list) -> str | None:
     """An unlocked object's absolutely-positioned (textpos / tikz) form."""
     if isinstance(obj, SlideText):
@@ -688,7 +714,8 @@ def _obj_label(obj) -> str:
 def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
                      counter: list | None = None,
                      page_number: str = "none",
-                     nav_symbols: bool = False, index: int = 0) -> str:
+                     nav_symbols: bool = False, index: int = 0,
+                     master=None) -> str:
     if counter is None:
         counter = [0]
     # [t] top-aligns the flowed (locked) content so a tall heading isn't
@@ -715,14 +742,19 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
                   if k < first_flow and isinstance(o, (SlideLine, SlideShape))]
     behind_ids = {id(o) for o in behind}
 
+    # The master slide (if any) is the bottom layer, painted first, then this
+    # slide's own "behind" shapes on top of it — both live in the frame's
+    # background template (the one layer under the flow body).
+    master_blocks = _master_background_block(master, gap, counter) if master else []
     parts = [bar, head, bar]
-    if behind:
-        bg_parts = []
-        for o in behind:
-            blk = _overlay_behind(o, gap, counter)
-            if blk:
-                bg_parts.append(blk)
-        parts.append("{%  scoped background: shapes sent behind the content")
+    bg_parts = list(master_blocks)
+    for o in behind:
+        blk = _overlay_behind(o, gap, counter)
+        if blk:
+            bg_parts.append(blk)
+    if bg_parts:
+        parts.append("{%  scoped background: master slide + shapes behind the "
+                     "content")
         parts.append("\\setbeamertemplate{background}{%")
         parts.extend(bg_parts)
         parts.append("}")
@@ -775,7 +807,7 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
         parts.append("\n  % slide number")
         parts.append(_page_number_block(page_number, gap))
     parts.append("\\end{frame}")
-    if behind:
+    if bg_parts:
         parts.append("}")     # close the scoped-background group
     return "\n".join(parts)
 
@@ -837,12 +869,15 @@ def serialize_deck(deck: Deck) -> str:
     lines += _theme_spec_lines(getattr(deck, "theme_spec", None))
     # lmodern: scalable fonts for the arbitrary \fontsize sizes the boxes use.
     lines.append("\\usepackage{lmodern}")
+    # Scan the slides AND the master together, so a package (tikz / adjustbox /
+    # colortbl / shadows) is pulled in even when only the master needs it.
+    _all_objs = [o for s in deck.slides for o in s.objects]
+    _all_objs += list(getattr(deck, "master", Slide()).objects)
     needs_tikz = any(isinstance(o, (SlideLine, SlideShape)) or _has_frame(o)
-                     for s in deck.slides for o in s.objects)
+                     for o in _all_objs)
     needs_opacity = any(isinstance(o, SlidePicture) and o.opacity < 1.0
-                        for s in deck.slides for o in s.objects)
-    needs_shadow = any(getattr(o, "shadow", False)
-                       for s in deck.slides for o in s.objects)
+                        for o in _all_objs)
+    needs_shadow = any(getattr(o, "shadow", False) for o in _all_objs)
     if needs_tikz or needs_opacity:
         # tikz also drives image opacity (a node with opacity= tints it).
         lines.append("\\usepackage{tikz}")
@@ -850,11 +885,10 @@ def serialize_deck(deck: Deck) -> str:
         lines.append("\\usetikzlibrary{arrows.meta}")
         if needs_shadow:
             lines.append("\\usetikzlibrary{shadows}")
-    if any(isinstance(o, SlidePicture) and _has_crop(o)
-           for s in deck.slides for o in s.objects):
+    if any(isinstance(o, SlidePicture) and _has_crop(o) for o in _all_objs):
         # adjustbox supplies \adjincludegraphics with \width-relative trim.
         lines.append("\\usepackage{adjustbox}")
-    if any(isinstance(o, SlideTable) for s in deck.slides for o in s.objects):
+    if any(isinstance(o, SlideTable) for o in _all_objs):
         lines.append("\\usepackage{colortbl}")
         for name, hexv in (("ksTblHead", TABLE_HEADER_BG),
                            ("ksTblHeadFg", TABLE_HEADER_FG),
@@ -889,6 +923,7 @@ def serialize_deck(deck: Deck) -> str:
         lines.append("")          # blank line between slides
         lines.append(_serialize_slide(slide, deck.plain_frames, g, counter,
                                       getattr(deck, "page_number", "none"),
-                                      deck.nav_symbols, i))
+                                      deck.nav_symbols, i,
+                                      master=getattr(deck, "master", None)))
     lines += ["", "\\end{document}"]
     return "\n".join(lines) + "\n"

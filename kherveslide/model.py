@@ -260,6 +260,13 @@ class Deck:
     foot_right: str = ""
     # User-built theme overrides (see ThemeSpec). Applied when enabled.
     theme_spec: ThemeSpec = field(default_factory=ThemeSpec)
+    # A single "master" slide whose objects (text, pictures, lines, shapes,
+    # tables) are painted behind every real slide's own content — a shared
+    # backdrop of logos / rules / watermarks. Only ``master.objects`` is used
+    # (its title / bg / free flags are ignored); the objects are always drawn
+    # absolutely (never flowed). Empty by default, so decks without a master
+    # render exactly as before.
+    master: Slide = field(default_factory=Slide)
     type: str = "Deck"
 
 
@@ -452,6 +459,7 @@ def _build_deck(d: dict) -> Deck:
         foot_center=str(d.get("foot_center", "")),
         foot_right=str(d.get("foot_right", "")),
         theme_spec=_build_theme_spec(d.get("theme_spec", {})),
+        master=_build_slide(d.get("master", {})),
     )
 
 

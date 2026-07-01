@@ -683,6 +683,32 @@ def test_line_and_arrow_unlocked_by_default():
     assert SlideLine(arrow_end=True).locked is False
 
 
+def test_scene_snap_to_grid():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtCore import QPointF
+    from kherveslide.canvas import SlideScene
+    s = SlideScene("169")
+    p = QPointF(105.0, 55.0)
+    assert s.snap_point(p) == p            # no snapping until a mode is on
+    s.snap_grid = True
+    gx, gy = s.grid_step()
+    sp = s.snap_point(QPointF(gx * 2 + 3, gy * 3 - 2))
+    assert abs(sp.x() - gx * 2) < 0.5 and abs(sp.y() - gy * 3) < 0.5
+
+
+def test_grid_snap_menu_actions_drive_scene(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.act_grid.setChecked(True); assert w.scene.show_grid is True
+    w.act_snap_grid.setChecked(True); assert w.scene.snap_grid is True
+    w.act_snap_obj.setChecked(True); assert w.scene.snap_objects is True
+    w.act_grid.setChecked(False); assert w.scene.show_grid is False
+
+
 def test_beamer_placed_block_honours_width():
     # A narrow beamer-placed block is wrapped in a sized minipage so it is
     # exactly as wide as its box; a full-width one is not.

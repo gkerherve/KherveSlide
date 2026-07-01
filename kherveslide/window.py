@@ -397,6 +397,18 @@ class SlideWindow(QMainWindow):
         self.act_show_nav.setShortcut("Ctrl+B")
         self.act_show_nav.toggled.connect(self._toggle_navigator)
         m_view.addSeparator()
+        # Drawing aids: grid + snapping, for aligning objects on the slide.
+        self.act_grid = m_view.addAction("Show grid")
+        self.act_grid.setCheckable(True)
+        self.act_grid.setShortcut("Ctrl+'")
+        self.act_grid.toggled.connect(self._toggle_grid)
+        self.act_snap_grid = m_view.addAction("Snap to grid")
+        self.act_snap_grid.setCheckable(True)
+        self.act_snap_grid.toggled.connect(self._toggle_snap_grid)
+        self.act_snap_obj = m_view.addAction("Snap to objects")
+        self.act_snap_obj.setCheckable(True)
+        self.act_snap_obj.toggled.connect(self._toggle_snap_objects)
+        m_view.addSeparator()
         self.act_spell = m_view.addAction("Check spelling")
         self.act_spell.setCheckable(True)
         spell_on = QSettings("kherveDOC", "KherveSlide").value(
@@ -2698,6 +2710,16 @@ class SlideWindow(QMainWindow):
     # ---------------- view ----------------
     def _toggle_navigator(self, show):
         self._nav_panel.setVisible(show)
+
+    def _toggle_grid(self, on):
+        self.scene.show_grid = on
+        self.scene.update()
+
+    def _toggle_snap_grid(self, on):
+        self.scene.snap_grid = on
+
+    def _toggle_snap_objects(self, on):
+        self.scene.snap_objects = on
 
     def _toggle_spellcheck(self, on):
         from . import spellcheck

@@ -349,7 +349,11 @@ class BoxItem(QGraphicsObject):
         if self._resize_handle is None:
             super().mouseMoveEvent(event)
             return
-        d = event.scenePos() - self._press_scene
+        sp = event.scenePos()
+        sc = self.scene()
+        if hasattr(sc, "snap_point"):
+            sp = sc.snap_point(sp, exclude=self)
+        d = sp - self._press_scene
         x, y = self._start_pos.x(), self._start_pos.y()
         w, h = self._start_rect.width(), self._start_rect.height()
         hd = self._resize_handle
@@ -400,6 +404,13 @@ class BoxItem(QGraphicsObject):
         return QRectF(self.pos().x(), self.pos().y(),
                       self._rect.width(), self._rect.height())
 
+    def key_points(self):
+        """Snap targets in scene coords — the four corners and the centre."""
+        r = self._rect
+        return [self.mapToScene(r.topLeft()), self.mapToScene(r.topRight()),
+                self.mapToScene(r.bottomLeft()), self.mapToScene(r.bottomRight()),
+                self.mapToScene(r.center())]
+
     def _content(self):
         """Content area in scene px: (width, height, origin_x, origin_y)."""
         g = self._gap
@@ -408,12 +419,17 @@ class BoxItem(QGraphicsObject):
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionChange and self.scene():
+            sc = self.scene()
+            pos = value
+            # Snap the top-left to the grid / other objects when enabled.
+            if hasattr(sc, "snap_point"):
+                pos = sc.snap_point(QPointF(value), exclude=self)
             # Allow parking a box on the grey pasteboard around the slide (it
             # just won't render in the PDF) — clamp only to the scene rect so
             # it can't be dragged out of reach entirely.
-            sr = self.scene().sceneRect()
-            nx = min(max(sr.left(), value.x()), sr.right() - self._rect.width())
-            ny = min(max(sr.top(), value.y()), sr.bottom() - self._rect.height())
+            sr = sc.sceneRect()
+            nx = min(max(sr.left(), pos.x()), sr.right() - self._rect.width())
+            ny = min(max(sr.top(), pos.y()), sr.bottom() - self._rect.height())
             return QPointF(nx, ny)
         if change == QGraphicsItem.ItemPositionHasChanged:
             self._write_geometry()
@@ -912,13 +928,21 @@ class LineBoxItem(BoxItem):
         self._drag_end = None
         super().mousePressEvent(event)
 
+    def key_points(self):
+        p1, p2 = self._endpoints_local()
+        return [self.mapToScene(p1), self.mapToScene(p2)]
+
     def mouseMoveEvent(self, event):
         if self._drag_end is None:
             super().mouseMoveEvent(event)
             return
+        sp = event.scenePos()
+        sc = self.scene()
+        if hasattr(sc, "snap_point"):
+            sp = sc.snap_point(sp, exclude=self)
         cw, ch, ox, oy = self._content()
-        fx = (event.scenePos().x() - ox) / cw
-        fy = (event.scenePos().y() - oy) / ch
+        fx = (sp.x() - ox) / cw
+        fy = (sp.y() - oy) / ch
         o = self.obj
         if self._drag_end == "P2":
             o.w = round(fx - o.x, 4)
@@ -1056,7 +1080,47 @@ class SlideScene(QGraphicsScene):
         self.gap = 0.0
         self.page_w = scene_width(aspect)
         self.page_h = SCENE_H
+        # Drawing aids (toggled from the View menu).
+        self.show_grid = False
+        self.snap_grid = False
+        self.snap_objects = False
+        self.grid_frac = 0.05         # grid spacing as a fraction of the page
         self._set_rect()
+
+    def grid_step(self):
+        return self.grid_frac * self.page_w, self.grid_frac * self.page_h
+
+    def snap_point(self, pt, exclude=None):
+        """Snap a scene point to the grid and/or nearby object key points
+        (corners / centres / line ends), whichever is closer. No-op unless a
+        snap mode is on."""
+        if not (self.snap_grid or self.snap_objects):
+            return pt
+        x, y = pt.x(), pt.y()
+        thr = 9.0
+        nx, ny = x, y
+        bdx = bdy = thr
+        if self.snap_objects:
+            for it in self.items():
+                if it is exclude or not isinstance(it, BoxItem):
+                    continue
+                try:
+                    kps = it.key_points()
+                except RuntimeError:
+                    continue
+                for kp in kps:
+                    if abs(kp.x() - x) < bdx:
+                        nx, bdx = kp.x(), abs(kp.x() - x)
+                    if abs(kp.y() - y) < bdy:
+                        ny, bdy = kp.y(), abs(kp.y() - y)
+        if self.snap_grid:
+            gx, gy = self.grid_step()
+            cx, cy = round(x / gx) * gx, round(y / gy) * gy
+            if bdx >= thr and abs(cx - x) < thr:
+                nx = cx
+            if bdy >= thr and abs(cy - y) < thr:
+                ny = cy
+        return QPointF(nx, ny)
 
     def page_rect(self) -> QRectF:
         """The slide page itself (white area), independent of the scene rect
@@ -1094,6 +1158,17 @@ class SlideScene(QGraphicsScene):
         r = self.page_rect()
         painter.fillRect(r.translated(7, 7), QColor(0, 0, 0, 45))
         painter.fillRect(r, QColor(self.page_color or "#FFFFFF"))
+        if self.show_grid:
+            gx, gy = self.grid_step()
+            painter.setPen(QPen(QColor(0, 0, 0, 28), 0))
+            x = 0.0
+            while x <= self.page_w + 0.5:
+                painter.drawLine(QPointF(x, 0), QPointF(x, self.page_h))
+                x += gx
+            y = 0.0
+            while y <= self.page_h + 0.5:
+                painter.drawLine(QPointF(0, y), QPointF(self.page_w, y))
+                y += gy
         painter.setPen(QPen(QColor(150, 150, 150), 0))
         painter.drawRect(r)
         if self.gap > 0:
