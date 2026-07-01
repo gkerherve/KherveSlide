@@ -4,8 +4,8 @@ import json
 import pytest
 
 from kherveslide.model import (
-    Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, ThemeSpec,
-    deck_to_json, deck_from_json,
+    Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
+    ThemeSpec, deck_to_json, deck_from_json,
     raise_object, lower_object, to_front, to_back,
 )
 from kherveslide.serializer import serialize_deck
@@ -695,6 +695,20 @@ def test_scene_snap_to_grid():
     gx, gy = s.grid_step()
     sp = s.snap_point(QPointF(gx * 2 + 3, gy * 3 - 2))
     assert abs(sp.x() - gx * 2) < 0.5 and abs(sp.y() - gy * 3) < 0.5
+
+
+def test_grid_divisions_changeable(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w._set_grid_divisions(20)
+    assert abs(w.scene.grid_frac - 0.05) < 1e-9
+    gx20, _ = w.scene.grid_step()
+    w._set_grid_divisions(40)
+    gx40, _ = w.scene.grid_step()
+    assert abs(gx40 - gx20 / 2) < 0.5      # finer grid → half the spacing
 
 
 def test_grid_snap_menu_actions_drive_scene(monkeypatch):
@@ -1508,3 +1522,70 @@ def test_pptx_import_maps_shapes(tmp_path):
     assert all(o.locked is False for o in deck.slides[0].objects)
     assert deck.page_w_cm > 0 and deck.page_h_cm > 0
     serialize_deck(deck)            # the imported deck serialises cleanly
+
+
+# --- master slide (painted behind every slide) ---
+
+def _master_deck():
+    master = Slide(objects=[
+        SlideShape(shape="rect", x=0.0, y=0.9, w=1.0, h=0.1, fill="#00AA7F"),
+        SlideLine(x=0.05, y=0.88, w=0.9, h=0.0, color="#00AA7F"),
+        SlideText(x=0.05, y=0.91, w=0.6, h=0.07, text="MASTERMARK",
+                  color="#FFFFFF"),
+    ])
+    return Deck(
+        master=master,
+        slides=[
+            Slide(objects=[SlideText(text="BODYONE", locked=True)], title="A"),
+            Slide(objects=[SlideText(text="BODYTWO", locked=True)], title="B"),
+        ])
+
+
+def test_master_round_trips():
+    deck = _master_deck()
+    assert deck_from_json(deck_to_json(deck)) == deck
+    assert len(deck_from_json(deck_to_json(deck)).master.objects) == 3
+
+
+def test_deck_without_master_key_is_backward_compatible():
+    # A deck saved before the master feature has no "master" key.
+    raw = json.dumps({"type": "Deck", "slides": [
+        {"type": "Slide", "objects": []}]})
+    deck = deck_from_json(raw)
+    assert deck.master.objects == []
+    serialize_deck(deck)            # and still serialises cleanly
+
+
+def test_master_painted_behind_every_slide():
+    deck = _master_deck()
+    tex = serialize_deck(deck)
+    # The master text renders once per slide, inside a background template,
+    # ahead of the frame body content.
+    assert tex.count("MASTERMARK") == len(deck.slides)
+    assert "\\setbeamertemplate{background}" in tex
+    bg_i = tex.index("\\setbeamertemplate{background}")
+    frame_i = tex.index("\\begin{frame}")
+    body_i = tex.index("BODYONE")
+    assert bg_i < frame_i < body_i        # master is under the frame body
+
+
+def test_master_only_object_pulls_in_packages():
+    # Even with plain slides, a master object must trigger its LaTeX packages.
+    deck = Deck(master=Slide(objects=[SlideShape(shape="rect")]),
+                slides=[Slide(objects=[SlideText(text="x", locked=True)])])
+    assert "\\usepackage{tikz}" in serialize_deck(deck)
+
+    deck = Deck(master=Slide(objects=[SlideTable()]),
+                slides=[Slide(objects=[SlideText(text="x", locked=True)])])
+    assert "\\usepackage{colortbl}" in serialize_deck(deck)
+
+    deck = Deck(
+        master=Slide(objects=[SlidePicture(path="a.png", crop_l=0.1)]),
+        slides=[Slide(objects=[SlideText(text="x", locked=True)])])
+    assert "\\usepackage{adjustbox}" in serialize_deck(deck)
+
+
+def test_master_line_uses_overlay_anchoring():
+    deck = Deck(master=Slide(objects=[SlideLine()]),
+                slides=[Slide(objects=[SlideText(text="x", locked=True)])])
+    assert "remember picture,overlay" in serialize_deck(deck)

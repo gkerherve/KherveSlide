@@ -405,6 +405,19 @@ class SlideWindow(QMainWindow):
         self.act_grid.setCheckable(True)
         self.act_grid.setShortcut("Ctrl+'")
         self.act_grid.toggled.connect(self._toggle_grid)
+        # Grid spacing (divisions across the slide width). Persisted.
+        m_grid_size = m_view.addMenu("Grid size")
+        self._grid_group = QActionGroup(self)
+        self._grid_divisions = int(QSettings("kherveDOC", "KherveSlide").value(
+            "grid_divisions", 40))
+        for label, div in (("Coarse (10)", 10), ("Medium (20)", 20),
+                           ("Fine (40)", 40), ("Very fine (60)", 60),
+                           ("Ultra fine (80)", 80)):
+            a = m_grid_size.addAction(label)
+            a.setCheckable(True)
+            a.setChecked(div == self._grid_divisions)
+            a.triggered.connect(lambda _=False, d=div: self._set_grid_divisions(d))
+            self._grid_group.addAction(a)
         self.act_snap_grid = m_view.addAction("Snap to grid")
         self.act_snap_grid.setCheckable(True)
         self.act_snap_grid.toggled.connect(self._toggle_snap_grid)
@@ -828,6 +841,7 @@ class SlideWindow(QMainWindow):
         nv.addWidget(self.nav)
 
         self.scene = SlideScene(self.deck.aspect)
+        self.scene.grid_frac = 1.0 / max(2, getattr(self, "_grid_divisions", 40))
         self.scene.selectionChanged.connect(self._on_selection)
         self.view = SlideView(self.scene)
         self.view.imageDropped.connect(self._on_image_dropped)
@@ -2588,6 +2602,13 @@ class SlideWindow(QMainWindow):
     def _toggle_grid(self, on):
         self.scene.show_grid = on
         self.scene.update()
+
+    def _set_grid_divisions(self, divisions):
+        self._grid_divisions = divisions
+        self.scene.grid_frac = 1.0 / max(2, divisions)
+        self.scene.update()
+        QSettings("kherveDOC", "KherveSlide").setValue(
+            "grid_divisions", divisions)
 
     def _toggle_snap_grid(self, on):
         self.scene.snap_grid = on

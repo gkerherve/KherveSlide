@@ -1084,7 +1084,7 @@ class SlideScene(QGraphicsScene):
         self.show_grid = False
         self.snap_grid = False
         self.snap_objects = False
-        self.grid_frac = 0.05         # grid spacing as a fraction of the page
+        self.grid_frac = 0.025        # grid spacing as a fraction of the page
         self._set_rect()
 
     def grid_step(self):

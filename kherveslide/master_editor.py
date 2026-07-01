@@ -139,6 +139,9 @@ class MasterSlideEditor(QWidget):
         self.scene.clear()
         self.scene.blockSignals(False)
         for z, obj in enumerate(self.master.objects):
+            # Master objects are always drawn absolutely by the serializer, so
+            # they should all be freely draggable here — never beamer-locked.
+            obj.locked = False
             item = make_item(obj, pw, ph, self._gap, self._font_scale)
             item.setZValue(z)
             item.geometryChanged.connect(self._on_geometry)
