@@ -875,6 +875,20 @@ def auto_compile_on() -> QIcon:
     return QIcon(px)
 
 
+def grid() -> QIcon:
+    """A small 3x3 grid — snap-to-grid toggle."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 1.3, Qt.SolidLine, Qt.RoundCap))
+    p.setBrush(Qt.NoBrush)
+    p.drawRect(4, 4, 15, 15)
+    for i in (1, 2):
+        v = 4 + i * 5
+        p.drawLine(QPointF(v, 4), QPointF(v, 19))
+        p.drawLine(QPointF(4, v), QPointF(19, v))
+    p.end()
+    return QIcon(px)
+
+
 def refresh() -> QIcon:
     """Green circular arrow — refresh / compile now."""
     px, p = _new_canvas()

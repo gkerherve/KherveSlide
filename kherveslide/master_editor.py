@@ -72,6 +72,7 @@ class MasterSlideEditor(QWidget):
         self._font_scale = 1.0
         self._loading = False
         self._fmt_updating = False
+        self._grid_on = True
         self._edit_proxy = None
         self._edit_item = None
 
@@ -80,6 +81,9 @@ class MasterSlideEditor(QWidget):
         v.addWidget(self._build_toolbar())
 
         self.scene = SlideScene(self._aspect)
+        # A small grid the tools snap to while dragging / resizing.
+        self.scene.grid_frac = 0.05
+        self._set_grid(self._grid_on)
         self.scene.selectionChanged.connect(self._on_selection)
         self.view = SlideView(self.scene)
         self.view.imageDropped.connect(self._on_image_dropped)
@@ -155,6 +159,13 @@ class MasterSlideEditor(QWidget):
                      lambda: self._zorder("back"))
         tb.addSeparator()
         tb.addAction(icons.delete_box(), "Delete object", self._delete_selected)
+
+        tb.addSeparator()
+        self._act_grid = tb.addAction(icons.grid(), "Grid & snap",
+                                      self._toggle_grid)
+        self._act_grid.setCheckable(True)
+        self._act_grid.setChecked(self._grid_on)
+        self._act_grid.setToolTip("Show a grid and snap objects to it")
         return tb
 
     # ---------------- scene ----------------
@@ -170,6 +181,16 @@ class MasterSlideEditor(QWidget):
         Pass ``None`` to fall back to the flat page colour."""
         self.scene.backdrop = pixmap
         self.scene.invalidate()
+
+    def _set_grid(self, on):
+        """Toggle the snap grid: show the gridlines and snap objects to them."""
+        self._grid_on = on
+        self.scene.show_grid = on
+        self.scene.snap_grid = on
+        self.scene.invalidate()
+
+    def _toggle_grid(self, on):
+        self._set_grid(on)
 
     # ---------------- text format ----------------
     def _selected_text(self):
