@@ -359,7 +359,9 @@ def test_background_alpha_blends_over_white():
 def test_serialize_background_uses_blended_colour():
     deck = Deck(slides=[Slide(bg="#000000", bg_alpha=0.5)])
     tex = serialize_deck(deck)
-    assert "\\colorbox[HTML]{808080}" in tex
+    # The blended colour becomes beamer's background canvas (behind content).
+    assert "{HTML}{808080}" in tex
+    assert "\\setbeamercolor{background canvas}{bg=" in tex
 
 
 def test_background_alpha_round_trip():
@@ -626,9 +628,12 @@ def test_no_frame_title_when_empty():
 
 
 def test_serialize_slide_background():
+    # The slide colour is painted behind everything via beamer's background
+    # canvas colour — not a textpos overlay (which would cover the content).
     deck = Deck(slides=[Slide(bg="#123456")])
     tex = serialize_deck(deck)
-    assert "\\colorbox[HTML]{123456}" in tex
+    assert "{HTML}{123456}" in tex
+    assert "\\setbeamercolor{background canvas}{bg=" in tex
 
 
 def test_box_border_uses_tikz_frame():

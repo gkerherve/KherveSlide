@@ -744,38 +744,38 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
                   if k < first_flow and isinstance(o, (SlideLine, SlideShape))]
     behind_ids = {id(o) for o in behind}
 
-    # The master slide (if any) is the bottom layer, painted first, then this
-    # slide's own "behind" shapes on top of it — both live in the frame's
-    # background template (the one layer under the flow body).
+    # The slide's own background COLOUR is set via beamer's "background canvas"
+    # colour — the true bottom layer, painted behind every bit of frame content
+    # (flow body included). A textpos \colorbox overlay can't do this: textpos
+    # blocks are placed in a late shipout stage and paint ON TOP of the body,
+    # so the old overlay covered the text. Scoped to this frame with a group.
+    bg = _hex_to_rgb_arg(blend_over_white(slide.bg, slide.bg_alpha))
+    bg_canvas = []
+    if bg:
+        cname = f"ksbg{index}"
+        bg_canvas = [f"\\definecolor{{{cname}}}{{HTML}}{{{bg}}}",
+                     f"\\setbeamercolor{{background canvas}}{{bg={cname}}}"]
+
+    # The frame background TEMPLATE (drawn behind the flow body, over the
+    # canvas) carries the master slide and this slide's "behind" shapes.
     master_blocks = _master_background_block(master, gap, counter) if master else []
     parts = [bar, head, bar]
-    bg_parts = list(master_blocks)
+    tmpl_parts = list(master_blocks)
     for o in behind:
         blk = _overlay_behind(o, gap, counter)
         if blk:
-            bg_parts.append(blk)
-    if bg_parts:
-        parts.append("{%  scoped background: master slide + shapes behind the "
-                     "content")
-        parts.append("\\setbeamertemplate{background}{%")
-        parts.extend(bg_parts)
-        parts.append("}")
+            tmpl_parts.append(blk)
+    scoped = bool(bg_canvas or tmpl_parts)
+    if scoped:
+        parts.append("{%  scoped: slide background colour + behind-content layer")
+        parts.extend(bg_canvas)
+        if tmpl_parts:
+            parts.append("\\setbeamertemplate{background}{%")
+            parts.extend(tmpl_parts)
+            parts.append("}")
     parts.append(f"\\begin{{frame}}[{opts}]")
     if slide.title:
         parts.append(f"  \\frametitle{{{slide.title}}}")
-    bg = _hex_to_rgb_arg(blend_over_white(slide.bg, slide.bg_alpha))
-    if bg:
-        # Full-slide coloured panel behind everything else. The textpos grid
-        # is inset by the gap, so place this block back at the page corner
-        # (and size it to the full page) in module units.
-        span = 1 / (1 - 2 * gap) if gap < 0.5 else 1.0
-        off = -gap / (1 - 2 * gap) if gap < 0.5 else 0.0
-        parts.append("\n  % slide background")
-        parts.append(
-            f"\\begin{{textblock}}{{{_fmt(span)}}}({_fmt(off)},{_fmt(off)})\n"
-            f"\\colorbox[HTML]{{{bg}}}{{\\rule{{0pt}}{{\\paperheight}}"
-            "\\hspace{\\paperwidth}}\n"
-            "\\end{textblock}")
     # Emit objects in list order so the stack order on the slide matches the
     # canvas (raise / lower / bring-to-front actually move things): later
     # source = drawn on top. A run of consecutive beamer-placed objects flows
@@ -811,7 +811,7 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
         parts.append("\n  % slide number")
         parts.append(_page_number_block(page_number, gap))
     parts.append("\\end{frame}")
-    if bg_parts:
+    if scoped:
         parts.append("}")     # close the scoped-background group
     return "\n".join(parts)
 
