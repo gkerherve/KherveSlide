@@ -646,6 +646,13 @@ class SlideWindow(QMainWindow):
             self._themed_icons.append((a, factory))
             return a
 
+        # Navigation — jump between slides and show/hide the navigator panel.
+        vact(icons.prev_slide, "Previous slide", self._prev_slide)
+        vact(icons.next_slide, "Next slide", self._next_slide)
+        vact(icons.toggle_navigator, "Show / hide slide navigator",
+             lambda: self.act_show_nav.toggle())
+        tb.addSeparator()
+
         # Slides — the add button has a dropdown of layouts (click = blank).
         add_btn = QToolButton()
         add_btn.setIcon(icons.slide_add())
@@ -772,11 +779,17 @@ class SlideWindow(QMainWindow):
         hl.addWidget(self.f_frame_title, 2)
         hl.addWidget(QLabel("Header:"))
         hl.addWidget(self.f_header, 2)
-        hl.addWidget(QLabel("Foot:"))
-        hl.addWidget(self.f_foot_l, 2)
-        hl.addWidget(self.f_foot_c, 2)
-        hl.addWidget(self.f_foot_r, 2)
         hl.addWidget(self.chk_nav)
+
+        # The three footer slots sit in their own bar *below* the slide, so
+        # the on-screen layout mirrors where they appear on the slide.
+        footer = QWidget()
+        fl = QHBoxLayout(footer)
+        fl.setContentsMargins(8, 4, 8, 4)
+        fl.addWidget(QLabel("Foot:"))
+        fl.addWidget(self.f_foot_l, 2)
+        fl.addWidget(self.f_foot_c, 2)
+        fl.addWidget(self.f_foot_r, 2)
 
         canvas_box = QWidget()
         cv = QVBoxLayout(canvas_box)
@@ -784,6 +797,7 @@ class SlideWindow(QMainWindow):
         cv.setSpacing(0)
         cv.addWidget(header)
         cv.addWidget(self.view, 1)
+        cv.addWidget(footer)
 
         wysiwyg = QSplitter(Qt.Horizontal)
         wysiwyg.addWidget(nav_panel)
@@ -1410,6 +1424,14 @@ class SlideWindow(QMainWindow):
             self._touch_current()
 
     # ---------------- slides ----------------
+    def _prev_slide(self):
+        if self.current > 0:
+            self.nav.setCurrentRow(self.current - 1)
+
+    def _next_slide(self):
+        if self.current < len(self.deck.slides) - 1:
+            self.nav.setCurrentRow(self.current + 1)
+
     def _on_slide_changed(self, row):
         if self._loading or not (0 <= row < len(self.deck.slides)):
             return

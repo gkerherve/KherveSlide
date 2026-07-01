@@ -1328,6 +1328,25 @@ def test_picture_editor_remove_background():
     assert out.pixelColor(20, 15).alpha() == 255    # red kept
 
 
+def test_toolbar_prev_next_slide(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w._add_slide(); w._add_slide()             # navigator stays in sync
+    last = len(w.deck.slides) - 1
+    assert last >= 2
+    w.nav.setCurrentRow(0)
+    assert w.current == 0
+    w._next_slide(); assert w.current == 1
+    w.nav.setCurrentRow(last)
+    w._next_slide(); assert w.current == last   # clamped at the last slide
+    w._prev_slide(); assert w.current == last - 1
+    w.nav.setCurrentRow(0)
+    w._prev_slide(); assert w.current == 0       # clamped at the first slide
+
+
 def test_editing_suppresses_box_paint_but_keeps_selection(monkeypatch):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])

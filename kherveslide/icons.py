@@ -1059,6 +1059,36 @@ def move_down() -> QIcon:
     return QIcon(px)
 
 
+def prev_slide() -> QIcon:
+    """Filled up-triangle — go to the previous slide."""
+    px, p = _new_canvas()
+    p.setBrush(QBrush(_fg())); p.setPen(Qt.NoPen)
+    p.drawPolygon(QPolygonF([QPointF(12, 6), QPointF(19, 17), QPointF(5, 17)]))
+    p.end()
+    return QIcon(px)
+
+
+def next_slide() -> QIcon:
+    """Filled down-triangle — go to the next slide."""
+    px, p = _new_canvas()
+    p.setBrush(QBrush(_fg())); p.setPen(Qt.NoPen)
+    p.drawPolygon(QPolygonF([QPointF(5, 7), QPointF(19, 7), QPointF(12, 18)]))
+    p.end()
+    return QIcon(px)
+
+
+def toggle_navigator() -> QIcon:
+    """A panel with a highlighted left column — show / hide the navigator."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setBrush(Qt.NoBrush)
+    p.drawRoundedRect(QRectF(4, 5, 16, 14), 2, 2)
+    p.setBrush(QBrush(_accent())); p.setPen(Qt.NoPen)
+    p.drawRect(QRectF(5, 6, 5, 12))
+    p.end()
+    return QIcon(px)
+
+
 def line_tool() -> QIcon:
     """A plain diagonal line."""
     px, p = _new_canvas()
