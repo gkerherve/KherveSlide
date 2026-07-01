@@ -196,9 +196,25 @@ def _picture_graphic(obj: SlidePicture, rel: str = "\\paperwidth",
     return graphic
 
 
+def _picture_placeholder_box(width_expr: str, height_expr: str) -> str:
+    r"""An empty framed box of the given width/height — the visual stand-in for
+    a picture that has no image yet. Never prints a path."""
+    return (r"{\setlength{\fboxsep}{0pt}\framebox[" + width_expr
+            + r"]{\rule{0pt}{" + height_expr + r"}}}")
+
+
+def _picture_placeholder(obj: SlidePicture) -> str:
+    r"""Absolutely-placed empty box the size of the picture, shown where an
+    image would go when none has been added."""
+    box = _picture_placeholder_box(f"{_fmt(obj.w)}\\paperwidth",
+                                   f"{_fmt(obj.h)}\\paperheight")
+    return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
+            f"{box}\n\\end{{textblock}}")
+
+
 def _serialize_picture(obj: SlidePicture) -> str:
     if not obj.path:
-        return ""
+        return _picture_placeholder(obj)
     return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
             f"{_frame_wrap(_picture_graphic(obj), obj)}\n"
             f"\\end{{textblock}}")
@@ -294,11 +310,14 @@ def _flow_object(obj) -> str | None:
         return "\\par " + _text_inner(obj) + "\\medskip"
     if isinstance(obj, SlideTable):
         return "\\begin{center}" + _table_inner(obj) + "\\end{center}"
-    if isinstance(obj, SlidePicture) and obj.path:
-        return ("\\begin{center}"
-                + _frame_wrap(
-                    _picture_graphic(obj, "\\textwidth", "\\textheight"), obj)
-                + "\\end{center}")
+    if isinstance(obj, SlidePicture):
+        if obj.path:
+            inner = _frame_wrap(
+                _picture_graphic(obj, "\\textwidth", "\\textheight"), obj)
+        else:
+            inner = _picture_placeholder_box(f"{_fmt(obj.w)}\\textwidth",
+                                             f"{_fmt(obj.h)}\\textheight")
+        return "\\begin{center}" + inner + "\\end{center}"
     return None
 
 
@@ -309,11 +328,14 @@ def _column_content(obj) -> str | None:
         return _text_inner(obj)
     if isinstance(obj, SlideTable):
         return _table_inner(obj)
-    if isinstance(obj, SlidePicture) and obj.path:
-        # Fill the column width (the box width already set the column size),
-        # capping the height to the box's slide-fraction.
-        return _frame_wrap(_picture_graphic(obj, rel_h="\\textheight",
-                                            width_expr="\\linewidth"), obj)
+    if isinstance(obj, SlidePicture):
+        if obj.path:
+            # Fill the column width (the box width already set the column
+            # size), capping the height to the box's slide-fraction.
+            return _frame_wrap(_picture_graphic(obj, rel_h="\\textheight",
+                                                width_expr="\\linewidth"), obj)
+        return _picture_placeholder_box("\\linewidth",
+                                        f"{_fmt(obj.h)}\\textheight")
     return None
 
 

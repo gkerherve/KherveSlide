@@ -24,6 +24,19 @@ _INCLUDEGRAPHICS_RE = re.compile(
     r"\\includegraphics(\*?)(\[[^\]]*\])?\{([^}]+)\}")
 
 
+def _empty_image_box(opts: str) -> str:
+    r"""An empty framed box (never prints the file path) sized to the
+    \includegraphics width/height options — drawn where an image would go when
+    it's missing or skipped, so you see the slot without a path splattered
+    across the slide."""
+    wm = re.search(r"width=([^,\]]+)", opts or "")
+    hm = re.search(r"height=([^,\]]+)", opts or "")
+    w = wm.group(1).strip() if wm else r"0.3\paperwidth"
+    h = hm.group(1).strip() if hm else r"0.2\paperheight"
+    return (r"{\setlength{\fboxsep}{0pt}\framebox[" + w + r"]{\rule{0pt}{"
+            + h + r"}}}")
+
+
 def _rewrite_includegraphics(tex_source: str, source_dir: Path | None) -> str:
     r"""Resolve every `\includegraphics{path}` so the .tex compiles from a
     temp build dir. Three cases:
@@ -37,29 +50,18 @@ def _rewrite_includegraphics(tex_source: str, source_dir: Path | None) -> str:
       xdvipdfmx stage halts with "Image inclusion failed" — `-Z
       continue-on-errors` only catches TeX-level errors.
     """
-    def _placeholder(path: str) -> str:
-        # \fbox of a small note. Wrap in \texttt so it's clearly a
-        # diagnostic message rather than typeset content.
-        # Escape LaTeX special chars in the path so it renders.
-        safe = (path.replace("\\", "/")
-                    .replace("_", r"\_")
-                    .replace("#", r"\#")
-                    .replace("%", r"\%")
-                    .replace("&", r"\&"))
-        return (r"\fbox{\texttt{\small [missing image: " + safe + r"]}}")
-
     def _sub(m: re.Match) -> str:
         star, opts, path = m.group(1), m.group(2) or "", m.group(3)
         p = Path(path)
         if p.is_absolute():
             if p.exists():
                 return m.group(0)
-            return _placeholder(path)
+            return _empty_image_box(opts)
         if source_dir is None:
-            return _placeholder(path)
+            return _empty_image_box(opts)
         resolved = (source_dir / path).resolve()
         if not resolved.exists():
-            return _placeholder(path)
+            return _empty_image_box(opts)
         abs_path = str(resolved).replace("\\", "/")
         return f"\\includegraphics{star}{opts}{{{abs_path}}}"
 
@@ -300,11 +302,11 @@ Hello $E=mc^2$.
 
 
 def _strip_images(tex_source: str) -> str:
-    r"""Replace every \includegraphics with a lightweight placeholder box
-    so tectonic skips image embedding entirely — much faster for drafts."""
+    r"""Replace every \includegraphics with an empty framed placeholder box so
+    tectonic skips image embedding entirely — much faster for drafts. The box
+    is sized to the image and never prints the file path."""
     def _sub(m: re.Match) -> str:
-        path = m.group(3).replace("\\", "/").replace("_", r"\_")
-        return r"\fbox{\texttt{\footnotesize " + path + r"}}"
+        return _empty_image_box(m.group(2) or "")
     return _INCLUDEGRAPHICS_RE.sub(_sub, tex_source)
 
 

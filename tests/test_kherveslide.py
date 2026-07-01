@@ -970,10 +970,25 @@ def test_itemize_newlines_not_turned_into_breaks():
     assert "\\item A \\\\" not in tex          # no spurious line break
 
 
-def test_serialize_empty_picture_path_skipped():
+def test_serialize_empty_picture_shows_empty_box():
+    # No image added → an empty framed box where the picture would go (never a
+    # \includegraphics, never a path splattered on the slide).
     deck = Deck(slides=[Slide(objects=[SlidePicture(path="")])])
     tex = serialize_deck(deck)
     assert "\\includegraphics" not in tex
+    assert "\\framebox" in tex
+
+
+def test_strip_images_and_missing_show_no_path():
+    # Skip-images and missing-image placeholders draw an empty box, not the
+    # file path.
+    from kherveslide.compiler import _strip_images, _empty_image_box
+    src = "\\includegraphics[width=0.3\\paperwidth,height=0.2\\paperheight]" \
+          "{C:/secret/path/to/image.png}"
+    stripped = _strip_images(src)
+    assert "image.png" not in stripped and "secret" not in stripped
+    assert "\\framebox" in stripped
+    assert "path" not in _empty_image_box("width=1cm,height=1cm")
 
 
 def test_serialize_picture_crop_uses_adjustbox():
