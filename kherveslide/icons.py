@@ -100,6 +100,25 @@ def app_icon() -> QIcon:
 
 def bold() -> QIcon:       return _glyph_icon("B", bold=True)
 def italic() -> QIcon:     return _glyph_icon("I", italic=True)
+
+
+def _script_icon(sup: bool) -> QIcon:
+    """An 'x' with a small raised (super) or lowered (sub) '2'."""
+    px, p = _new_canvas()
+    p.setPen(_fg())
+    fx = QFont("Georgia"); fx.setPixelSize(14)
+    p.setFont(fx)
+    p.drawText(QRect(2, 2, 14, 20), Qt.AlignVCenter | Qt.AlignLeft, "x")
+    fs = QFont("Georgia"); fs.setPixelSize(9); fs.setBold(True)
+    p.setFont(fs)
+    y = 1 if sup else 9
+    p.drawText(QRect(13, y, 10, 14), Qt.AlignTop | Qt.AlignLeft, "2")
+    p.end()
+    return QIcon(px)
+
+
+def superscript() -> QIcon:  return _script_icon(True)
+def subscript() -> QIcon:    return _script_icon(False)
 def underline() -> QIcon:  return _glyph_icon("U", underline=True)
 def strike() -> QIcon:     return _glyph_icon("S", strike=True)
 def code() -> QIcon:

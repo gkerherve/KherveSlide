@@ -735,6 +735,35 @@ def test_group_select_move_and_ungroup(monkeypatch):
     assert all(o.group == 0 for o in w.slide.objects)
 
 
+def test_superscript_subscript_round_trip():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QTextDocument
+    from kherveslide.canvas import latex_to_html, document_to_latex
+    src = "H\\textsubscript{2}O and x\\textsuperscript{2}"
+    html = latex_to_html(src)
+    assert "<sub>2</sub>" in html and "<sup>2</sup>" in html
+    doc = QTextDocument(); doc.setHtml(html)
+    out = document_to_latex(doc)
+    assert "\\textsubscript{2}" in out
+    assert "\\textsuperscript{2}" in out
+
+
+def test_script_wraps_whole_box_when_not_editing(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    from kherveslide.model import SlideText
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.slide.objects.clear()
+    w.slide.objects.append(SlideText(text="2", locked=False))
+    w._reload_scene()
+    w._items[-1].setSelected(True)
+    w._on_super()
+    assert w.slide.objects[-1].text == "\\textsuperscript{2}"
+
+
 def test_font_family_serialises():
     for key, cmd in (("rm", "\\rmfamily"), ("sf", "\\sffamily"),
                      ("tt", "\\ttfamily")):

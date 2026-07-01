@@ -220,6 +220,19 @@ class _InlineEditor(QTextEdit):
         fmt.setFontItalic(not self.fontItalic())
         self._merge_format(fmt)
 
+    def toggle_superscript(self):
+        self._toggle_valign(QTextCharFormat.AlignSuperScript)
+
+    def toggle_subscript(self):
+        self._toggle_valign(QTextCharFormat.AlignSubScript)
+
+    def _toggle_valign(self, align):
+        cur = self.currentCharFormat().verticalAlignment()
+        fmt = QTextCharFormat()
+        fmt.setVerticalAlignment(
+            QTextCharFormat.AlignNormal if cur == align else align)
+        self._merge_format(fmt)
+
     def _merge_format(self, fmt):
         # Apply to the selection if there is one, and to whatever is typed
         # next (so Ctrl+B with no selection starts a bold run).
@@ -706,15 +719,26 @@ class SlideWindow(QMainWindow):
         self.act_italic.setToolTip("Italic — the selection while editing, "
                                    "else the whole box")
         self.act_italic.triggered.connect(self._on_italic)
+        self.act_super = QAction(icons.superscript(), "Superscript", self)
+        self.act_super.setToolTip("Superscript (x²) — the selection while "
+                                  "editing, else the whole box")
+        self.act_super.triggered.connect(self._on_super)
+        self.act_sub = QAction(icons.subscript(), "Subscript", self)
+        self.act_sub.setToolTip("Subscript (x₂) — the selection while "
+                                "editing, else the whole box")
+        self.act_sub.triggered.connect(self._on_sub)
         ftb.addAction(self.act_bold); ftb.addAction(self.act_italic)
+        ftb.addAction(self.act_super); ftb.addAction(self.act_sub)
         # NoFocus so clicking them mid-edit doesn't blur (and commit) the
         # in-place editor — they then format just the selected run.
-        for a in (self.act_bold, self.act_italic):
+        for a in (self.act_bold, self.act_italic, self.act_super, self.act_sub):
             btn = ftb.widgetForAction(a)
             if btn is not None:
                 btn.setFocusPolicy(Qt.NoFocus)
         self._themed_icons += [(self.act_bold, icons.bold),
-                               (self.act_italic, icons.italic)]
+                               (self.act_italic, icons.italic),
+                               (self.act_super, icons.superscript),
+                               (self.act_sub, icons.subscript)]
         ftb.addSeparator()
 
         self._align_group = QActionGroup(self)
@@ -852,7 +876,8 @@ class SlideWindow(QMainWindow):
 
     def _enable_format(self, on, is_text=True, is_pic=False):
         for w in (self.fmt_font, self.fmt_family, self.act_bold,
-                  self.act_italic, self.act_textcolor, self.act_fill,
+                  self.act_italic, self.act_super, self.act_sub,
+                  self.act_textcolor, self.act_fill,
                   *self._align_actions.values()):
             w.setEnabled(on and is_text)
         self.act_pic.setEnabled(on and is_pic)
@@ -2350,6 +2375,33 @@ class SlideWindow(QMainWindow):
 
     def _on_italic(self, *_):
         self._toggle_run_or_box("italic")
+
+    def _on_super(self, *_):
+        self._script_selection("super")
+
+    def _on_sub(self, *_):
+        self._script_selection("sub")
+
+    def _script_selection(self, kind):
+        """Super/subscript the selected text. Works while editing (per run);
+        otherwise wraps the whole box text."""
+        if self._loading:
+            return
+        cmd = "textsuperscript" if kind == "super" else "textsubscript"
+        if self._edit_proxy is not None:
+            editor = self._edit_proxy.widget()
+            (editor.toggle_superscript if kind == "super"
+             else editor.toggle_subscript)()
+            return
+        item = self._selected_item()
+        if item is None or not isinstance(item.obj, SlideText):
+            self.statusBar().showMessage(
+                "Select a text box (or edit it) to apply super/subscript",
+                4000)
+            return
+        item.obj.text = f"\\{cmd}{{{item.obj.text}}}"
+        item.update()
+        self._touch_current()
 
     def _toggle_run_or_box(self, kind):
         if self._loading:

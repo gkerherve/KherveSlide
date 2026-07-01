@@ -40,6 +40,8 @@ def _inline_html(s: str) -> str:
     s = re.sub(r"\\textbf\{([^}]*)\}", r"<b>\1</b>", s)
     s = re.sub(r"\\textit\{([^}]*)\}", r"<i>\1</i>", s)
     s = re.sub(r"\\emph\{([^}]*)\}", r"<i>\1</i>", s)
+    s = re.sub(r"\\textsuperscript\{([^}]*)\}", r"<sup>\1</sup>", s)
+    s = re.sub(r"\\textsubscript\{([^}]*)\}", r"<sub>\1</sub>", s)
     s = re.sub(r"\$([^$]*)\$", r"\1", s)          # show maths source, no $
     s = s.replace("\\textbar{}", "|").replace("\\textbar", "|")
     s = s.replace("\\\\", "<br>")
@@ -117,7 +119,13 @@ def _block_latex(block) -> str:
         if frag.isValid():
             seen = True
             t = frag.text()
-            f = frag.charFormat().font()
+            cf = frag.charFormat()
+            f = cf.font()
+            va = cf.verticalAlignment()
+            if va == QTextCharFormat.AlignSuperScript:
+                t = f"\\textsuperscript{{{t}}}"
+            elif va == QTextCharFormat.AlignSubScript:
+                t = f"\\textsubscript{{{t}}}"
             if f.italic():
                 t = f"\\textit{{{t}}}"
             if f.bold():
