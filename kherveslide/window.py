@@ -400,9 +400,12 @@ class SlideWindow(QMainWindow):
         self._compile_pending = False
         self._dl_worker: _DownloadWorker | None = None
         self._gen_worker = None      # theme-preview batch generator
-        # True once the user hand-edits the LaTeX: slide changes then stop
-        # overwriting the source until they "Regenerate from slides".
+        # True once the user hand-edits the LaTeX: navigation then stops
+        # overwriting the source until they edit a slide or "Regenerate from
+        # slides". _deck_tex_at_override is the deck's serialization when
+        # manual mode began, used to spot a real slide edit vs navigation.
         self._latex_overridden = False
+        self._deck_tex_at_override = ""
         self._git_worker: _GitNetworkWorker | None = None
         self._pending_commit_msg: str | None = None
         self._theme_cache: dict = {}   # theme name -> preview QPixmap
@@ -1357,11 +1360,23 @@ class SlideWindow(QMainWindow):
             self._recompile_now()
 
     def _refresh_latex(self):
-        # Don't clobber hand-edited LaTeX: while the source is manually
-        # overridden, a slide change updates the model (and undo) but leaves
-        # the editor text alone — the PDF compiles from the edited source.
-        if not self._latex_overridden:
-            self.latex_view.set_source(serialize_deck(self.deck))
+        tex = serialize_deck(self.deck)
+        if self._latex_overridden:
+            # Manual-edit mode. Navigation and other incidental refreshes must
+            # NOT clobber the hand-edited source — but an actual SLIDE edit
+            # means the user wants the WYSIWYG to drive again, so regenerate
+            # and leave manual mode (otherwise their slide change would never
+            # reach the PDF). Detect a real edit by the deck's serialization
+            # changing since manual mode began.
+            if tex != self._deck_tex_at_override:
+                self._latex_overridden = False
+                self.latex_view.set_overridden(False)
+                self.latex_view.set_source(tex)
+                self.statusBar().showMessage(
+                    "Slide edited — LaTeX regenerated from the slides "
+                    "(manual LaTeX edits replaced)", 4000)
+        else:
+            self.latex_view.set_source(tex)
         self._schedule_compile()
         if not self._loading and not self._restoring:
             self._undo_timer.start()   # debounced snapshot for undo
@@ -3235,10 +3250,13 @@ class SlideWindow(QMainWindow):
                 "Compilation failed; see the Console tab for the log.")
 
     def _on_latex_edited(self, _text):
-        # The user edited the LaTeX source — enter manual-edit mode so slide
-        # changes stop overwriting it, and recompile the edited text.
+        # The user edited the LaTeX source — enter manual-edit mode so a mere
+        # slide navigation stops overwriting it, and recompile the edited text.
+        # Snapshot the deck's serialization so a later *slide* edit (which
+        # changes it) can be told apart from navigation and hand back control.
         if not self._latex_overridden:
             self._latex_overridden = True
+            self._deck_tex_at_override = serialize_deck(self.deck)
             self.latex_view.set_overridden(True)
         self._schedule_compile()
 

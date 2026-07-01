@@ -1531,12 +1531,33 @@ def test_manual_latex_edits_are_not_overwritten(monkeypatch):
     w.latex_view._edit.setPlainText(edited)
     w._on_latex_edited(w.latex_view.source())
     assert w._latex_overridden is True
-    # A slide change (which regenerates the source) must NOT overwrite it.
+    # A navigation / incidental refresh (deck UNCHANGED) must NOT overwrite it.
     w._refresh_latex()
     assert "% MANUAL EDIT" in w.latex_view.source()
     # Regenerating from the slides drops the override and the manual edit.
     w._regenerate_latex_from_slides()
     assert w._latex_overridden is False
+    assert "% MANUAL EDIT" not in w.latex_view.source()
+
+
+def test_slide_edit_exits_latex_override(monkeypatch):
+    # Editing a SLIDE while in manual-LaTeX mode hands control back to the
+    # WYSIWYG: the source regenerates so the change reaches the PDF.
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    from kherveslide.model import SlideText
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.latex_view._edit.setPlainText(w.latex_view.source() + "\n% MANUAL EDIT")
+    w._on_latex_edited(w.latex_view.source())
+    assert w._latex_overridden is True
+    # Now change a slide, then refresh (as _touch_current would).
+    w.deck.slides[w.current].objects.append(
+        SlideText(text="BRANDNEWCONTENT", locked=True))
+    w._refresh_latex()
+    assert w._latex_overridden is False               # WYSIWYG took over
+    assert "BRANDNEWCONTENT" in w.latex_view.source()  # regenerated
     assert "% MANUAL EDIT" not in w.latex_view.source()
 
 
