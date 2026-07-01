@@ -669,8 +669,7 @@ def _page_number_block(mode: str, gap: float) -> str:
     """A small slide-number overlay at the bottom-right corner. Placed via
     textpos so it shows on plain frames too (where the theme footline is
     suppressed)."""
-    inner = ("\\insertframenumber\\,/\\,\\inserttotalframenumber"
-             if mode == "of_total" else "\\insertframenumber")
+    inner = _page_number_macro(mode) or "\\insertframenumber"
     # Pin to the page's bottom-right regardless of the content gap, the same
     # way the background panel un-insets the textpos grid.
     span = 1 / (1 - 2 * gap) if gap < 0.5 else 1.0
@@ -807,8 +806,10 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
         # so overlay them here; decorated frames show the native ones instead.
         parts.append("\n  % navigation symbols (bottom-right)")
         parts.append(_nav_symbols_block(gap))
-    if page_number and page_number != "none":
-        parts.append("\n  % slide number")
+    if page_number and page_number != "none" and plain:
+        # Plain frames drop the footline, so the number (normally in the right
+        # foot) is overlaid at the bottom-right here instead.
+        parts.append("\n  % slide number (plain frame — no footline)")
         parts.append(_page_number_block(page_number, gap))
     parts.append("\\end{frame}")
     if scoped:
@@ -816,15 +817,32 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
     return "\n".join(parts)
 
 
+def _page_number_macro(mode: str) -> str:
+    """The beamer counters for the slide number: just the frame number, or
+    'frame / total'. Empty when off."""
+    if mode == "number":
+        return "\\insertframenumber"
+    if mode == "of_total":
+        return "\\insertframenumber\\,/\\,\\inserttotalframenumber"
+    return ""
+
+
 def _header_footer_lines(deck) -> list[str]:
-    """Custom headline / footline templates from the deck's header and
-    footer slots. They only show when frames aren't [plain] (decorations
-    on); plain frames suppress head/foot lines."""
+    """Custom headline / footline templates from the deck's header and footer
+    slots, plus the slide number in the right foot. They only show when frames
+    aren't [plain] (decorations on); on plain frames the head/foot lines are
+    suppressed and the slide number falls back to a textpos overlay instead."""
     lines: list[str] = []
     header = getattr(deck, "header", "")
     fl = getattr(deck, "foot_left", "")
     fc = getattr(deck, "foot_center", "")
     fr = getattr(deck, "foot_right", "")
+    # The slide number lives in the right foot, as beamer's own counters. On
+    # plain decks the footline is hidden, so leave it out here (an overlay
+    # carries it instead) to avoid emitting the number where it won't show.
+    num = _page_number_macro(getattr(deck, "page_number", "none"))
+    if num and not getattr(deck, "plain_frames", False):
+        fr = f"{fr}\\quad {num}" if fr else num
     if header:
         lines += [
             "\\setbeamertemplate{headline}{%",

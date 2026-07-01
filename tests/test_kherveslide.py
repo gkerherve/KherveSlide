@@ -302,18 +302,30 @@ def test_page_number_off_by_default():
 
 
 def test_page_number_simple():
+    # The number goes in the footline's right foot as \insertframenumber.
     deck = Deck(slides=[Slide()], page_number="number")
     tex = serialize_deck(deck)
     assert "\\insertframenumber" in tex
     assert "\\inserttotalframenumber" not in tex
+    assert "\\setbeamertemplate{footline}" in tex
 
 
 def test_page_number_of_total():
     deck = Deck(slides=[Slide(), Slide()], page_number="of_total")
     tex = serialize_deck(deck)
-    assert "\\inserttotalframenumber" in tex
-    # One number block per slide.
-    assert tex.count("\\insertframenumber") == 2
+    # The right foot carries a single footline template (not one per slide).
+    assert "\\insertframenumber\\,/\\,\\inserttotalframenumber" in tex
+    assert "\\setbeamertemplate{footline}" in tex
+    assert tex.count("\\insertframenumber") == 1
+
+
+def test_page_number_plain_frames_use_overlay():
+    # Plain frames suppress the footline, so the number is overlaid per slide.
+    deck = Deck(slides=[Slide(), Slide()], page_number="number",
+                plain_frames=True)
+    tex = serialize_deck(deck)
+    assert tex.count("\\insertframenumber") == 2      # one overlay per slide
+    assert "\\begin{textblock}" in tex
 
 
 def test_page_number_round_trip():
