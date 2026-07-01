@@ -1130,6 +1130,93 @@ def ellipse_tool() -> QIcon:
     return QIcon(px)
 
 
+def select_cursor() -> QIcon:
+    """A mouse-pointer arrow — the Select tool."""
+    px, p = _new_canvas()
+    p.setBrush(QBrush(_fg())); p.setPen(Qt.NoPen)
+    p.drawPolygon(QPolygonF([
+        QPointF(6, 4), QPointF(6, 18), QPointF(10, 14), QPointF(13, 20),
+        QPointF(15, 19), QPointF(12, 13), QPointF(17, 13)]))
+    p.end()
+    return QIcon(px)
+
+
+def pen() -> QIcon:
+    """A pen / nib — the freehand Pen tool."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 2.4, Qt.SolidLine, Qt.RoundCap))
+    p.drawLine(6, 18, 14, 10)
+    p.setBrush(QBrush(_accent())); p.setPen(Qt.NoPen)
+    p.drawPolygon(QPolygonF([QPointF(14, 10), QPointF(18, 6), QPointF(19, 11),
+                             QPointF(15, 14)]))
+    p.setBrush(QBrush(_fg()))
+    p.drawPolygon(QPolygonF([QPointF(5, 19), QPointF(7, 17), QPointF(8, 20)]))
+    p.end()
+    return QIcon(px)
+
+
+def text_tool() -> QIcon:
+    """A capital T — the Text tool."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 2.4, Qt.SolidLine, Qt.RoundCap))
+    p.drawLine(6, 7, 18, 7)
+    p.drawLine(12, 7, 12, 18)
+    p.end()
+    return QIcon(px)
+
+
+def eraser() -> QIcon:
+    """A tilted eraser block."""
+    px, p = _new_canvas()
+    p.save()
+    p.translate(12, 13); p.rotate(-32)
+    p.setPen(QPen(_fg(), 1.4)); p.setBrush(QBrush(QColor("#f4b183")))
+    p.drawRoundedRect(QRectF(-7, -4.5, 14, 9), 1.5, 1.5)
+    p.drawLine(QPointF(0, -4.5), QPointF(0, 4.5))
+    p.restore()
+    p.end()
+    return QIcon(px)
+
+
+def clear_all() -> QIcon:
+    """A waste-bin — clear the drawing."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setBrush(Qt.NoBrush)
+    p.drawLine(5, 8, 19, 8)
+    p.drawLine(10, 6, 14, 6)
+    p.drawPolyline([QPointF(7, 8), QPointF(8, 19), QPointF(16, 19),
+                    QPointF(17, 8)])
+    p.drawLine(10, 10, 10, 17)
+    p.drawLine(14, 10, 14, 17)
+    p.end()
+    return QIcon(px)
+
+
+def grid_icon() -> QIcon:
+    """A hash grid — toggle the drawing grid."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 1.3))
+    for i in (8, 12, 16):
+        p.drawLine(i, 5, i, 19)
+        p.drawLine(5, i, 19, i)
+    p.end()
+    return QIcon(px)
+
+
+def snap_icon() -> QIcon:
+    """A grid with a highlighted node — toggle snapping."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 1.1))
+    for i in (7, 12, 17):
+        p.drawLine(i, 6, i, 18)
+        p.drawLine(6, i, 18, i)
+    p.setBrush(QBrush(_accent())); p.setPen(Qt.NoPen)
+    p.drawEllipse(QPointF(12, 12), 3.0, 3.0)
+    p.end()
+    return QIcon(px)
+
+
 def _rotate_icon(cw: bool) -> QIcon:
     """A circular arrow — rotate clockwise or counter-clockwise."""
     px, p = _new_canvas()

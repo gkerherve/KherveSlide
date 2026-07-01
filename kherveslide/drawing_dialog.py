@@ -24,6 +24,7 @@ from PySide6.QtGui import (
     QAction, QActionGroup, QBrush, QColor, QFont, QImage, QKeySequence,
     QPainter, QPainterPath, QPen, QPixmap,
 )
+from PySide6.QtCore import QSize
 from PySide6.QtWidgets import (
     QButtonGroup, QColorDialog, QDialog, QDialogButtonBox, QGraphicsEllipseItem,
     QGraphicsItem, QGraphicsLineItem, QGraphicsPathItem, QGraphicsRectItem,
@@ -31,6 +32,8 @@ from PySide6.QtWidgets import (
     QInputDialog, QLabel, QPushButton, QSlider, QSpinBox, QToolBar,
     QToolButton, QVBoxLayout, QWidget,
 )
+
+from . import icons
 
 
 # Pre-set colour palette — clicking a swatch sets the current pen.
@@ -486,22 +489,24 @@ class DrawingDialog(QDialog):
                 self._bg_item.setData(_DATA_TOOL, "background")
                 self._canvas.set_grid_visible(False)
 
-        # ---- tool toolbar ------------------------------------------------
+        # ---- tool toolbar (icons, not text buttons) ----------------------
         tb = QToolBar(self)
-        tb.setIconSize(tb.iconSize())
+        tb.setIconSize(QSize(22, 22))
+        tb.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self._tool_group = QActionGroup(self)
         self._tool_group.setExclusive(True)
-        for name, label in (
-            ("select", "⇱ Select"),
-            ("pen", "✎ Pen"),
-            ("line", "／ Line"),
-            ("rect", "▭ Rect"),
-            ("ellipse", "◯ Ellipse"),
-            ("arrow", "→ Arrow"),
-            ("text", "T Text"),
-            ("eraser", "✗ Eraser"),
+        for name, label, icon in (
+            ("select", "Select", icons.select_cursor),
+            ("pen", "Pen", icons.pen),
+            ("line", "Line", icons.line_tool),
+            ("rect", "Rectangle", icons.rect_tool),
+            ("ellipse", "Ellipse", icons.ellipse_tool),
+            ("arrow", "Arrow", icons.arrow_tool),
+            ("text", "Text", icons.text_tool),
+            ("eraser", "Eraser", icons.eraser),
         ):
-            act = QAction(label, self)
+            act = QAction(icon(), label, self)
+            act.setToolTip(label)
             act.setCheckable(True)
             act.triggered.connect(
                 lambda checked=False, n=name: self._canvas.set_tool(n))
@@ -510,20 +515,24 @@ class DrawingDialog(QDialog):
             if name == "pen":
                 act.setChecked(True)
         tb.addSeparator()
-        undo_act = QAction("⤺ Undo", self)
+        undo_act = QAction(icons.undo(), "Undo", self)
+        undo_act.setToolTip("Undo")
         undo_act.setShortcut(QKeySequence.Undo)
         undo_act.triggered.connect(self._canvas.undo)
         tb.addAction(undo_act)
-        clear_act = QAction("Clear", self)
+        clear_act = QAction(icons.clear_all(), "Clear", self)
+        clear_act.setToolTip("Clear all")
         clear_act.triggered.connect(self._canvas.clear_all)
         tb.addAction(clear_act)
         tb.addSeparator()
-        grid_act = QAction("# Grid", self)
+        grid_act = QAction(icons.grid_icon(), "Grid", self)
+        grid_act.setToolTip("Show grid")
         grid_act.setCheckable(True)
         grid_act.setChecked(True)
         grid_act.toggled.connect(self._canvas.set_grid_visible)
         tb.addAction(grid_act)
-        snap_act = QAction("⊞ Snap", self)
+        snap_act = QAction(icons.snap_icon(), "Snap", self)
+        snap_act.setToolTip("Snap to grid")
         snap_act.setCheckable(True)
         snap_act.setChecked(False)
         snap_act.toggled.connect(self._canvas.set_snap_enabled)

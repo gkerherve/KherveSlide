@@ -51,6 +51,9 @@ from .model import (
     raise_object, lower_object, to_front, to_back,
 )
 from .navigator import SlideNavigator
+from .object_props import (
+    colour_button, edit_box_style, edit_line, edit_shape,
+)
 from .preview import PdfPreview
 from .serializer import serialize_deck, _ALL_BLOCK_ENVS
 
@@ -2011,120 +2014,19 @@ class SlideWindow(QMainWindow):
         item = self._selected_item()
         if item is None or isinstance(item.obj, SlideLine):
             return
-        o = item.obj
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Box style")
-        form = QFormLayout(dlg)
-        state = {"fill": getattr(o, "fill", ""),
-                 "border_color": getattr(o, "border_color", "")}
-
-        form.addRow("Fill colour", self._colour_button(state, "fill"))
-        fill_op = QDoubleSpinBox(); fill_op.setRange(0.0, 1.0)
-        fill_op.setSingleStep(0.05); fill_op.setValue(getattr(o, "fill_opacity", 1.0))
-        form.addRow("Fill opacity", fill_op)
-        form.addRow("Border colour",
-                    self._colour_button(state, "border_color"))
-        width = QDoubleSpinBox(); width.setRange(0.0, 12.0); width.setSingleStep(0.5)
-        width.setValue(getattr(o, "border_width", 1.0))
-        form.addRow("Border width (pt)", width)
-        bstyle = QComboBox(); bstyle.addItems(["solid", "dashed", "dotted"])
-        bstyle.setCurrentText(getattr(o, "border_style", "solid"))
-        form.addRow("Border style", bstyle)
-        corner = QComboBox(); corner.addItems(["sharp", "rounded"])
-        corner.setCurrentText(getattr(o, "corner", "sharp"))
-        form.addRow("Corners", corner)
-        radius = QDoubleSpinBox(); radius.setRange(0.0, 40.0); radius.setSingleStep(1.0)
-        radius.setValue(getattr(o, "corner_radius", 4.0))
-        form.addRow("Corner radius (pt)", radius)
-        shadow = QCheckBox("Drop shadow")
-        shadow.setChecked(getattr(o, "shadow", False))
-        form.addRow(shadow)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
-        form.addRow(bb)
-        if dlg.exec():
-            o.fill = state["fill"]
-            o.fill_opacity = fill_op.value()
-            o.border_color = state["border_color"]
-            o.border_width = width.value()
-            o.border_style = bstyle.currentText()
-            o.corner = corner.currentText()
-            o.corner_radius = radius.value()
-            o.shadow = shadow.isChecked()
+        if edit_box_style(item.obj, self):
             item.update()
             self._touch_current()
 
     def _colour_button(self, state, key, *, allow_none=True):
-        """A swatch button bound to ``state[key]``. Click picks a colour;
-        right-click clears it to none (when allowed)."""
-        btn = QPushButton()
-
-        def refresh():
-            v = state[key]
-            btn.setText(v or "(none)")
-            btn.setStyleSheet(f"background:{v}; color:#fff;" if v else "")
-
-        def pick():
-            from PySide6.QtGui import QColor as _QC
-            c = QColorDialog.getColor(_QC(state[key] or "#ffffff"), self)
-            if c.isValid():
-                state[key] = c.name(); refresh()
-
-        btn.clicked.connect(pick)
-        if allow_none:
-            btn.setToolTip("Click to choose; right-click clears")
-            btn.setContextMenuPolicy(Qt.CustomContextMenu)
-            btn.customContextMenuRequested.connect(
-                lambda _p: (state.__setitem__(key, ""), refresh()))
-        refresh()
-        return btn
+        """Swatch button bound to ``state[key]`` (shared with object_props)."""
+        return colour_button(state, key, self, allow_none=allow_none)
 
     def _shape_props_dialog(self):
         item = self._selected_item()
         if item is None or not isinstance(item.obj, SlideShape):
             return
-        o = item.obj
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Shape properties")
-        form = QFormLayout(dlg)
-        state = {"fill": o.fill, "border_color": o.border_color}
-
-        shape = QComboBox()
-        for key, label in shapes.LABELS.items():
-            shape.addItem(label, key)
-        cur = shape.findData(o.shape)
-        shape.setCurrentIndex(cur if cur >= 0 else 0)
-        form.addRow("Shape", shape)
-        form.addRow("Fill colour", self._colour_button(state, "fill"))
-        form.addRow("Outline colour",
-                    self._colour_button(state, "border_color"))
-        width = QDoubleSpinBox(); width.setRange(0.0, 20.0)
-        width.setSingleStep(0.5); width.setValue(o.border_width)
-        form.addRow("Outline width (pt)", width)
-        style = QComboBox(); style.addItems(["solid", "dashed", "dotted"])
-        style.setCurrentText(o.style)
-        form.addRow("Outline style", style)
-        corner = QComboBox(); corner.addItems(["sharp", "rounded"])
-        corner.setCurrentText(o.corner)
-        form.addRow("Corners (rect)", corner)
-        opacity = QDoubleSpinBox(); opacity.setRange(0.0, 1.0)
-        opacity.setSingleStep(0.05); opacity.setValue(o.opacity)
-        form.addRow("Opacity", opacity)
-        rot = QDoubleSpinBox(); rot.setRange(-360.0, 360.0)
-        rot.setSingleStep(5.0); rot.setValue(o.rotation)
-        form.addRow("Rotation (°)", rot)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
-        form.addRow(bb)
-        if dlg.exec():
-            o.shape = shape.currentData()
-            o.fill = state["fill"]
-            o.border_color = state["border_color"]
-            o.border_width = width.value()
-            o.style = style.currentText()
-            o.corner = corner.currentText()
-            o.opacity = opacity.value()
-            o.rotation = rot.value()
+        if edit_shape(item.obj, self):
             item.update()
             self._touch_current()
 
@@ -2132,41 +2034,7 @@ class SlideWindow(QMainWindow):
         item = self._selected_item()
         if item is None or not isinstance(item.obj, SlideLine):
             return
-        o = item.obj
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Line / arrow properties")
-        form = QFormLayout(dlg)
-        state = {"color": o.color}
-
-        form.addRow("Colour",
-                    self._colour_button(state, "color", allow_none=False))
-        width = QDoubleSpinBox(); width.setRange(0.1, 20.0)
-        width.setSingleStep(0.5); width.setValue(o.width_pt)
-        form.addRow("Width (pt)", width)
-        style = QComboBox(); style.addItems(["solid", "dashed", "dotted"])
-        style.setCurrentText(o.style)
-        form.addRow("Style", style)
-        a_start = QCheckBox("Arrowhead at start"); a_start.setChecked(o.arrow_start)
-        a_end = QCheckBox("Arrowhead at end"); a_end.setChecked(o.arrow_end)
-        form.addRow(a_start)
-        form.addRow(a_end)
-        head = QDoubleSpinBox(); head.setRange(0.3, 5.0)
-        head.setSingleStep(0.1); head.setValue(o.head_size)
-        form.addRow("Arrowhead size", head)
-        opacity = QDoubleSpinBox(); opacity.setRange(0.0, 1.0)
-        opacity.setSingleStep(0.05); opacity.setValue(o.opacity)
-        form.addRow("Opacity", opacity)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
-        form.addRow(bb)
-        if dlg.exec():
-            o.color = state["color"] or "#000000"
-            o.width_pt = width.value()
-            o.style = style.currentText()
-            o.arrow_start = a_start.isChecked()
-            o.arrow_end = a_end.isChecked()
-            o.head_size = head.value()
-            o.opacity = opacity.value()
+        if edit_line(item.obj, self):
             item.update()
             self._touch_current()
 
@@ -2591,10 +2459,16 @@ class SlideWindow(QMainWindow):
 
     def _open_theme_builder(self):
         from .theme_builder import ThemeBuilderDialog
-        dlg = ThemeBuilderDialog(self.deck.theme_spec, self.deck.theme,
-                                 self.deck.color_theme, self.deck.aspect, self)
+        dlg = ThemeBuilderDialog(
+            self.deck.theme_spec, self.deck.master,
+            base_theme=self.deck.theme, color_theme=self.deck.color_theme,
+            aspect=self.deck.aspect, gap=self.deck.gap,
+            page_w_cm=self.deck.page_w_cm, page_h_cm=self.deck.page_h_cm,
+            parent=self)
         if dlg.exec() and dlg.result_spec is not None:
             self.deck.theme_spec = dlg.result_spec
+            if dlg.result_master is not None:
+                self.deck.master = dlg.result_master
             if dlg.result_spec.enabled:
                 # Custom themes touch decorated elements — show them.
                 self.deck.plain_frames = False

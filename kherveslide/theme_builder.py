@@ -6,6 +6,7 @@ slide with the current settings so you can build the theme by eye.
 """
 from __future__ import annotations
 
+import copy
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -15,11 +16,12 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel, QPushButton,
-    QVBoxLayout, QWidget,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
 from .compiler import compile_tex, tectonic_available
-from .model import ThemeSpec
+from .master_editor import MasterSlideEditor
+from .model import Slide, ThemeSpec, blend_over_white
 from .serializer import _theme_spec_lines
 from .theme_gallery import _render_first_page
 
@@ -82,13 +84,18 @@ class _PreviewWorker(QThread):
 
 
 class ThemeBuilderDialog(QDialog):
-    def __init__(self, spec: ThemeSpec, base_theme="default", color_theme="",
-                 aspect="169", parent=None):
+    def __init__(self, spec: ThemeSpec, master: Slide | None = None,
+                 base_theme="default", color_theme="",
+                 aspect="169", gap=0.0, page_w_cm=0.0, page_h_cm=0.0,
+                 parent=None):
         super().__init__(parent)
         self.setWindowTitle("Theme builder")
-        self.resize(820, 560)
+        self.resize(960, 620)
         self.result_spec: ThemeSpec | None = None
+        self.result_master: Slide | None = None
         self._base, self._color, self._aspect = base_theme, color_theme, aspect
+        # Edit a copy so Cancel discards the master edits; only Apply commits.
+        self._master = copy.deepcopy(master) if master is not None else Slide()
         self._colours = {key: getattr(spec, key) for key, _ in _COLOURS}
         self._worker = None
         self._pending = False
@@ -162,18 +169,38 @@ class ThemeBuilderDialog(QDialog):
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
 
-        # --- right: live master-slide preview ---
-        right = QVBoxLayout()
-        right.addWidget(QLabel("<b>Master slide preview</b>"))
+        # --- right: master-slide editor + live theme preview ---
+        tabs = QTabWidget()
+        tabs.setMinimumWidth(520)
+
+        # The master editor: draw text / pictures / lines / shapes that get
+        # painted behind every slide. Edits mutate self._master in place.
+        self._master_editor = MasterSlideEditor(
+            self._master, aspect=aspect, gap=gap,
+            page_w_cm=page_w_cm, page_h_cm=page_h_cm,
+            page_color=self._page_color())
+        tabs.addTab(self._master_editor, "Master slide")
+
+        prev_tab = QWidget()
+        pv = QVBoxLayout(prev_tab)
+        pv.addWidget(QLabel("Live render of the theme colours / fonts on a "
+                            "sample frame."))
         self._preview = QLabel("Rendering…")
         self._preview.setAlignment(Qt.AlignCenter)
         self._preview.setMinimumWidth(400)
         self._preview.setStyleSheet(
             "QLabel { background:#9aa0a6; border:1px solid #888; }")
-        right.addWidget(self._preview, 1)
-        root.addLayout(right, 1)
+        pv.addWidget(self._preview, 1)
+        tabs.addTab(prev_tab, "Theme preview")
+        root.addWidget(tabs, 1)
 
         self._schedule()
+
+    def _page_color(self) -> str:
+        """The master canvas page colour — follow the theme background so the
+        master is built against the real slide colour (white if inherited)."""
+        bg = self._colours.get("canvas_bg", "")
+        return blend_over_white(bg, 1.0) if bg else "#FFFFFF"
 
     # -- controls --
     def _combo(self, items, current):
@@ -225,10 +252,14 @@ class ThemeBuilderDialog(QDialog):
 
     def _apply(self):
         self.result_spec = self._current_spec()
+        self.result_master = self._master
         self.accept()
 
     # -- live preview --
     def _schedule(self, *_):
+        # Keep the master canvas page colour in step with the theme bg.
+        if hasattr(self, "_master_editor"):
+            self._master_editor.set_page_color(self._page_color())
         if tectonic_available():
             self._timer.start()
 
