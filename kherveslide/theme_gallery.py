@@ -11,7 +11,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QSize, QStandardPaths, Qt, QThread, Signal
+from PySide6.QtCore import QSize, Qt, QThread, Signal
 from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QListWidget,
@@ -105,10 +105,11 @@ def _bundled_preview(theme: str) -> QPixmap | None:
 
 
 def _disk_cache_dir() -> Path:
-    """Persistent on-disk cache for compiled theme×colour previews so each
-    combination is only ever rendered once (then loads instantly)."""
-    base = QStandardPaths.writableLocation(QStandardPaths.CacheLocation)
-    d = Path(base or (Path.home() / ".cache")) / "kherveslide_theme_previews"
+    """Persistent store for compiled theme×colour previews, kept in the app's
+    own ``theme_previews_generated`` folder so each combination is only ever
+    rendered once (then loads instantly) and the previews live with the
+    project rather than in a hidden OS cache."""
+    d = Path(__file__).resolve().parent / "theme_previews_generated"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
