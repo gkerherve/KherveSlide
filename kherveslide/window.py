@@ -89,6 +89,7 @@ class _CompileWorker(QThread):
     edit never freezes the canvas."""
 
     done = Signal(object)   # CompileResult
+    line = Signal(str)      # a live tectonic output line
 
     def __init__(self, tex, workdir, src_dir):
         super().__init__()
@@ -98,7 +99,8 @@ class _CompileWorker(QThread):
 
     def run(self):
         result = compile_tex(self._tex, self._workdir, "slides",
-                             source_dir=self._src_dir)
+                             source_dir=self._src_dir,
+                             on_line=lambda s: self.line.emit(s))
         self.done.emit(result)
 
 
@@ -362,6 +364,11 @@ class SlideWindow(QMainWindow):
         self._build_toolbar()
         self._build_slide_toolbar()
         self._build_ui()
+        # Permanent compile / download indicator on the right of the status bar.
+        self._downloaded_this_run = False
+        self._status_state = QLabel("Ready")
+        self._status_state.setStyleSheet("padding:0 10px; color:#4b5563;")
+        self.statusBar().addPermanentWidget(self._status_state)
         self._reload_all()
         self._reset_history()
         self._maybe_autodownload_packages()
@@ -1307,12 +1314,29 @@ class SlideWindow(QMainWindow):
         tex = self.latex_view.source()
         workdir = Path(tempfile.gettempdir()) / "kherveslide_build"
         src_dir = self.path.parent if self.path else None
-        self.statusBar().showMessage("Compiling…")
+        self._downloaded_this_run = False
+        self._set_compile_status("Compiling…", "busy")
         worker = _CompileWorker(tex, workdir, src_dir)
         worker.done.connect(self._on_compiled)
+        worker.line.connect(self._on_compile_line)
         worker.finished.connect(self._on_worker_finished)
         self._worker = worker
         worker.start()
+
+    def _set_compile_status(self, text, kind="idle"):
+        """Update the permanent right-side indicator. kind: busy | ok | err."""
+        color = {"busy": "#b45309", "ok": "#15803d",
+                 "err": "#b91c1c"}.get(kind, "#4b5563")
+        self._status_state.setStyleSheet(f"padding:0 10px; color:{color};")
+        self._status_state.setText(text)
+
+    def _on_compile_line(self, line):
+        # tectonic prints "note: downloading <resource>" the first time a
+        # package/bundle isn't cached — surface that on the status bar.
+        low = line.lower()
+        if "downloading" in low or "fetching" in low:
+            self._downloaded_this_run = True
+            self._set_compile_status("Downloading packages…", "busy")
 
     @staticmethod
     def _clean_log(log):
@@ -1326,8 +1350,12 @@ class SlideWindow(QMainWindow):
         self.console.setPlainText(self._clean_log(result.log))
         if result.ok and result.pdf_path:
             self.pdf_view.show_pdf(Path(result.pdf_path))
-            self.statusBar().showMessage("Compiled OK")
+            if self._downloaded_this_run:
+                self._set_compile_status("Compiled ✓ · packages cached", "ok")
+            else:
+                self._set_compile_status("Compiled ✓", "ok")
         else:
+            self._set_compile_status("Compile failed ✗", "err")
             self.statusBar().showMessage("Compile failed — see Console tab")
 
     def _on_worker_finished(self):

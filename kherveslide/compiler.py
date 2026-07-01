@@ -419,6 +419,7 @@ def compile_tex(
     source_dir: Path | None = None,
     skip_images: bool = False,
     use_compile_range: bool = False,
+    on_line=None,
 ) -> CompileResult:
     """Write `tex_source` to `workdir/basename.tex` and compile with tectonic.
 
@@ -483,22 +484,66 @@ def compile_tex(
         existing = env.get("TEXINPUTS", "")
         env["TEXINPUTS"] = sep.join(texinputs_parts) + sep + existing
 
+    cmd = [
+        tectonic_path,
+        "-Z", "continue-on-errors",
+        "--keep-logs",
+        "--synctex",
+        "--outdir", str(workdir),
+        str(tex_path),
+    ]
+    if on_line is not None:
+        # Streaming mode: read tectonic's output line by line so the caller
+        # can report live progress (e.g. "downloading …" the first time).
+        import threading
+        popen_kw: dict = dict(
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", env=env)
+        if sys.platform == "win32":
+            popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+        try:
+            sproc = subprocess.Popen(cmd, **popen_kw)
+        except OSError as exc:
+            return CompileResult(False, None, "", f"tectonic failed: {exc}")
+        lines: list[str] = []
+        timed_out = {"v": False}
+
+        def _watch():
+            try:
+                sproc.wait(timeout=180)
+            except subprocess.TimeoutExpired:
+                timed_out["v"] = True
+                sproc.kill()
+
+        watcher = threading.Thread(target=_watch, daemon=True)
+        watcher.start()
+        for raw in sproc.stdout:
+            ln = raw.rstrip("\n")
+            lines.append(ln)
+            try:
+                on_line(ln)
+            except Exception:
+                pass
+        sproc.wait()
+        watcher.join(timeout=1)
+        returncode = sproc.returncode
+        log = "\n".join(lines)
+        if timed_out["v"]:
+            return CompileResult(False, None, log,
+                                 "tectonic timed out after 180s")
+        pdf_path = workdir / f"{basename}.pdf"
+        if returncode == 0 and pdf_path.exists():
+            return CompileResult(True, pdf_path, log, None)
+        return CompileResult(
+            ok=False, pdf_path=pdf_path if pdf_path.exists() else None,
+            log=log, error=f"tectonic exited with code {returncode}")
+
     try:
         kw: dict = dict(capture_output=True, text=True, encoding="utf-8",
                         errors="replace", timeout=120, env=env)
         if sys.platform == "win32":
             kw["creationflags"] = subprocess.CREATE_NO_WINDOW
-        proc = subprocess.run(
-            [
-                tectonic_path,
-                "-Z", "continue-on-errors",
-                "--keep-logs",
-                "--synctex",
-                "--outdir", str(workdir),
-                str(tex_path),
-            ],
-            **kw,
-        )
+        proc = subprocess.run(cmd, **kw)
     except subprocess.TimeoutExpired:
         return CompileResult(False, None, "", "tectonic timed out after 120s")
 
