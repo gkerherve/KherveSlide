@@ -11,12 +11,12 @@ import tempfile
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel, QPushButton,
-    QTabWidget, QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget,
 )
 
 from .compiler import compile_tex, tectonic_available
@@ -59,11 +59,11 @@ def _preview_tex(spec, base_theme, color_theme, aspect) -> str:
     lines += [
         "\\usepackage{lmodern}",
         "\\begin{document}",
+        # An empty themed frame: shows the background, title bar and footline
+        # so the master is drawn over the real theme furniture, without any
+        # sample body text cluttering the canvas.
         "\\begin{frame}{Master slide}",
-        "Body text shows your normal-text colour and font.\\par\\medskip",
-        "\\textcolor{structure}{\\rule{\\linewidth}{1pt}}\\par\\medskip",
-        "\\begin{itemize}\\item First point\\item Second point\\end{itemize}",
-        "\\medskip\\begin{block}{A block}Block body text.\\end{block}",
+        "\\vfill",
         "\\end{frame}",
         "\\end{document}",
     ]
@@ -169,30 +169,21 @@ class ThemeBuilderDialog(QDialog):
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
 
-        # --- right: master-slide editor + live theme preview ---
-        tabs = QTabWidget()
-        tabs.setMinimumWidth(520)
-
-        # The master editor: draw text / pictures / lines / shapes that get
-        # painted behind every slide. Edits mutate self._master in place.
+        # --- right: the master-slide editor, drawn directly over a live
+        # render of the theme, so building the master and seeing the theme
+        # happen in one place (no separate preview tab). ---
+        right = QVBoxLayout()
+        right.addWidget(QLabel(
+            "<b>Master slide</b> — draw text, pictures, lines and shapes here; "
+            "they appear behind every slide. The backdrop is a live preview "
+            "of the theme."))
         self._master_editor = MasterSlideEditor(
             self._master, aspect=aspect, gap=gap,
             page_w_cm=page_w_cm, page_h_cm=page_h_cm,
             page_color=self._page_color())
-        tabs.addTab(self._master_editor, "Master slide")
-
-        prev_tab = QWidget()
-        pv = QVBoxLayout(prev_tab)
-        pv.addWidget(QLabel("Live render of the theme colours / fonts on a "
-                            "sample frame."))
-        self._preview = QLabel("Rendering…")
-        self._preview.setAlignment(Qt.AlignCenter)
-        self._preview.setMinimumWidth(400)
-        self._preview.setStyleSheet(
-            "QLabel { background:#9aa0a6; border:1px solid #888; }")
-        pv.addWidget(self._preview, 1)
-        tabs.addTab(prev_tab, "Theme preview")
-        root.addWidget(tabs, 1)
+        self._master_editor.setMinimumWidth(540)
+        right.addWidget(self._master_editor, 1)
+        root.addLayout(right, 1)
 
         self._schedule()
 
@@ -275,12 +266,10 @@ class ThemeBuilderDialog(QDialog):
         self._worker.start()
 
     def _on_preview(self, pdf):
-        if pdf:
-            pm = _render_first_page(pdf, 440)
-            if pm is not None:
-                self._preview.setPixmap(pm)
-                return
-        self._preview.setText("Preview unavailable")
+        # Render the themed frame and lay it under the master objects. A
+        # failed compile clears the backdrop → the flat theme background shows.
+        pm = _render_first_page(pdf, 1000) if pdf else None
+        self._master_editor.set_backdrop(pm)
 
     def _on_worker_done(self):
         worker = self._worker

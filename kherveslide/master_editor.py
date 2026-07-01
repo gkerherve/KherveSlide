@@ -15,8 +15,10 @@ captured as one undo step when the dialog is applied back to the deck.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QSize, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QFileDialog, QMenu, QTextEdit, QToolBar, QToolButton, QVBoxLayout, QWidget,
+    QColorDialog, QFileDialog, QMenu, QSpinBox, QTextEdit, QToolBar,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 from . import icons, shapes
@@ -69,6 +71,7 @@ class MasterSlideEditor(QWidget):
         self._items: list = []
         self._font_scale = 1.0
         self._loading = False
+        self._fmt_updating = False
         self._edit_proxy = None
         self._edit_item = None
 
@@ -77,6 +80,7 @@ class MasterSlideEditor(QWidget):
         v.addWidget(self._build_toolbar())
 
         self.scene = SlideScene(self._aspect)
+        self.scene.selectionChanged.connect(self._on_selection)
         self.view = SlideView(self.scene)
         self.view.imageDropped.connect(self._on_image_dropped)
         self.view.deleteRequested.connect(self._delete_selected)
@@ -84,6 +88,7 @@ class MasterSlideEditor(QWidget):
         v.addWidget(self.view, 1)
 
         self._reload()
+        self._on_selection()          # start with the format controls disabled
 
     # ---------------- toolbar ----------------
     def _build_toolbar(self) -> QToolBar:
@@ -109,6 +114,38 @@ class MasterSlideEditor(QWidget):
         shape_btn.setMenu(menu)
         tb.addWidget(shape_btn)
 
+        # --- text format: acts on the selected text box ---
+        tb.addSeparator()
+        self._fsize = QSpinBox()
+        self._fsize.setRange(4, 160)
+        self._fsize.setToolTip("Font size (pt)")
+        self._fsize.valueChanged.connect(self._set_font_size)
+        tb.addWidget(self._fsize)
+
+        self._btn_color = QToolButton()
+        self._btn_color.setText("A")
+        self._btn_color.setToolTip("Text colour")
+        self._btn_color.clicked.connect(self._pick_text_color)
+        tb.addWidget(self._btn_color)
+
+        self._act_bold = tb.addAction(icons.bold(), "Bold", self._toggle_bold)
+        self._act_bold.setCheckable(True)
+        self._act_italic = tb.addAction(icons.italic(), "Italic",
+                                        self._toggle_italic)
+        self._act_italic.setCheckable(True)
+
+        self._align_actions = {}
+        for key, factory, tip in (("left", icons.align_left, "Align left"),
+                                  ("center", icons.align_center, "Centre"),
+                                  ("right", icons.align_right, "Align right")):
+            a = tb.addAction(factory(), tip,
+                             lambda _=False, k=key: self._set_align(k))
+            a.setCheckable(True)
+            self._align_actions[key] = a
+
+        self._fmt_widgets = [self._fsize, self._btn_color, self._act_bold,
+                             self._act_italic, *self._align_actions.values()]
+
         tb.addSeparator()
         tb.addAction(icons.raise_box(), "Raise", lambda: self._zorder("raise"))
         tb.addAction(icons.lower_box(), "Lower", lambda: self._zorder("lower"))
@@ -126,6 +163,87 @@ class MasterSlideEditor(QWidget):
         self._page_color = hex_color or "#FFFFFF"
         self.scene.page_color = self._page_color
         self.scene.invalidate()
+
+    def set_backdrop(self, pixmap):
+        """Show *pixmap* (a rendered image of the themed slide) under the
+        master objects, so the master is built directly over the live theme.
+        Pass ``None`` to fall back to the flat page colour."""
+        self.scene.backdrop = pixmap
+        self.scene.invalidate()
+
+    # ---------------- text format ----------------
+    def _selected_text(self):
+        item = self._selected_item()
+        return item if isinstance(item, TextBoxItem) else None
+
+    def _on_selection(self):
+        """Enable / sync the text-format controls to the selected text box."""
+        item = self._selected_text()
+        on = item is not None
+        self._fmt_updating = True
+        for w in self._fmt_widgets:
+            w.setEnabled(on)
+        if on:
+            o = item.obj
+            self._fsize.setValue(int(o.font_pt))
+            self._act_bold.setChecked(bool(o.bold))
+            self._act_italic.setChecked(bool(o.italic))
+            for k, a in self._align_actions.items():
+                a.setChecked(o.align == k)
+            self._btn_color.setStyleSheet(
+                f"QToolButton {{ color: {o.color or '#000000'}; "
+                f"font-weight: bold; }}")
+        self._fmt_updating = False
+
+    def _refresh_text(self, item):
+        """Rebuild the edited text item in place, keeping it selected."""
+        idx = self.master.objects.index(item.obj)
+        self._reload()
+        if 0 <= idx < len(self._items):
+            self._items[idx].setSelected(True)
+        self.changed.emit()
+
+    def _set_font_size(self, value):
+        if self._fmt_updating:
+            return
+        item = self._selected_text()
+        if item is not None:
+            item.obj.font_pt = int(value)
+            self._refresh_text(item)
+
+    def _pick_text_color(self):
+        item = self._selected_text()
+        if item is None:
+            return
+        c = QColorDialog.getColor(QColor(item.obj.color or "#000000"), self,
+                                  "Text colour")
+        if c.isValid():
+            item.obj.color = c.name()
+            self._refresh_text(item)
+
+    def _toggle_bold(self, checked):
+        if self._fmt_updating:
+            return
+        item = self._selected_text()
+        if item is not None:
+            item.obj.bold = bool(checked)
+            self._refresh_text(item)
+
+    def _toggle_italic(self, checked):
+        if self._fmt_updating:
+            return
+        item = self._selected_text()
+        if item is not None:
+            item.obj.italic = bool(checked)
+            self._refresh_text(item)
+
+    def _set_align(self, key):
+        if self._fmt_updating:
+            return
+        item = self._selected_text()
+        if item is not None:
+            item.obj.align = key
+            self._refresh_text(item)
 
     def _reload(self):
         self._cancel_edit()

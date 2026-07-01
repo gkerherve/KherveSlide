@@ -1099,6 +1099,9 @@ class SlideScene(QGraphicsScene):
         super().__init__()
         self.aspect = aspect
         self.page_color = "#FFFFFF"   # current slide background
+        # Optional page backdrop: a rendered image of the page (e.g. the live
+        # themed slide) drawn in place of the flat page colour. None = plain.
+        self.backdrop = None
         self.gap = 0.0
         self.page_w = scene_width(aspect)
         self.page_h = SCENE_H
@@ -1179,7 +1182,13 @@ class SlideScene(QGraphicsScene):
         painter.fillRect(rect, QColor("#9aa0a6"))
         r = self.page_rect()
         painter.fillRect(r.translated(7, 7), QColor(0, 0, 0, 45))
-        painter.fillRect(r, QColor(self.page_color or "#FFFFFF"))
+        bd = getattr(self, "backdrop", None)
+        if bd is not None and not bd.isNull():
+            # A pre-rendered image of the themed page sits under the objects.
+            painter.fillRect(r, QColor("#FFFFFF"))
+            painter.drawPixmap(r, bd, QRectF(bd.rect()))
+        else:
+            painter.fillRect(r, QColor(self.page_color or "#FFFFFF"))
         if self.show_grid:
             gx, gy = self.grid_step()
             painter.setPen(QPen(QColor(0, 0, 0, 28), 0))
