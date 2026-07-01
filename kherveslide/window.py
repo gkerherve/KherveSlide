@@ -117,6 +117,33 @@ class _DownloadWorker(QThread):
         self.done.emit(ok)
 
 
+class _LayoutMenuRow(QWidget):
+    """A menu row showing a small schematic preview of a slide layout next
+    to its name, so you can see the arrangement before adding it."""
+
+    activated = Signal()
+
+    def __init__(self, pixmap, label, parent=None):
+        super().__init__(parent)
+        self.setObjectName("layoutRow")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(
+            "#layoutRow { padding:2px 6px; }"
+            "#layoutRow:hover { background: rgba(40,120,220,45); }")
+        h = QHBoxLayout(self)
+        h.setContentsMargins(8, 3, 14, 3)
+        h.setSpacing(10)
+        pic = QLabel()
+        pic.setPixmap(pixmap)
+        pic.setFixedSize(pixmap.size())
+        h.addWidget(pic)
+        h.addWidget(QLabel(label), 1)
+
+    def mouseReleaseEvent(self, event):
+        self.activated.emit()
+        super().mouseReleaseEvent(event)
+
+
 class _InlineEditor(QTextEdit):
     """A rich text-box editor that floats over the object being edited:
     bullet/numbered lists show as real lists (not \\item source), and it
@@ -325,6 +352,7 @@ class SlideWindow(QMainWindow):
         self._edit_commit = None
         self._edit_hidden_item = None
         self._sel_guard = False
+        self._layout_pixmaps: dict = {}
         self._font_scale = FONT_SCALE
 
         # Auto-compile: debounce edits, run tectonic off-thread.
@@ -948,12 +976,20 @@ class SlideWindow(QMainWindow):
         self.f_foot_r = QLineEdit()
         self.f_foot_r.setPlaceholderText("Right foot")
         self.f_foot_r.editingFinished.connect(self._apply_headfoot)
-        # The head/foot slots accept LaTeX, so common dynamic bits work:
-        _hf_tip = ("Accepts LaTeX — e.g. \\today for the date, "
-                   "\\insertframenumber for the slide number, "
-                   "\\inserttitle / \\insertauthor.")
-        for _f in (self.f_header, self.f_foot_l, self.f_foot_c, self.f_foot_r):
+        # The head/foot slots accept LaTeX, so common dynamic bits work.
+        # Right-click any of them (incl. the frame title) for an Insert menu.
+        _hf_tip = ("Accepts LaTeX — right-click to insert the date, slide "
+                   "number, title, author… (or type \\today etc.).")
+        for _f, _apply in ((self.f_frame_title, self._apply_frame_title),
+                           (self.f_header, self._apply_headfoot),
+                           (self.f_foot_l, self._apply_headfoot),
+                           (self.f_foot_c, self._apply_headfoot),
+                           (self.f_foot_r, self._apply_headfoot)):
             _f.setToolTip(_hf_tip)
+            _f.setContextMenuPolicy(Qt.CustomContextMenu)
+            _f.customContextMenuRequested.connect(
+                lambda pos, field=_f, apply=_apply:
+                self._hf_context_menu(field, apply, pos))
         self.chk_nav = QCheckBox("Nav ▾▴")
         self.chk_nav.setToolTip("Show beamer's prev/next navigation symbols "
                                 "at the bottom-right of every slide")
@@ -1196,6 +1232,41 @@ class SlideWindow(QMainWindow):
             widget.blockSignals(True)
             widget.setText(val)
             widget.blockSignals(False)
+
+    # Dynamic bits you can drop into a header / footer / frame-title slot.
+    _HF_INSERTS = [
+        ("Date (today)", "\\today"),
+        ("Slide number", "\\insertframenumber"),
+        ("Total slides", "\\inserttotalframenumber"),
+        ("Slide n / N",
+         "\\insertframenumber\\,/\\,\\inserttotalframenumber"),
+        (None, None),
+        ("Presentation title", "\\inserttitle"),
+        ("Short title", "\\insertshorttitle"),
+        ("Author", "\\insertauthor"),
+        ("Short author", "\\insertshortauthor"),
+        ("Institute", "\\insertinstitute"),
+        (None, None),
+        ("Section", "\\insertsectionhead"),
+        ("Subsection", "\\insertsubsectionhead"),
+    ]
+
+    def _hf_context_menu(self, field, apply, pos):
+        menu = field.createStandardContextMenu()
+        menu.addSeparator()
+        ins = menu.addMenu("Insert")
+        for label, token in self._HF_INSERTS:
+            if label is None:
+                ins.addSeparator()
+                continue
+            ins.addAction(
+                label, lambda _=False, f=field, t=token, a=apply:
+                self._hf_insert(f, t, a))
+        menu.exec(field.mapToGlobal(pos))
+
+    def _hf_insert(self, field, token, apply):
+        field.insert(token)      # at the cursor
+        apply()
 
     def _apply_frame_title(self):
         if not self._loading and self.slide.title != self.f_frame_title.text():
@@ -1671,12 +1742,31 @@ class SlideWindow(QMainWindow):
         self.current = at
         self._reload_all()
 
+    def _layout_pixmap(self, name):
+        """A cached small schematic thumbnail of a layout (real object
+        arrangement, rendered like a mini slide)."""
+        key = (name, self.deck.aspect)
+        pm = self._layout_pixmaps.get(key)
+        if pm is None:
+            from .canvas import render_thumbnail
+            slide = templates.instantiate_slide_layout(name)
+            d = Deck(aspect=self.deck.aspect, slides=[slide])
+            pm = render_thumbnail(slide, d, 78)
+            self._layout_pixmaps[key] = pm
+        return pm
+
     def _fill_new_slide_menu(self, menu, row=None):
-        """Populate *menu* with one entry per slide layout."""
+        """Populate *menu* with one entry per slide layout, each showing a
+        small preview of the layout."""
+        from PySide6.QtWidgets import QWidgetAction
         for name in templates.slide_layout_names():
-            menu.addAction(
-                name, lambda _=False, n=name, r=row:
-                self._add_slide_with_layout(n, r))
+            act = QWidgetAction(menu)
+            row_w = _LayoutMenuRow(self._layout_pixmap(name), name)
+            row_w.activated.connect(
+                lambda n=name, r=row, m=menu:
+                (m.hide(), self._add_slide_with_layout(n, r)))
+            act.setDefaultWidget(row_w)
+            menu.addAction(act)
         return menu
 
     def _del_slide(self):

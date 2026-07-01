@@ -735,6 +735,33 @@ def test_group_select_move_and_ungroup(monkeypatch):
     assert all(o.group == 0 for o in w.slide.objects)
 
 
+def test_layout_menu_shows_previews(monkeypatch):
+    from PySide6.QtWidgets import QApplication, QMenu
+    QApplication.instance() or QApplication([])
+    from kherveslide import window, templates
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    pm = w._layout_pixmap("Two columns")
+    assert not pm.isNull() and pm.width() > 0
+    m = QMenu()
+    w._fill_new_slide_menu(m)
+    assert len(m.actions()) == len(templates.slide_layout_names())
+
+
+def test_hf_insert_adds_token(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    w.f_foot_r.clear()
+    w._hf_insert(w.f_foot_r, "\\today", w._apply_headfoot)
+    assert w.deck.foot_right == "\\today"
+    w.f_frame_title.clear()
+    w._hf_insert(w.f_frame_title, "\\insertsectionhead", w._apply_frame_title)
+    assert w.slide.title == "\\insertsectionhead"
+
+
 def test_theme_preview_disk_cache_round_trips():
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
