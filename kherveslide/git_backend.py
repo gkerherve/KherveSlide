@@ -281,7 +281,7 @@ def pull(repo_dir: Path, remote_name: str = "origin") -> tuple[bool, str]:
         return True, "Already up to date."
     if not (merge_analysis & pygit2.GIT_MERGE_ANALYSIS_FASTFORWARD):
         return False, (
-            "Local branch has diverged from the remote — KherveTeX only "
+            "Local branch has diverged from the remote — KherveSlide only "
             "fast-forwards. Resolve the merge from a terminal."
         )
     # Count incoming commits for a nicer status message. `.hide()`

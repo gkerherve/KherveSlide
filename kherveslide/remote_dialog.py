@@ -1,4 +1,4 @@
-"""Connect your document to a cloud git service (GitHub, GitLab, etc.)
+"""Connect your presentation to a cloud git service (GitHub, GitLab, etc.)
 so it gets backed up online and can be shared with collaborators.
 
 The dialog walks users through the setup step by step, using plain
@@ -20,7 +20,7 @@ from . import git_backend
 
 
 class RemoteDialog(QDialog):
-    """Guide the user through connecting their document to a cloud
+    """Guide the user through connecting their presentation to a cloud
     git service, or manage existing connections."""
 
     def __init__(self, repo_dir: Path, parent: QWidget | None = None) -> None:
@@ -34,14 +34,14 @@ class RemoteDialog(QDialog):
         # ----- intro text (adapts to whether a remote already exists) -----
         if existing:
             intro_html = (
-                "<b>Your document is connected to:</b>"
+                "<b>Your presentation is connected to:</b>"
             )
         else:
             intro_html = (
-                "<b>Connect your document to a cloud service</b><br><br>"
+                "<b>Connect your presentation to a cloud service</b><br><br>"
                 "This lets you:<br>"
                 "&nbsp;&nbsp;\u2022 <b>Back up</b> your work online automatically<br>"
-                "&nbsp;&nbsp;\u2022 <b>Share</b> your document with collaborators<br>"
+                "&nbsp;&nbsp;\u2022 <b>Share</b> your presentation with collaborators<br>"
                 "&nbsp;&nbsp;\u2022 <b>Download</b> changes others have made<br><br>"
                 "<b>How to get started:</b><br>"
                 "&nbsp;&nbsp;1. Create a repository on "
@@ -171,8 +171,8 @@ class RemoteDialog(QDialog):
         self._refresh()
         QMessageBox.information(
             self, "Connected!",
-            f"Your document is now linked to:\n\n  {url}\n\n"
-            "From now on, every time you save your document it will "
+            f"Your presentation is now linked to:\n\n  {url}\n\n"
+            "From now on, every time you save your presentation it will "
             "automatically be uploaded there.\n\n"
             "You can also use Git \u2192 Download latest "
             "to get changes from collaborators.")

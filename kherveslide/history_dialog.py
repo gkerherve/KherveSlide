@@ -223,7 +223,7 @@ class _GraphDelegate(QStyledItemDelegate):
 # ---- main dialog ---------------------------------------------------------
 
 class HistoryDialog(QDialog):
-    """Browse the commits behind the current document, visualise the
+    """Browse the commits behind the current presentation, visualise the
     branch graph, create / switch / delete branches."""
 
     def __init__(self, repo_dir: Path, parent: QWidget | None = None,
@@ -325,7 +325,7 @@ class HistoryDialog(QDialog):
 
         self._restore_btn = QPushButton("↩ Restore this version")
         self._restore_btn.setToolTip(
-            "Roll the document files back to the selected commit. "
+            "Roll the presentation files back to the selected commit. "
             "Your current state stays in the history — restoring just "
             "creates a new commit on top with the older contents.")
         self._restore_btn.clicked.connect(self._on_restore_clicked)
@@ -475,7 +475,7 @@ class HistoryDialog(QDialog):
         self._table.resizeRowsToContents()
         if self._commits:
             self._table.setCurrentCell(0, 0)
-        # Reload the document in the editor if branch changed.
+        # Reload the presentation in the editor if branch changed.
         reload_method = getattr(self._parent_window, "_reload_current", None)
         if callable(reload_method):
             reload_method()
@@ -521,12 +521,12 @@ class HistoryDialog(QDialog):
         c = self._commits[row]
         confirm = QMessageBox.question(
             self, "Restore this version",
-            f"<b>Roll the document back to this version?</b><br><br>"
+            f"<b>Roll the presentation back to this version?</b><br><br>"
             f"<code>{_html_escape(c['short_oid'])}</code> &middot; "
             f"{_html_escape(c['timestamp'])}<br>"
             f"<i>{_html_escape(c['subject'])}</i><br><br>"
             f"<span style='color:#666;'>"
-            f"Your current document state isn't lost — every saved "
+            f"Your current presentation state isn't lost — every saved "
             f"version is still in the history. The next Ctrl+S will "
             f"record the restored contents as a new commit on top."
             f"</span>",
@@ -542,7 +542,7 @@ class HistoryDialog(QDialog):
             reload_method()
         QMessageBox.information(
             self, "Restored",
-            f"The document was rolled back to commit "
+            f"The presentation was rolled back to commit "
             f"<code>{_html_escape(c['short_oid'])}</code>.<br><br>"
             f"Save (Ctrl+S) when you're ready — that records the "
             f"restored contents as a new commit on top.")

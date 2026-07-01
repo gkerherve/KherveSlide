@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -34,7 +35,7 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget,
 )
 
-from . import icons, shapes, spellcheck, templates, themes, version_string
+from . import git_backend, icons, shapes, spellcheck, templates, themes, version_string
 from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
     make_item, page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
@@ -253,6 +254,38 @@ class _InlineEditor(QTextEdit):
         self._speller.rehighlight()
 
 
+class _GitNetworkWorker(QThread):
+    """Run pull / push on a background thread so the GUI doesn't lock up
+    for the duration of a libgit2 network round-trip. Without this,
+    saving or pulling against an unreachable remote freezes the window
+    for 30+ seconds (Windows shows it as "Not Responding") — to the user
+    that reads as a crash, even though it's just blocked I/O on the main
+    thread.
+
+    Emits `finished_with` carrying (operation, success, message). The
+    caller decides how to surface that — status bar, message box, etc.
+    """
+    finished_with = Signal(str, bool, str)  # op, ok, msg
+
+    def __init__(self, op: str, repo_dir: Path, remote_name: str = "origin"):
+        super().__init__()
+        self._op = op   # "pull" or "push"
+        self._repo_dir = repo_dir
+        self._remote = remote_name
+
+    def run(self) -> None:
+        try:
+            if self._op == "pull":
+                ok, msg = git_backend.pull(self._repo_dir, self._remote)
+            elif self._op == "push":
+                ok, msg = git_backend.push(self._repo_dir, self._remote)
+            else:
+                ok, msg = False, f"Unknown git op: {self._op!r}"
+        except Exception as exc:  # pragma: no cover — defensive
+            ok, msg = False, f"{self._op} crashed: {exc}"
+        self.finished_with.emit(self._op, ok, msg)
+
+
 class SlideWindow(QMainWindow):
     # Extra windows opened via File ▸ New window, kept referenced so they
     # aren't garbage-collected while open.
@@ -279,6 +312,8 @@ class SlideWindow(QMainWindow):
         self._worker: _CompileWorker | None = None
         self._compile_pending = False
         self._dl_worker: _DownloadWorker | None = None
+        self._git_worker: _GitNetworkWorker | None = None
+        self._pending_commit_msg: str | None = None
         self._theme_cache: dict = {}   # theme name -> preview QPixmap
 
         # Undo/redo: a debounced snapshot history of the whole presentation
@@ -516,6 +551,42 @@ class SlideWindow(QMainWindow):
         m_tpl.addAction("Save current presentation as template…", self._save_as_template)
         m_tpl.addAction("Rename template…", self._rename_template)
         m_tpl.addAction("Delete template…", self._delete_template)
+
+        # Git — per-presentation version control with cloud backup. Every
+        # save auto-commits and (if a remote is set) pushes; the actions
+        # below add snapshots-with-a-message, history browsing and remotes.
+        m_git = mb.addMenu("&Git")
+        self.act_commit_now = QAction(
+            icons.commit(), "&Save snapshot and upload", self,
+            statusTip="Save your work, create a version snapshot, and "
+                      "upload it to the cloud (GitHub, GitLab, etc.)",
+            triggered=self._commit_and_maybe_push)
+        self.act_pull = QAction(
+            "&Download latest from cloud", self,
+            statusTip="Download the newest version of this presentation "
+                      "from the cloud (e.g. if a collaborator made changes)",
+            triggered=self._pull_from_remote)
+        self.act_history = QAction(
+            icons.history(), "View &version history…", self,
+            statusTip="Browse every saved snapshot of this presentation "
+                      "and see what changed each time",
+            triggered=self._show_history)
+        self.act_branches = QAction(
+            icons.branch(), "&Branches…", self,
+            statusTip="View, create, switch or delete branches",
+            triggered=self._show_branches)
+        self.act_configure_remotes = QAction(
+            "Connect to &GitHub / GitLab…", self,
+            statusTip="Set up a cloud link so your presentation is backed "
+                      "up online and can be shared with others",
+            triggered=self._configure_remotes)
+        m_git.addAction(self.act_commit_now)
+        m_git.addAction(self.act_pull)
+        m_git.addSeparator()
+        m_git.addAction(self.act_history)
+        m_git.addAction(self.act_branches)
+        m_git.addSeparator()
+        m_git.addAction(self.act_configure_remotes)
 
     # ---------------- toolbars ----------------
     def _build_toolbar(self):
@@ -2787,9 +2858,7 @@ class SlideWindow(QMainWindow):
     def _save_deck(self):
         if self.path is None:
             return self._save_deck_as()
-        self.path.write_text(deck_to_json(self.deck), encoding="utf-8")
-        self._add_recent(self.path)
-        self.statusBar().showMessage(f"Saved {self.path}")
+        self._write_deck_to(self.path)
 
     def _save_deck_as(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -2797,11 +2866,58 @@ class SlideWindow(QMainWindow):
             "KherveSlide presentation (*.kslide)")
         if not path:
             return
-        self.path = Path(path)
-        self.path.write_text(deck_to_json(self.deck), encoding="utf-8")
-        self._add_recent(self.path)
+        p = Path(path)
+        if p.suffix.lower() not in (".kslide", ".json"):
+            p = p.with_suffix(".kslide")
+        self.path = p
         self._update_title()
-        self.statusBar().showMessage(f"Saved {path}")
+        self._write_deck_to(p)
+
+    @staticmethod
+    def _deck_stem(path: Path) -> str:
+        """Base name for the presentation, stripping the compound
+        ``.kslide.json`` suffix as well as the plain ``.kslide``."""
+        if path.name.endswith(".kslide.json"):
+            return path.name[:-len(".kslide.json")]
+        return path.stem
+
+    def _write_deck_to(self, path: Path) -> None:
+        """Write the presentation, then auto-commit (and push if a remote
+        is configured). The ``.kslide`` JSON is the source of truth; a
+        ``.tex`` beamer export is written alongside so ``git diff`` shows
+        meaningful content changes. Push runs on a background thread so a
+        slow / dead remote can't freeze the window on every save."""
+        path.write_text(deck_to_json(self.deck), encoding="utf-8")
+        stem = self._deck_stem(path)
+        try:
+            (path.parent / f"{stem}.tex").write_text(
+                serialize_deck(self.deck), encoding="utf-8")
+        except Exception:
+            pass  # a .tex export failure must never block saving the model
+        self._add_recent(path)
+
+        commit_msg = self._pending_commit_msg or (
+            f"Save {path.name} at "
+            f"{datetime.now().isoformat(timespec='seconds')}")
+        self._pending_commit_msg = None
+        if not git_backend.is_available():
+            self.statusBar().showMessage(
+                f"Saved {path} (install pygit2 to enable version history)",
+                5000)
+            return
+        git_backend.init_repo(path.parent)
+        oid = git_backend.commit_all(path.parent, commit_msg, file_stem=stem)
+        if not oid:
+            self.statusBar().showMessage("✔ Saved (nothing new to snapshot)",
+                                         4000)
+        elif git_backend.get_remotes(path.parent):
+            self.statusBar().showMessage(
+                "✔ Saved and snapshot created — uploading…", 0)
+            self._start_git_worker("push", path.parent, "origin")
+        else:
+            self.statusBar().showMessage(
+                "✔ Saved and snapshot created "
+                "(use Git → Connect to GitHub to enable cloud backup)", 6000)
 
     def _open_deck(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -2863,6 +2979,229 @@ class SlideWindow(QMainWindow):
         self._update_title()
         self._reload_all()
         self._reset_history()
+
+    # ---------------- git / version control ----------------
+
+    def _commit_and_maybe_push(self) -> None:
+        """Save a snapshot with a custom commit message, then upload."""
+        if self.path is None:
+            reply = QMessageBox.information(
+                self, "Save snapshot",
+                "You need to save this presentation to a file first before "
+                "a snapshot can be created.\n\n"
+                "Save it now?",
+                QMessageBox.Yes | QMessageBox.Cancel)
+            if reply == QMessageBox.Yes:
+                self._save_deck_as()
+            return
+        default_msg = (f"Save {self.path.name} at "
+                       f"{datetime.now().isoformat(timespec='seconds')}")
+        msg, ok = QInputDialog.getText(
+            self, "Commit message", "Describe what you changed:",
+            text=default_msg)
+        if not ok:
+            return
+        self._pending_commit_msg = msg.strip() or default_msg
+        self._write_deck_to(self.path)
+
+    def _start_git_worker(self, op: str, repo_dir: Path,
+                          remote_name: str) -> None:
+        """Spawn a _GitNetworkWorker for pull / push. Kept on
+        self._git_worker so we hold a reference (Qt threads get GC'd
+        otherwise) and can re-check it before starting another op."""
+        worker = _GitNetworkWorker(op, repo_dir, remote_name)
+        worker.finished_with.connect(self._on_git_done)
+        self._git_worker = worker
+        if op == "pull":
+            self.statusBar().showMessage(
+                f"Downloading latest from {remote_name}…", 0)
+        worker.start()
+
+    def _on_git_done(self, op: str, ok: bool, msg: str) -> None:
+        if op == "pull":
+            if ok:
+                if "up to date" in msg.lower():
+                    self.statusBar().showMessage(
+                        "✔ Already up to date — you have the latest version",
+                        5000)
+                else:
+                    self.statusBar().showMessage(f"✔ {msg}", 6000)
+                    self._reload_current()
+            else:
+                self.statusBar().clearMessage()
+                QMessageBox.warning(
+                    self, "Download failed",
+                    f"{msg}\n\n"
+                    "What you can try:\n"
+                    "  • Check your internet connection\n"
+                    "  • Make sure the cloud URL is correct "
+                    "(Git → Connect to GitHub)\n"
+                    "  • If the problem says \"diverged\", resolve the "
+                    "merge from the git command line")
+        elif op == "push":
+            if ok:
+                self.statusBar().showMessage(
+                    "✔ Saved, snapshot created, and uploaded to cloud", 5000)
+            else:
+                self.statusBar().showMessage(
+                    "✔ Saved and snapshot created "
+                    "(⚠ upload failed — see dialog)", 8000)
+                self._show_push_failure_dialog(msg)
+        self._git_worker = None
+
+    def _show_push_failure_dialog(self, error_msg: str) -> None:
+        """Surface a real push failure with actionable advice. The most
+        common cause on Windows is HTTPS authentication: GitHub stopped
+        accepting passwords, so the user needs a Personal Access Token
+        stored via Windows Credential Manager (which the system `git` CLI
+        talks to). If `git` isn't on PATH at all, that's a separate hint."""
+        hints = []
+        if "Authentication" in error_msg or "authentication" in error_msg:
+            hints.append(
+                "GitHub no longer accepts your account password over "
+                "HTTPS — you need a <b>Personal Access Token</b>.<br>"
+                "&nbsp;&nbsp;1. Go to <a href='https://github.com/settings/tokens'>"
+                "github.com/settings/tokens</a> → Generate new token (classic)"
+                "<br>&nbsp;&nbsp;2. Tick the <code>repo</code> scope, generate, "
+                "copy the token"
+                "<br>&nbsp;&nbsp;3. Next time the editor asks for a password, "
+                "paste the token instead of your password.")
+        elif "not found" in error_msg.lower() or "404" in error_msg:
+            hints.append(
+                "GitHub says the repository does not exist. Check that "
+                "the URL in <b>Git → Connect to GitHub</b> matches the "
+                "one shown on the repo's GitHub page (Code → HTTPS).")
+        elif "rejected" in error_msg.lower() or "non-fast-forward" in error_msg:
+            hints.append(
+                "Someone else (or another machine) pushed to this branch "
+                "since you last pulled. Use <b>Git → Download latest from "
+                "cloud</b> first, then save again.")
+        if not git_backend._system_git_available():
+            hints.append(
+                "<i>Tip: install Git for Windows so the editor can use "
+                "your Windows Credential Manager for HTTPS pushes — "
+                "<a href='https://git-scm.com/download/win'>"
+                "git-scm.com/download/win</a></i>")
+        body = (f"<b>Could not upload to cloud.</b><br><br>"
+                f"<code>{error_msg}</code>")
+        if hints:
+            body += "<br><br>" + "<br><br>".join(hints)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Upload failed")
+        box.setTextFormat(Qt.RichText)
+        box.setTextInteractionFlags(
+            Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse)
+        box.setText(body)
+        box.exec()
+
+    def _pull_from_remote(self) -> None:
+        if self.path is None:
+            QMessageBox.information(
+                self, "Download latest",
+                "You need to save this presentation first.\n\n"
+                "Use File → Save (Ctrl+S), then try again.")
+            return
+        if not git_backend.is_available():
+            self._warn_no_pygit2("Download latest")
+            return
+        remotes = git_backend.get_remotes(self.path.parent)
+        if not remotes:
+            ask = QMessageBox.question(
+                self, "Download latest",
+                "This presentation is not connected to a cloud service "
+                "yet.\n\nTo download changes from a collaborator you first "
+                "need to connect to GitHub, GitLab or another git server.\n\n"
+                "Would you like to set that up now?")
+            if ask == QMessageBox.Yes:
+                self._configure_remotes()
+            return
+        if len(remotes) == 1:
+            remote_name = remotes[0][0]
+        else:
+            names = [n for n, _ in remotes]
+            chosen, ok = QInputDialog.getItem(
+                self, "Download from…", "Which cloud service?",
+                names, 0, False)
+            if not ok:
+                return
+            remote_name = chosen
+        # Refuse a second network op while one is running — otherwise two
+        # threads race on the same repo and libgit2 can crash.
+        if self._git_worker is not None and self._git_worker.isRunning():
+            self.statusBar().showMessage(
+                "A git operation is already in progress, please wait…", 4000)
+            return
+        self._start_git_worker("pull", self.path.parent, remote_name)
+
+    def _configure_remotes(self) -> None:
+        if self.path is None:
+            QMessageBox.information(
+                self, "Connect to cloud",
+                "You need to save this presentation first so KherveSlide "
+                "knows where to create the connection.\n\n"
+                "Use File → Save (Ctrl+S), then try again.")
+            return
+        if not git_backend.is_available():
+            self._warn_no_pygit2("Connect to cloud")
+            return
+        from .remote_dialog import RemoteDialog
+        RemoteDialog(self.path.parent, self).exec()
+
+    def _show_history(self) -> None:
+        if self.path is None:
+            QMessageBox.information(
+                self, "Version history",
+                "You need to save this presentation at least once before "
+                "there is any history to show.\n\n"
+                "Use File → Save (Ctrl+S), then try again.")
+            return
+        if not git_backend.is_available():
+            self._warn_no_pygit2("Version history")
+            return
+        if not git_backend.history_detailed(self.path.parent, limit=1):
+            QMessageBox.information(
+                self, "Version history",
+                "No snapshots yet. Every time you save, KherveSlide "
+                "automatically creates a snapshot.\n\n"
+                "Save your presentation and come back here to see its "
+                "history.")
+            return
+        from .history_dialog import HistoryDialog
+        HistoryDialog(self.path.parent, self,
+                      file_stem=self._deck_stem(self.path)).exec()
+
+    def _show_branches(self) -> None:
+        """Open the history dialog (which includes branch management)
+        without file_stem filtering so all branches are visible."""
+        if self.path is None:
+            QMessageBox.information(
+                self, "Branches",
+                "Save this presentation first so the repository exists.")
+            return
+        if not git_backend.is_available():
+            self._warn_no_pygit2("Branches")
+            return
+        from .history_dialog import HistoryDialog
+        HistoryDialog(self.path.parent, self).exec()
+
+    def _reload_current(self) -> None:
+        """Re-read the current presentation from disk after an external
+        change (a successful pull, or a restore from the history dialog).
+        Best-effort: silently no-ops if the file has gone away."""
+        if self.path is None or not self.path.exists():
+            return
+        try:
+            self.open_path(self.path)
+        except Exception as exc:
+            self.statusBar().showMessage(f"Reload failed: {exc}", 6000)
+
+    def _warn_no_pygit2(self, title: str) -> None:
+        QMessageBox.warning(
+            self, title,
+            "The pygit2 library is not installed, so version control and "
+            "cloud features are unavailable.\n\n"
+            "To fix this, run:  pip install pygit2")
 
     # ---------------- recent files ----------------
     _RECENT_KEY = "recent_files"
