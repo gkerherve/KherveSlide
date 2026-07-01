@@ -25,11 +25,14 @@ _COLOUR = ["default", "albatross", "beaver", "beetle", "crane", "dolphin",
            "dove", "fly", "lily", "monarca", "orchid", "rose", "seagull",
            "seahorse", "spruce", "structure", "whale", "wolverine"]
 
+# Every package / tikz library the serializer can emit, so warming caches
+# them all (a deck using cropped images, shadows or tables then needs no net).
 _PKGS = (
     "\\usepackage{lmodern}"
     "\\usepackage[absolute,overlay]{textpos}"
-    "\\usepackage{graphicx}\\usepackage{tikz}\\usetikzlibrary{arrows.meta}"
-    "\\usepackage{colortbl}\\usepackage{geometry}")
+    "\\usepackage{graphicx}\\usepackage{tikz}"
+    "\\usetikzlibrary{arrows.meta}\\usetikzlibrary{shadows}"
+    "\\usepackage{adjustbox}\\usepackage{colortbl}\\usepackage{geometry}")
 _BODY = ("\\begin{document}\\begin{frame}{T}Hi "
          "\\begin{itemize}\\item a\\end{itemize}\\end{frame}\\end{document}")
 
@@ -65,29 +68,41 @@ def packages_cached() -> bool:
     return compile_tex(tex, wd, "probe", only_cached=True).ok
 
 
-def download_offline(on_output=None) -> bool:
-    """Compile a representative doc for every theme/colour/package combo so
-    tectonic caches them. Returns True if all compiled (or already cached)."""
+def download_offline(on_output=None, force=False) -> bool:
+    """Warm tectonic's cache with a beamer doc for the core packages and every
+    theme / colour theme, so later compiles are fully offline.
+
+    Each doc that already compiles from the cache alone is skipped (a fast
+    ``--only-cached`` probe), so this is idempotent and only fetches what's
+    genuinely missing — it no longer bails out just because the *core* packages
+    are cached (which left every theme un-warmed and still hitting the net).
+    Pass ``force=True`` to re-warm everything regardless."""
     if not tectonic_available():
         return False
-    # Already warmed? Then there's nothing to fetch — detect it up front so we
-    # don't re-cache everything on each launch / click.
-    if packages_cached():
-        if on_output:
-            on_output("Offline packages already cached — nothing to download.")
-        return True
     wd = Path(tempfile.gettempdir()) / "kherveslide_warm"
     docs = _documents()
     n = len(docs)
     ok = True
+    fetched = 0
     for i, (name, tex) in enumerate(docs, 1):
+        # Skip docs already fully cached so we don't re-download them.
+        if not force and compile_tex(tex, wd / "probe", "p", only_cached=True).ok:
+            if on_output:
+                on_output(f"[{i}/{n}] {name}: already cached")
+            continue
         if on_output:
             on_output(f"[{i}/{n}] caching {name}…")
-        result = compile_tex(tex, wd, "warm")
-        if not result.ok:
+        if compile_tex(tex, wd, "warm").ok:
+            fetched += 1
+        else:
             ok = False
     if on_output:
-        on_output("Offline cache ready — compiling now works without internet."
-                  if ok else
-                  "Some packages could not be cached (check your connection).")
+        if ok and fetched == 0:
+            on_output("Offline cache already complete — nothing to download.")
+        elif ok:
+            on_output(f"Offline cache ready ({fetched} newly cached) — "
+                      "compiling now works without internet.")
+        else:
+            on_output("Some packages could not be cached (check your "
+                      "connection) — the rest are ready for offline use.")
     return ok
