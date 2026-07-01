@@ -249,19 +249,53 @@ class PictureEditDialog(QDialog):
         if path:
             self._set_image(path)
 
+    # Clipboard tag used when a whole picture box is copied from a slide
+    # (kept in sync with SlideWindow._OBJ_MIME).
+    _OBJ_MIME = "application/x-kherveslide-objects"
+
+    @classmethod
+    def _pasted_picture_path(cls, md) -> str | None:
+        """If the clipboard holds a picture box copied from a slide, return
+        its image path."""
+        if md is None or not md.hasFormat(cls._OBJ_MIME):
+            return None
+        import json
+        try:
+            objs = json.loads(bytes(md.data(cls._OBJ_MIME)).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return None
+        for d in objs:
+            if d.get("type") == "SlidePicture" and d.get("path"):
+                return str(d["path"])
+        return None
+
     def _paste(self):
-        """Use an image (e.g. a screenshot) from the clipboard."""
-        img = QApplication.clipboard().image()
-        if img is None or img.isNull():
+        """Bring in an image from the clipboard — a picture copied from a
+        slide (our object clipboard), a raw bitmap (e.g. a screenshot), or a
+        copied image file."""
+        md = QApplication.clipboard().mimeData()
+        # 1) A picture box copied from a slide: reuse its image path directly.
+        path = self._pasted_picture_path(md)
+        if path and QPixmap(path).isNull() is False:
+            self._set_image(path)
             return
-        d = Path(tempfile.gettempdir()) / "kherveslide_pasted"
-        d.mkdir(parents=True, exist_ok=True)
-        i = 1
-        while (d / f"pasted_{i:03d}.png").exists():
-            i += 1
-        p = d / f"pasted_{i:03d}.png"
-        img.save(str(p), "PNG")
-        self._set_image(str(p))
+        # 2) A raw image on the clipboard (screenshot, copied from a browser…).
+        img = QApplication.clipboard().image()
+        if img is not None and not img.isNull():
+            d = Path(tempfile.gettempdir()) / "kherveslide_pasted"
+            d.mkdir(parents=True, exist_ok=True)
+            i = 1
+            while (d / f"pasted_{i:03d}.png").exists():
+                i += 1
+            p = d / f"pasted_{i:03d}.png"
+            img.save(str(p), "PNG")
+            self._set_image(str(p))
+            return
+        # 3) A copied image *file* (URL on the clipboard).
+        from .canvas import _dropped_image
+        fp = _dropped_image(md)
+        if fp:
+            self._set_image(fp)
 
     def _annotate(self):
         """Open the drawing dialog with this image as the background, so the

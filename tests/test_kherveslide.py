@@ -1703,6 +1703,29 @@ def test_inline_editor_copy_keeps_formatting():
     assert "$x^2$" in out
 
 
+def test_picture_editor_pastes_copied_box():
+    # Copying a picture box from a slide (our object clipboard) and pasting in
+    # the crop/rotate dialog should load that image.
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    import json, tempfile
+    from pathlib import Path
+    from PySide6.QtCore import QByteArray, QMimeData
+    from PySide6.QtGui import QColor, QPixmap
+    from kherveslide.model import SlidePicture, object_to_dict
+    from kherveslide.picture_editor import PictureEditDialog
+    imgp = Path(tempfile.gettempdir()) / "ks_pastesrc_test.png"
+    pm = QPixmap(40, 30); pm.fill(QColor("#3388cc")); pm.save(str(imgp), "PNG")
+    md = QMimeData()
+    md.setData(PictureEditDialog._OBJ_MIME, QByteArray(json.dumps(
+        [object_to_dict(SlidePicture(path=str(imgp)))]).encode("utf-8")))
+    QApplication.clipboard().setMimeData(md)
+    dlg = PictureEditDialog(SlidePicture(path=""))
+    assert dlg.path == ""
+    dlg._paste()
+    assert dlg.path == str(imgp)
+
+
 def test_rich_edit_round_trip_keeps_lists():
     # Editing renders bullets (not \item); committing turns them back into
     # itemize. Needs a Qt app for QTextDocument.
