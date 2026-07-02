@@ -51,9 +51,16 @@ def edit_box_style(o, parent=None) -> bool:
     dlg.setWindowTitle("Box style")
     form = QFormLayout(dlg)
     state = {"fill": getattr(o, "fill", ""),
+             "fill2": getattr(o, "fill2", ""),
              "border_color": getattr(o, "border_color", "")}
 
     form.addRow("Fill colour", colour_button(state, "fill", dlg))
+    form.addRow("Gradient to (2nd colour)",
+                colour_button(state, "fill2", dlg))
+    grad = QComboBox(); grad.addItems(["vertical", "horizontal"])
+    grad.setCurrentText(getattr(o, "gradient", "vertical"))
+    grad.setToolTip("Gradient direction — used when a 2nd colour is set")
+    form.addRow("Gradient direction", grad)
     fill_op = QDoubleSpinBox(); fill_op.setRange(0.0, 1.0)
     fill_op.setSingleStep(0.05); fill_op.setValue(getattr(o, "fill_opacity", 1.0))
     form.addRow("Fill opacity", fill_op)
@@ -79,6 +86,8 @@ def edit_box_style(o, parent=None) -> bool:
     if not dlg.exec():
         return False
     o.fill = state["fill"]
+    o.fill2 = state["fill2"]
+    o.gradient = grad.currentText()
     o.fill_opacity = fill_op.value()
     o.border_color = state["border_color"]
     o.border_width = width.value()
@@ -94,7 +103,8 @@ def edit_shape(o, parent=None) -> bool:
     dlg = QDialog(parent)
     dlg.setWindowTitle("Shape properties")
     form = QFormLayout(dlg)
-    state = {"fill": o.fill, "border_color": o.border_color}
+    state = {"fill": o.fill, "fill2": getattr(o, "fill2", ""),
+             "border_color": o.border_color}
 
     shape = QComboBox()
     for key, label in shapes.LABELS.items():
@@ -103,6 +113,12 @@ def edit_shape(o, parent=None) -> bool:
     shape.setCurrentIndex(cur if cur >= 0 else 0)
     form.addRow("Shape", shape)
     form.addRow("Fill colour", colour_button(state, "fill", dlg))
+    form.addRow("Gradient to (2nd colour)",
+                colour_button(state, "fill2", dlg))
+    grad = QComboBox(); grad.addItems(["vertical", "horizontal"])
+    grad.setCurrentText(getattr(o, "gradient", "vertical"))
+    grad.setToolTip("Gradient direction — used when a 2nd colour is set")
+    form.addRow("Gradient direction", grad)
     form.addRow("Outline colour", colour_button(state, "border_color", dlg))
     width = QDoubleSpinBox(); width.setRange(0.0, 20.0)
     width.setSingleStep(0.5); width.setValue(o.border_width)
@@ -126,6 +142,8 @@ def edit_shape(o, parent=None) -> bool:
         return False
     o.shape = shape.currentData()
     o.fill = state["fill"]
+    o.fill2 = state["fill2"]
+    o.gradient = grad.currentText()
     o.border_color = state["border_color"]
     o.border_width = width.value()
     o.style = style.currentText()

@@ -2993,6 +2993,12 @@ class SlideWindow(QMainWindow):
             self.deck.theme_spec = dlg.result_spec
             if dlg.result_master is not None:
                 self.deck.master = dlg.result_master
+            # The builder can also pick / switch off the base beamer theme.
+            if dlg.result_base_theme is not None:
+                self.deck.theme = dlg.result_base_theme
+            if dlg.result_color_theme is not None:
+                self.deck.color_theme = dlg.result_color_theme
+            self._sync_theme_menus()
             if dlg.result_spec.enabled:
                 # Custom themes touch decorated elements — show them.
                 self.deck.plain_frames = False

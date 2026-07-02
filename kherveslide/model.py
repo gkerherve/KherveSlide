@@ -40,6 +40,11 @@ class SlideText:
     font_family: str = ""         # "" theme | rm serif | sf sans | tt mono
     color: str = "#000000"        # hex, foreground
     fill: str = ""                # hex box background, "" = transparent
+    # Gradient fill: when both fill and fill2 are set the box background is a
+    # smooth blend from fill to fill2, running top→bottom ("vertical") or
+    # left→right ("horizontal").
+    fill2: str = ""
+    gradient: str = "vertical"    # vertical | horizontal (used when fill2 set)
     align: str = "left"           # left | center | right
     bold: bool = False
     italic: bool = False
@@ -81,6 +86,8 @@ class SlidePicture:
     crop_b: float = 0.0
     rotation: float = 0.0       # degrees, clockwise, about the centre
     fill: str = ""              # box background colour ("" = none)
+    fill2: str = ""             # gradient second colour (see SlideText.fill2)
+    gradient: str = "vertical"
     border_color: str = ""      # box frame colour ("" = none)
     border_width: float = 1.0
     corner: str = "sharp"
@@ -130,6 +137,8 @@ class SlideTable:
     stripe_color: str = "#F5F5F5"       # alternate body-row colour
     # Box frame (drawn around the whole table box, separate from the grid).
     fill: str = ""             # box background colour ("" = none)
+    fill2: str = ""            # gradient second colour (see SlideText.fill2)
+    gradient: str = "vertical"
     border_color: str = ""     # box frame colour ("" = none)
     border_width: float = 1.0
     corner: str = "sharp"
@@ -178,6 +187,8 @@ class SlideShape:
     h: float = 0.22
     shape: str = "rect"         # rect | ellipse
     fill: str = ""              # hex fill colour ("" = no fill)
+    fill2: str = ""             # gradient second colour (see SlideText.fill2)
+    gradient: str = "vertical"  # vertical | horizontal (used when fill2 set)
     border_color: str = "#000000"   # outline colour ("" = no outline)
     border_width: float = 1.5   # pt
     style: str = "solid"        # solid | dashed | dotted
@@ -218,7 +229,11 @@ class ThemeSpec:
     bullets: str = ""          # default|circle|square|ball|triangle
     structure: str = ""        # hex — drives many derived beamer colours
     text_fg: str = ""          # normal text
-    canvas_bg: str = ""        # slide background canvas
+    canvas_bg: str = ""        # slide background canvas (gradient top)
+    # Background gradient: when both canvas_bg and canvas_bg2 are set, the
+    # slide background shades vertically from canvas_bg (top) to canvas_bg2
+    # (bottom) instead of a flat colour.
+    canvas_bg2: str = ""
     title_fg: str = ""         # frametitle / title foreground
     title_bg: str = ""         # frametitle background
     block_bg: str = ""         # block title background
@@ -298,6 +313,8 @@ def _build_object(d: dict) -> SlideObject:
             font_family=str(d.get("font_family", "")),
             color=str(d.get("color", "#000000")),
             fill=str(d.get("fill", "")),
+            fill2=str(d.get("fill2", "")),
+            gradient=str(d.get("gradient", "vertical")),
             align=str(d.get("align", "left")),
             bold=bool(d.get("bold", False)),
             italic=bool(d.get("italic", False)),
@@ -326,6 +343,8 @@ def _build_object(d: dict) -> SlideObject:
             crop_b=float(d.get("crop_b", 0.0)),
             rotation=float(d.get("rotation", 0.0)),
             fill=str(d.get("fill", "")),
+            fill2=str(d.get("fill2", "")),
+            gradient=str(d.get("gradient", "vertical")),
             border_color=str(d.get("border_color", "")),
             border_width=float(d.get("border_width", 1.0)),
             corner=str(d.get("corner", "sharp")),
@@ -359,6 +378,8 @@ def _build_object(d: dict) -> SlideObject:
             striped=bool(d.get("striped", False)),
             stripe_color=str(d.get("stripe_color", "#F5F5F5")),
             fill=str(d.get("fill", "")),
+            fill2=str(d.get("fill2", "")),
+            gradient=str(d.get("gradient", "vertical")),
             border_color=str(d.get("border_color", "")),
             border_width=float(d.get("border_width", 1.0)),
             corner=str(d.get("corner", "sharp")),
@@ -389,6 +410,8 @@ def _build_object(d: dict) -> SlideObject:
             w=float(d.get("w", 0.28)), h=float(d.get("h", 0.22)),
             shape=str(d.get("shape", "rect")),
             fill=str(d.get("fill", "")),
+            fill2=str(d.get("fill2", "")),
+            gradient=str(d.get("gradient", "vertical")),
             border_color=str(d.get("border_color", "#000000")),
             border_width=float(d.get("border_width", 1.5)),
             style=str(d.get("style", "solid")),
@@ -486,6 +509,7 @@ def _build_theme_spec(d: dict) -> ThemeSpec:
         structure=str(d.get("structure", "")),
         text_fg=str(d.get("text_fg", "")),
         canvas_bg=str(d.get("canvas_bg", "")),
+        canvas_bg2=str(d.get("canvas_bg2", "")),
         title_fg=str(d.get("title_fg", "")),
         title_bg=str(d.get("title_bg", "")),
         block_bg=str(d.get("block_bg", "")),

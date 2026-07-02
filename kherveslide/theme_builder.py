@@ -41,10 +41,26 @@ _COLOURS = [
     ("structure", "Structure (accent)"),
     ("text_fg", "Text colour"),
     ("canvas_bg", "Background"),
+    ("canvas_bg2", "Background gradient ↓"),
     ("title_fg", "Title text"),
     ("title_bg", "Title bar"),
     ("block_bg", "Block title bar"),
     ("rule_color", "Line colour"),
+]
+
+# Fallbacks when the caller doesn't hand in the app's theme lists.
+_BASE_THEMES = [
+    "default", "AnnArbor", "Antibes", "Bergen", "Berkeley", "Berlin",
+    "Boadilla", "CambridgeUS", "Copenhagen", "Darmstadt", "Dresden",
+    "Frankfurt", "Goettingen", "Hannover", "Ilmenau", "JuanLesPins",
+    "Luebeck", "Madrid", "Malmoe", "Marburg", "Montpellier", "PaloAlto",
+    "Pittsburgh", "Rochester", "Singapore", "Szeged", "Warsaw",
+    "metropolis", "Auriga", "Trigon", "sintef",
+]
+_BASE_COLOURS = [
+    "", "default", "albatross", "beaver", "beetle", "crane", "dolphin",
+    "dove", "fly", "lily", "monarca", "orchid", "rose", "seagull",
+    "seahorse", "spruce", "structure", "whale", "wolverine",
 ]
 
 
@@ -90,9 +106,11 @@ class ThemeBuilderDialog(QDialog):
                  parent=None):
         super().__init__(parent)
         self.setWindowTitle("Theme builder")
-        self.resize(960, 620)
+        self.resize(980, 640)
         self.result_spec: ThemeSpec | None = None
         self.result_master: Slide | None = None
+        self.result_base_theme: str | None = None
+        self.result_color_theme: str | None = None
         self._base, self._color, self._aspect = base_theme, color_theme, aspect
         # Edit a copy so Cancel discards the master edits; only Apply commits.
         self._master = copy.deepcopy(master) if master is not None else Slide()
@@ -110,9 +128,35 @@ class ThemeBuilderDialog(QDialog):
         controls.setMaximumWidth(380)
         root.addWidget(controls)
 
-        self._enabled = QCheckBox("Apply this custom theme (uncheck to "
-                                  "turn it off)")
-        self._enabled.setChecked(True)
+        # --- base theme: pick (or switch off) the underlying beamer theme
+        # right here — "default" is the plain, theme-less starting point. ---
+        v.addWidget(QLabel("<b>Base theme</b> (“default” = no theme)"))
+        bform = QFormLayout()
+        self._base_combo = QComboBox()
+        for name in _BASE_THEMES:
+            self._base_combo.addItem(name, name)
+        i = self._base_combo.findData(base_theme or "default")
+        self._base_combo.setCurrentIndex(max(0, i))
+        self._base_combo.currentIndexChanged.connect(self._on_base_changed)
+        bform.addRow("Beamer theme", self._base_combo)
+        self._colortheme_combo = QComboBox()
+        for name in _BASE_COLOURS:
+            self._colortheme_combo.addItem(name or "(theme default)", name)
+        i = self._colortheme_combo.findData(color_theme)
+        self._colortheme_combo.setCurrentIndex(max(0, i))
+        self._colortheme_combo.currentIndexChanged.connect(self._on_base_changed)
+        bform.addRow("Colour theme", self._colortheme_combo)
+        v.addLayout(bform)
+
+        self._enabled = QCheckBox("Use the custom overrides below "
+                                  "(uncheck to keep just the base theme)")
+        # Reflect the spec's real state so re-opening the builder shows
+        # whether the overrides are currently on; a fresh spec starts on.
+        has_overrides = any([
+            spec.inner, spec.outer, spec.fonts, spec.bullets,
+            spec.frametitle_size, spec.title_rule, spec.footline_rule,
+            *(getattr(spec, k, "") for k, _ in _COLOURS)])
+        self._enabled.setChecked(spec.enabled or not has_overrides)
         self._enabled.toggled.connect(self._schedule)
         v.addWidget(self._enabled)
 
@@ -241,9 +285,18 @@ class ThemeBuilderDialog(QDialog):
             **self._colours,
         )
 
+    def _on_base_changed(self, *_):
+        """The base theme / colour theme combo changed — re-render the
+        backdrop with the new underlying theme."""
+        self._base = self._base_combo.currentData() or "default"
+        self._color = self._colortheme_combo.currentData() or ""
+        self._schedule()
+
     def _apply(self):
         self.result_spec = self._current_spec()
         self.result_master = self._master
+        self.result_base_theme = self._base_combo.currentData() or "default"
+        self.result_color_theme = self._colortheme_combo.currentData() or ""
         self.accept()
 
     # -- live preview --

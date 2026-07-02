@@ -13,8 +13,9 @@ import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QPainter, QPen, QPixmap, QPolygonF, QTextCharFormat,
-    QTextCursor, QTextDocument, QTextListFormat, QTextOption,
+    QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, QPixmap,
+    QPolygonF, QTextCharFormat, QTextCursor, QTextDocument, QTextListFormat,
+    QTextOption,
 )
 from PySide6.QtWidgets import (
     QGraphicsItem, QGraphicsObject, QGraphicsScene, QGraphicsView,
@@ -527,9 +528,8 @@ class BoxItem(QGraphicsObject):
             _draw()
             painter.restore()
         if fill:
-            c = QColor(fill)
-            c.setAlphaF(max(0.0, min(1.0, getattr(o, "fill_opacity", 1.0))))
-            painter.setBrush(c)
+            painter.setBrush(fill_brush(o, self._rect,
+                                        getattr(o, "fill_opacity", 1.0)))
         else:
             painter.setBrush(Qt.NoBrush)
         if bc and bw > 0:
@@ -1051,6 +1051,26 @@ _PEN_STYLE = {"solid": Qt.SolidLine, "dashed": Qt.DashLine,
               "dotted": Qt.DotLine}
 
 
+def fill_brush(obj, rect, alpha: float = 1.0) -> QBrush:
+    """The brush for an object's fill: a linear gradient from ``fill`` to
+    ``fill2`` (top→bottom or left→right) when both are set, else the solid
+    ``fill`` colour. *alpha* multiplies in the fill opacity."""
+    c1 = QColor(obj.fill)
+    c1.setAlphaF(max(0.0, min(1.0, alpha)))
+    fill2 = getattr(obj, "fill2", "")
+    if not fill2:
+        return QBrush(c1)
+    c2 = QColor(fill2)
+    c2.setAlphaF(c1.alphaF())
+    if getattr(obj, "gradient", "vertical") == "horizontal":
+        g = QLinearGradient(rect.topLeft(), rect.topRight())
+    else:
+        g = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+    g.setColorAt(0.0, c1)
+    g.setColorAt(1.0, c2)
+    return QBrush(g)
+
+
 class ShapeBoxItem(BoxItem):
     """Any vector shape (rectangle, ellipse, polygon, arrow, star…) with
     editable fill / outline / corners / rotation."""
@@ -1067,7 +1087,7 @@ class ShapeBoxItem(BoxItem):
             painter.rotate(obj.rotation)
             painter.translate(-c)
         if obj.fill:
-            painter.setBrush(QBrush(QColor(obj.fill)))
+            painter.setBrush(fill_brush(obj, r))
         else:
             painter.setBrush(Qt.NoBrush)
         if obj.border_color and obj.border_width > 0:

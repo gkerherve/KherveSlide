@@ -1575,6 +1575,60 @@ def test_deck_replace_clears_latex_override(monkeypatch):
     assert "junk" not in w.latex_view.source()
 
 
+# --- gradient fills + gradient background ---
+
+def test_gradient_fields_round_trip():
+    deck = Deck(slides=[Slide(objects=[
+        SlideShape(shape="rect", fill="#FF0000", fill2="#0000FF",
+                   gradient="horizontal"),
+        SlideText(text="x", fill="#FFFFFF", fill2="#CCCCCC"),
+    ])], theme_spec=ThemeSpec(enabled=True, canvas_bg="#FFFFFF",
+                              canvas_bg2="#DDEEFF"))
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
+def test_shape_gradient_uses_tikz_shading():
+    deck = Deck(slides=[Slide(objects=[
+        SlideShape(shape="rect", fill="#FF0000", fill2="#0000FF")])],
+        nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "top color=ksfill" in tex and "bottom color=ksfillb" in tex
+    assert "fill=ksfill0" not in tex          # shading replaces the flat fill
+
+    deck.slides[0].objects[0].gradient = "horizontal"
+    tex = serialize_deck(deck)
+    assert "left color=ksfill" in tex and "right color=ksfillb" in tex
+
+
+def test_box_gradient_uses_tikz_shading():
+    deck = Deck(slides=[Slide(objects=[
+        SlideText(text="x", fill="#FFFFFF", fill2="#AACCEE",
+                  locked=False)])], nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "top color=ksBoxFill" in tex and "bottom color=ksBoxFillB" in tex
+
+
+def test_theme_background_gradient():
+    deck = Deck(slides=[Slide()], theme_spec=ThemeSpec(
+        enabled=True, canvas_bg="#FFFFFF", canvas_bg2="#CCE0FF"))
+    tex = serialize_deck(deck)
+    assert ("\\setbeamertemplate{background canvas}"
+            "[vertical shading][top=ksBgTop,bottom=ksBgBot]") in tex
+    # A flat background (no 2nd colour) keeps the plain beamercolor route.
+    deck.theme_spec.canvas_bg2 = ""
+    tex = serialize_deck(deck)
+    assert "vertical shading" not in tex
+
+
+def test_slide_bg_resets_shading_template():
+    # A per-slide flat colour must beat a theme-level gradient: the scoped
+    # group resets the canvas template to [default].
+    deck = Deck(slides=[Slide(bg="#123456")], theme_spec=ThemeSpec(
+        enabled=True, canvas_bg="#FFFFFF", canvas_bg2="#CCE0FF"))
+    tex = serialize_deck(deck)
+    assert "\\setbeamertemplate{background canvas}[default]" in tex
+
+
 def test_nav_tickbox_and_menu_stay_in_sync(monkeypatch):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])

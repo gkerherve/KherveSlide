@@ -152,7 +152,16 @@ def _frame_wrap(inner: str, obj, text_width: str | None = None) -> str:
             opts.append(st)
     if fc:
         pre.append(f"\\definecolor{{ksBoxFill}}{{HTML}}{{{fc}}}")
-        opts.append("fill=ksBoxFill")
+        fc2 = _hex_to_rgb_arg(getattr(obj, "fill2", ""))
+        if fc2:
+            # Gradient box background (top→bottom or left→right).
+            pre.append(f"\\definecolor{{ksBoxFillB}}{{HTML}}{{{fc2}}}")
+            if getattr(obj, "gradient", "vertical") == "horizontal":
+                opts += ["left color=ksBoxFill", "right color=ksBoxFillB"]
+            else:
+                opts += ["top color=ksBoxFill", "bottom color=ksBoxFillB"]
+        else:
+            opts.append("fill=ksBoxFill")
         fo = getattr(obj, "fill_opacity", 1.0)
         if fo < 1.0:
             opts.append(f"fill opacity={_fmt(fo)}")
@@ -436,7 +445,16 @@ def _theme_spec_lines(spec) -> list[str]:
 
     set_color("structure", fg=spec.structure)
     set_color("normal text", fg=spec.text_fg)
-    set_color("background canvas", bg=spec.canvas_bg)
+    bg1 = _hex_to_rgb_arg(spec.canvas_bg or "")
+    bg2 = _hex_to_rgb_arg(getattr(spec, "canvas_bg2", "") or "")
+    if bg1 and bg2:
+        # Gradient slide background: beamer's vertical-shading canvas.
+        lines.append(f"\\definecolor{{ksBgTop}}{{HTML}}{{{bg1}}}")
+        lines.append(f"\\definecolor{{ksBgBot}}{{HTML}}{{{bg2}}}")
+        lines.append("\\setbeamertemplate{background canvas}"
+                     "[vertical shading][top=ksBgTop,bottom=ksBgBot]")
+    else:
+        set_color("background canvas", bg=spec.canvas_bg)
     set_color("frametitle", fg=spec.title_fg, bg=spec.title_bg)
     set_color("title", fg=spec.title_fg)
     set_color("block title", bg=spec.block_bg)
@@ -532,7 +550,17 @@ def _shape_tikz(obj: SlideShape, idx: int, pt, center: str,
     if obj.fill:
         defs += (f"\\definecolor{{ksfill{idx}}}{{HTML}}"
                  f"{{{_hex_to_rgb_arg(obj.fill) or 'ffffff'}}}%\n")
-        opts.append(f"fill=ksfill{idx}")
+        if getattr(obj, "fill2", ""):
+            # Gradient fill: tikz shades between the two colours, top→bottom
+            # (vertical) or left→right (horizontal).
+            defs += (f"\\definecolor{{ksfillb{idx}}}{{HTML}}"
+                     f"{{{_hex_to_rgb_arg(obj.fill2) or 'ffffff'}}}%\n")
+            if getattr(obj, "gradient", "vertical") == "horizontal":
+                opts += [f"left color=ksfill{idx}", f"right color=ksfillb{idx}"]
+            else:
+                opts += [f"top color=ksfill{idx}", f"bottom color=ksfillb{idx}"]
+        else:
+            opts.append(f"fill=ksfill{idx}")
     if obj.border_color and obj.border_width > 0:
         defs += (f"\\definecolor{{ksshape{idx}}}{{HTML}}"
                  f"{{{_hex_to_rgb_arg(obj.border_color) or '000000'}}}%\n")
@@ -774,8 +802,11 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
     bg_canvas = []
     if bg:
         cname = f"ksbg{index}"
+        # [default] resets any theme-level shading template so this slide's
+        # flat colour actually shows (a shading ignores the bg beamercolor).
         bg_canvas = [f"\\definecolor{{{cname}}}{{HTML}}{{{bg}}}",
-                     f"\\setbeamercolor{{background canvas}}{{bg={cname}}}"]
+                     f"\\setbeamercolor{{background canvas}}{{bg={cname}}}",
+                     "\\setbeamertemplate{background canvas}[default]"]
 
     # The frame background TEMPLATE (drawn behind the flow body, over the
     # canvas) carries the master slide and this slide's "behind" shapes.
