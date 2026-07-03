@@ -169,6 +169,11 @@ class MasterSlideEditor(QWidget):
         return tb
 
     # ---------------- scene ----------------
+    def refresh(self):
+        """Rebuild the canvas from ``self.master.objects`` — for hosts that
+        replace the master's objects wholesale (e.g. loading a saved theme)."""
+        self._reload()
+
     def set_page_color(self, hex_color: str):
         """Recolour the canvas page (e.g. to follow the theme's background)."""
         self._page_color = hex_color or "#FFFFFF"

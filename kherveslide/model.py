@@ -226,6 +226,10 @@ class ThemeSpec:
     inner: str = ""            # default|circles|rectangles|rounded|inmargin
     outer: str = ""            # default|infolines|miniframes|smoothbars|…|tree
     fonts: str = ""            # default|serif|professionalfonts|structurebold|…
+    # A real typeface for the whole presentation (PowerPoint's "theme
+    # fonts"): a key into serializer.FONT_FAMILIES ("helvetica", "fira",
+    # "times", …). "" = keep the base theme's font.
+    font_family: str = ""
     bullets: str = ""          # default|circle|square|ball|triangle
     structure: str = ""        # hex — drives many derived beamer colours
     text_fg: str = ""          # normal text
@@ -505,6 +509,7 @@ def _build_theme_spec(d: dict) -> ThemeSpec:
         inner=str(d.get("inner", "")),
         outer=str(d.get("outer", "")),
         fonts=str(d.get("fonts", "")),
+        font_family=str(d.get("font_family", "")),
         bullets=str(d.get("bullets", "")),
         structure=str(d.get("structure", "")),
         text_fg=str(d.get("text_fg", "")),

@@ -1967,3 +1967,90 @@ def test_master_line_uses_overlay_anchoring():
     deck = Deck(master=Slide(objects=[SlideLine()]),
                 slides=[Slide(objects=[SlideText(text="x", locked=True)])])
     assert "remember picture,overlay" in serialize_deck(deck)
+
+
+# --- theme fonts, .sty export, custom theme store ---
+
+def test_font_family_round_trip():
+    deck = Deck(slides=[Slide()],
+                theme_spec=ThemeSpec(enabled=True, font_family="fira"))
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
+def test_font_family_emits_package_after_lmodern():
+    deck = Deck(slides=[Slide()],
+                theme_spec=ThemeSpec(enabled=True, font_family="fira"))
+    tex = serialize_deck(deck)
+    assert "\\usepackage[sfdefault]{FiraSans}" in tex
+    # lmodern resets the default families, so the typeface must come after.
+    assert tex.index("\\usepackage{lmodern}") < tex.index("FiraSans")
+
+
+def test_serif_font_family_switches_font_theme():
+    deck = Deck(slides=[Slide()],
+                theme_spec=ThemeSpec(enabled=True, font_family="palatino"))
+    tex = serialize_deck(deck)
+    assert "\\usepackage{newpxtext}" in tex
+    assert "\\usefonttheme{serif}" in tex
+
+
+def test_font_family_disabled_or_unknown_emits_nothing():
+    tex = serialize_deck(Deck(slides=[Slide()], theme_spec=ThemeSpec(
+        enabled=False, font_family="fira")))
+    assert "FiraSans" not in tex
+    tex = serialize_deck(Deck(slides=[Slide()], theme_spec=ThemeSpec(
+        enabled=True, font_family="nosuch")))
+    assert "nosuch" not in tex
+
+
+def test_theme_to_sty_is_a_usable_beamer_theme():
+    from kherveslide.serializer import theme_to_sty
+    spec = ThemeSpec(structure="#CC3300", title_rule=True, font_family="fira")
+    sty = theme_to_sty(spec, "My Cool Theme!", base_theme="Madrid",
+                       color_theme="beaver")
+    assert "\\ProvidesPackage{beamerthemeMyCoolTheme}" in sty
+    assert "\\mode<presentation>" in sty and "\\mode<all>" in sty
+    assert "\\usetheme{Madrid}" in sty
+    assert "\\usecolortheme{beaver}" in sty
+    assert "\\definecolor{ksth0}{HTML}{CC3300}" in sty
+    # The export always emits the overrides, even if the spec was toggled
+    # off in the deck (an exported theme with nothing in it is useless).
+    assert "FiraSans" in sty
+
+
+def test_custom_theme_store_round_trip(tmp_path):
+    from kherveslide import custom_themes
+    spec = ThemeSpec(enabled=True, structure="#123456", font_family="lato")
+    master = Slide(objects=[SlideText(text="LOGO", x=0.8, y=0.9,
+                                      w=0.15, h=0.06)])
+    custom_themes.save_theme("Corp deck", spec, master, base_theme="Berlin",
+                             color_theme="seagull", directory=tmp_path)
+    loaded = custom_themes.load_themes(directory=tmp_path)
+    assert list(loaded) == ["Corp deck"]
+    t = loaded["Corp deck"]
+    assert t["spec"] == spec
+    assert t["master"].objects == master.objects
+    assert t["base_theme"] == "Berlin" and t["color_theme"] == "seagull"
+    # Saving under the same name overwrites; deleting empties the store.
+    custom_themes.save_theme("Corp deck", ThemeSpec(), Slide(),
+                             directory=tmp_path)
+    assert (custom_themes.load_themes(directory=tmp_path)["Corp deck"]["spec"]
+            == ThemeSpec())
+    assert custom_themes.delete_theme("Corp deck", directory=tmp_path)
+    assert custom_themes.load_themes(directory=tmp_path) == {}
+
+
+def test_import_sty_names_beamer_themes(tmp_path):
+    from kherveslide import custom_themes
+    src = tmp_path / "src"
+    src.mkdir()
+    theme = src / "beamerthemeNord.sty"
+    theme.write_text("% theme", encoding="utf-8")
+    helper = src / "colors.sty"
+    helper.write_text("% helper", encoding="utf-8")
+    dest = tmp_path / "styles"
+    assert custom_themes.import_sty(theme, directory=dest) == "Nord"
+    # A non-theme .sty is copied as a support file, not offered as a theme.
+    assert custom_themes.import_sty(helper, directory=dest) == ""
+    assert custom_themes.installed_sty_themes(directory=dest) == ["Nord"]
+    assert (dest / "colors.sty").exists()

@@ -453,6 +453,16 @@ def compile_tex(
                 dest = workdir / child.name
                 if not dest.exists():
                     shutil.copytree(child, dest)
+    # User-imported theme/style files (e.g. a beamertheme<X>.sty pulled
+    # from an Overleaf template) live in the style dirs; copy them in too,
+    # since tectonic can't be trusted to honour TEXINPUTS for them. A
+    # newer user copy replaces a stale workdir one.
+    from . import style_manager
+    for sd in style_manager.all_style_dirs():
+        for f in sd.glob("*.sty"):
+            dest = workdir / f.name
+            if not dest.exists() or f.stat().st_mtime > dest.stat().st_mtime:
+                shutil.copy2(f, dest)
     if skip_images:
         tex_source = _strip_images(tex_source)
     else:

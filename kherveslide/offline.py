@@ -48,6 +48,13 @@ def _documents() -> list[tuple[str, str]]:
         docs.append((f"colours {c}",
                      f"\\documentclass{{beamer}}\\usecolortheme{{{c}}}"
                      + _PKGS + _BODY))
+    # The theme builder's typefaces (serializer.FONT_FAMILIES) are extra
+    # CTAN packages — warm them too so a themed deck compiles offline.
+    from .serializer import FONT_FAMILIES
+    for key, (_label, pkg_lines) in FONT_FAMILIES.items():
+        docs.append((f"font {key}",
+                     "\\documentclass{beamer}" + _PKGS + "".join(pkg_lines)
+                     + _BODY))
     return docs
 
 
