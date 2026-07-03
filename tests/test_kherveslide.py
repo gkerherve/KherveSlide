@@ -1902,6 +1902,38 @@ def test_pptx_import_maps_shapes(tmp_path):
     serialize_deck(deck)            # the imported deck serialises cleanly
 
 
+def test_pptx_import_extracts_embedded_video(tmp_path):
+    from kherveslide import pptx_import
+    from kherveslide.model import SlideVideo
+    if not pptx_import.available():
+        pytest.skip("python-pptx not installed")
+    from pptx import Presentation
+    from pptx.util import Inches
+    payload = b"\x00fake-video-bytes"
+    src_vid = tmp_path / "clip.mp4"
+    src_vid.write_bytes(payload)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])   # blank layout
+    slide.shapes.add_movie(str(src_vid), Inches(1), Inches(1),
+                           Inches(4), Inches(3), mime_type="video/mp4")
+    src = tmp_path / "deck.pptx"
+    prs.save(str(src))
+
+    deck = pptx_import.import_pptx(src, tmp_path / "media")
+    vids = [o for o in deck.slides[0].objects if isinstance(o, SlideVideo)]
+    assert len(vids) == 1
+    v = vids[0]
+    # The embedded bytes are extracted next to the images, byte-for-byte.
+    assert v.path.endswith(".mp4")
+    from pathlib import Path as _P
+    assert _P(v.path).read_bytes() == payload
+    # PowerPoint's poster frame comes across as the box's poster image.
+    assert v.poster and _P(v.poster).exists()
+    assert v.locked is False
+    assert 0 < v.x < 1 and 0 < v.w < 1
+    serialize_deck(deck)            # the imported deck serialises cleanly
+
+
 # --- master slide (painted behind every slide) ---
 
 def _master_deck():

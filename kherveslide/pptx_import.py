@@ -5,16 +5,19 @@ free-positioned (unlocked) objects: each shape's EMU geometry becomes a
 0..1 fraction of the slide, and the deck's page size is set to the
 PowerPoint slide size so fonts (in points) land at the right scale.
 
-Best-effort: text runs keep bold/italic/colour/alignment, pictures are
-extracted to a media folder, tables and straight connectors come across.
-Anything unrecognised is skipped rather than aborting the import. Needs
-the optional ``python-pptx`` package.
+Best-effort: text runs keep bold/italic/colour/alignment, pictures and
+embedded videos (with their poster frames) are extracted to a media
+folder, tables and straight connectors come across. Anything
+unrecognised is skipped rather than aborting the import. Needs the
+optional ``python-pptx`` package.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from .model import Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine
+from .model import (
+    Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideVideo,
+)
 
 _EMU_PER_CM = 360000.0
 
@@ -117,6 +120,43 @@ def _is_title(shape) -> bool:
     return False
 
 
+def _extract_movie(shape, media: Path, n: int) -> tuple[str, str]:
+    """Pull the video (and its poster frame) out of a movie shape.
+    Returns ``(video_path, poster_path)``, empty strings when missing.
+
+    An embedded video lives as a media part inside the .pptx zip, pointed
+    at by the shape's ``<a:videoFile r:link="rIdN"/>``; its bytes are
+    written out next to the extracted images. A *linked* (not embedded)
+    video keeps its original location. Audio media has ``a:audioFile``
+    instead and is skipped."""
+    from pptx.oxml.ns import qn
+
+    els = shape._element.xpath(".//a:videoFile")
+    if not els:
+        return "", ""
+    rel = shape.part.rels[els[0].get(qn("r:link"))]
+    if rel.is_external:
+        video = rel.target_ref
+    else:
+        part = rel.target_part
+        ext = Path(str(part.partname)).suffix or ".mp4"
+        media.mkdir(parents=True, exist_ok=True)
+        out = media / f"video_{n:03d}{ext}"
+        out.write_bytes(part.blob)
+        video = str(out)
+    poster = ""
+    try:
+        img = shape.poster_frame
+        if img is not None:
+            media.mkdir(parents=True, exist_ok=True)
+            p = media / f"video_{n:03d}_poster.{img.ext}"
+            p.write_bytes(img.blob)
+            poster = str(p)
+    except Exception:
+        poster = ""              # no poster is fine — placeholder shows
+    return video, poster
+
+
 def import_pptx(path, media_dir) -> Deck:
     """Parse *path* (a .pptx) into a :class:`Deck`. Extracted images are
     written under *media_dir*."""
@@ -127,6 +167,7 @@ def import_pptx(path, media_dir) -> Deck:
     sw, sh = prs.slide_width, prs.slide_height
     media = Path(media_dir)
     img_n = 0
+    vid_n = 0
     slides: list[Slide] = []
 
     for slide in prs.slides:
@@ -150,6 +191,13 @@ def import_pptx(path, media_dir) -> Deck:
                     objs.append(SlidePicture(
                         x=x, y=y, w=w or 0.3, h=h or 0.3, path=str(fname),
                         keep_aspect=False, locked=False))
+                elif shape.shape_type == MSO_SHAPE_TYPE.MEDIA:
+                    vid_n += 1
+                    video, poster = _extract_movie(shape, media, vid_n)
+                    if video:
+                        objs.append(SlideVideo(
+                            x=x, y=y, w=w or 0.5, h=h or 0.4,
+                            path=video, poster=poster, locked=False))
                 elif shape.shape_type == MSO_SHAPE_TYPE.LINE:
                     objs.append(SlideLine(x=x, y=y, w=w, h=h, locked=False))
                 elif shape.has_text_frame and shape.text_frame.text.strip():
