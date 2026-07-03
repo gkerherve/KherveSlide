@@ -51,7 +51,7 @@ def main() -> int:
     app.setApplicationName("KherveSlide")
     app.setWindowIcon(icons.app_icon())
     settings = QSettings("kherveDOC", "KherveSlide")
-    theme_name = settings.value("theme_name", "Light")
+    theme_name = settings.value("theme_name", themes.DEFAULT_THEME)
     theme = themes.apply_theme(app, theme_name)
     dark = themes.is_dark(theme_name)
     icons.set_dark(dark)

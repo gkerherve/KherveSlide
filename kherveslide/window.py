@@ -432,7 +432,7 @@ class SlideWindow(QMainWindow):
             "skip_images", False, type=bool)
 
         self._theme_name = QSettings("kherveDOC", "KherveSlide").value(
-            "theme_name", "Light")
+            "theme_name", themes.DEFAULT_THEME)
         self._editor_scheme = QSettings("kherveDOC", "KherveSlide").value(
             "editor_scheme", None) or None
         if self._editor_scheme not in EDITOR_SCHEMES:

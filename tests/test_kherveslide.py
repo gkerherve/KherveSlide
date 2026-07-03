@@ -2060,8 +2060,10 @@ def test_window_themes_define_the_full_key_set():
     # Every appearance theme must define every colour key the QPalette
     # builder and QSS generators read — a missing key is a runtime KeyError
     # the moment that theme is picked from View > Appearance.
-    from kherveslide.themes import THEMES
+    from kherveslide.themes import DEFAULT_THEME, THEMES
     reference = set(THEMES["Light"])
     for name, theme in THEMES.items():
         assert set(theme) == reference, f"{name} palette keys differ"
         assert theme["dark"] in ("0", "1")
+    # The startup default must always name a real theme.
+    assert DEFAULT_THEME in THEMES

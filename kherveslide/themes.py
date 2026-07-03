@@ -460,9 +460,13 @@ THEMES: dict[str, dict[str, str]] = {
 
 THEME_NAMES: list[str] = list(THEMES.keys())
 
+# The theme used until the user picks one (and the fallback for a saved
+# name that no longer exists) — the app's orange identity.
+DEFAULT_THEME = "Orange Tangerine"
+
 
 def is_dark(theme_name: str) -> bool:
-    return THEMES.get(theme_name, THEMES["Light"])["dark"] == "1"
+    return THEMES.get(theme_name, THEMES[DEFAULT_THEME])["dark"] == "1"
 
 
 # ------------------------------------------------------------------ #
@@ -473,7 +477,7 @@ def apply_theme(app: QApplication, theme_name: str) -> dict[str, str]:
     """Set the Fusion style + QPalette for the given theme. Returns the
     theme dict so callers can feed it to the QSS generators."""
     app.setStyle("Fusion")
-    t = THEMES.get(theme_name, THEMES["Light"])
+    t = THEMES.get(theme_name, THEMES[DEFAULT_THEME])
     pal = QPalette()
 
     pal.setColor(QPalette.Window,          QColor(t["surface"]))
