@@ -56,43 +56,51 @@ def _glyph_icon(letter: str, *, bold=False, italic=False, underline=False,
     return QIcon(px)
 
 
-def app_icon() -> QIcon:
-    """Application icon on a rounded accent-blue square.
+def app_icon_pixmap(sz: int) -> QPixmap:
+    """One square of the application icon at *sz* px — PowerPoint-orange
+    rounded square, white lettering. Sizes up to 32 px (taskbar / title
+    bar) collapse to a "KS" monogram; larger ones show a big "K" with
+    "Slide" beneath it. Shared by the runtime QIcon and the .ico
+    generator (tools/make_app_icon.py) so the exe matches the window."""
+    from PySide6.QtGui import QLinearGradient
+    px = QPixmap(sz, sz)
+    px.fill(Qt.transparent)
+    p = QPainter(px)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    p.setRenderHint(QPainter.TextAntialiasing, True)
+    radius = sz * 0.18
+    grad = QLinearGradient(0, 0, 0, sz)     # the app's Office-orange theme
+    grad.setColorAt(0.0, QColor("#F5924C"))
+    grad.setColorAt(1.0, QColor("#DE6A14"))
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(grad))
+    p.drawRoundedRect(QRectF(0, 0, sz, sz), radius, radius)
+    p.setPen(QColor("#ffffff"))
+    if sz <= 32:
+        # Mini: compact "KS" monogram.
+        f = QFont("Georgia"); f.setPixelSize(int(sz * 0.56)); f.setBold(True)
+        p.setFont(f)
+        p.drawText(QRectF(0, 0, sz, sz), Qt.AlignCenter, "KS")
+    else:
+        # Large: big "K" over small "Slide".
+        fk = QFont("Georgia"); fk.setPixelSize(int(sz * 0.62)); fk.setBold(True)
+        p.setFont(fk)
+        p.drawText(QRectF(0, -sz * 0.08, sz, sz),
+                   Qt.AlignHCenter | Qt.AlignVCenter, "K")
+        fs = QFont("Helvetica"); fs.setPixelSize(int(sz * 0.20))
+        fs.setBold(True)
+        p.setFont(fs)
+        p.drawText(QRectF(0, sz * 0.62, sz, sz * 0.34),
+                   Qt.AlignHCenter | Qt.AlignTop, "Slide")
+    p.end()
+    return px
 
-    Large sizes show a big "K" with "slide" in small type beneath it; the
-    mini sizes (taskbar / title bar) collapse to a "KS" monogram so it
-    stays legible. Rendered at several sizes for crisp scaling.
-    """
+
+def app_icon() -> QIcon:
+    """Application icon, rendered at several sizes for crisp scaling."""
     icon = QIcon()
     for sz in (16, 24, 32, 48, 64, 128, 256):
-        px = QPixmap(sz, sz)
-        px.fill(Qt.transparent)
-        p = QPainter(px)
-        p.setRenderHint(QPainter.Antialiasing, True)
-        p.setRenderHint(QPainter.TextAntialiasing, True)
-        radius = sz * 0.18
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#1a6dd8"))
-        p.drawRoundedRect(QRectF(0, 0, sz, sz), radius, radius)
-        p.setPen(QColor("#ffffff"))
-        if sz <= 32:
-            # Mini: compact "KS" monogram.
-            f = QFont("Georgia"); f.setPixelSize(int(sz * 0.56)); f.setBold(True)
-            p.setFont(f)
-            p.drawText(QRectF(0, 0, sz, sz), Qt.AlignCenter, "KS")
-        else:
-            # Large: big "K" over small "slide".
-            fk = QFont("Georgia"); fk.setPixelSize(int(sz * 0.62)); fk.setBold(True)
-            p.setFont(fk)
-            p.drawText(QRectF(0, -sz * 0.08, sz, sz),
-                       Qt.AlignHCenter | Qt.AlignVCenter, "K")
-            fs = QFont("Helvetica"); fs.setPixelSize(int(sz * 0.20))
-            fs.setBold(True)
-            p.setFont(fs)
-            p.drawText(QRectF(0, sz * 0.62, sz, sz * 0.34),
-                       Qt.AlignHCenter | Qt.AlignTop, "slide")
-        p.end()
-        icon.addPixmap(px)
+        icon.addPixmap(app_icon_pixmap(sz))
     return icon
 
 
