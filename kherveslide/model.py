@@ -200,7 +200,30 @@ class SlideShape:
     type: str = "SlideShape"
 
 
-SlideObject = Union[SlideText, SlidePicture, SlideTable, SlideLine, SlideShape]
+@dataclass
+class SlideVideo:
+    """A video box, PowerPoint-style. The canvas shows the poster image
+    (or a dark play-button placeholder); in the PDF the same area is a
+    click-to-play link that opens the file in the system video player
+    (a hyperref ``file:`` launch link — the one video mechanism XeTeX /
+    tectonic can emit; beamer's ``\\movie`` is silently dropped there).
+    PDF cannot embed video the way .pptx does, so the video file itself
+    must travel with the PDF when presenting on another machine."""
+    x: float = 0.25
+    y: float = 0.25
+    w: float = 0.5
+    h: float = 0.45
+    path: str = ""          # the video file (.mp4, .mov, …)
+    poster: str = ""        # optional still image shown on the slide
+    # A video is inherently positioned (like lines/shapes it is always
+    # placed absolutely in the PDF); locked only governs canvas dragging.
+    locked: bool = False
+    group: int = 0
+    type: str = "SlideVideo"
+
+
+SlideObject = Union[SlideText, SlidePicture, SlideTable, SlideLine,
+                    SlideShape, SlideVideo]
 
 
 # ---------------- Slide + deck ----------------
@@ -422,6 +445,15 @@ def _build_object(d: dict) -> SlideObject:
             corner=str(d.get("corner", "sharp")),
             opacity=float(d.get("opacity", 1.0)),
             rotation=float(d.get("rotation", 0.0)),
+            locked=bool(d.get("locked", False)),
+            group=int(d.get("group", 0)),
+        )
+    if t == "SlideVideo":
+        return SlideVideo(
+            x=float(d.get("x", 0.25)), y=float(d.get("y", 0.25)),
+            w=float(d.get("w", 0.5)), h=float(d.get("h", 0.45)),
+            path=str(d.get("path", "")),
+            poster=str(d.get("poster", "")),
             locked=bool(d.get("locked", False)),
             group=int(d.get("group", 0)),
         )

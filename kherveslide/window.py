@@ -38,21 +38,22 @@ from PySide6.QtWidgets import (
 from . import git_backend, icons, shapes, spellcheck, templates, themes, version_string
 from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
-    make_item, page_size_px, FONT_SCALE, latex_to_html, document_to_latex,
-    canvas_font, _dropped_image,
+    VideoBoxItem, make_item, page_size_px, FONT_SCALE, latex_to_html,
+    document_to_latex, canvas_font, _dropped_image,
 )
 from .compiler import compile_tex, tectonic_available
 from .drawing_dialog import DrawingDialog
 from .latex_view import LatexView, EDITOR_SCHEMES
 from .model import (
     Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
-    blend_over_white, deck_to_json, deck_from_json,
+    SlideVideo, blend_over_white, deck_to_json, deck_from_json,
     object_to_dict, build_object,
     raise_object, lower_object, to_front, to_back,
 )
 from .navigator import SlideNavigator
 from .object_props import (
-    colour_button, edit_box_style, edit_line, edit_shape,
+    colour_button, edit_box_style, edit_line, edit_shape, edit_video,
+    VIDEO_FILTER,
 )
 from .preview import PdfPreview
 from .serializer import serialize_deck, _ALL_BLOCK_ENVS
@@ -652,6 +653,7 @@ class SlideWindow(QMainWindow):
         m_insert = mb.addMenu("&Insert")
         m_insert.addAction("Text box", self._add_text)
         m_insert.addAction("Picture", self._add_picture)
+        m_insert.addAction("Video…", self._add_video)
         m_insert.addAction("Table…", self._insert_table_picker)
         m_insert.addAction("Equation…", self._add_equation)
         m_insert.addAction("Drawing…", self._add_drawing)
@@ -935,6 +937,7 @@ class SlideWindow(QMainWindow):
         # Insert objects (moved here from the horizontal toolbar)
         vact(icons.text_box, "Add text box", self._add_text)
         vact(icons.image_box, "Add image", self._add_picture)
+        vact(icons.video_box, "Add video", self._add_video)
         vact(icons.table, "Add table", self._add_table)
         vact(icons.math_block, "Add equation", self._add_equation)
         vact(icons.symbol, "Insert symbol…", self._insert_symbol)
@@ -1652,6 +1655,8 @@ class SlideWindow(QMainWindow):
     def _on_double_click(self, item):
         if isinstance(item, TextBoxItem):
             self._edit_text_item(item)
+        elif isinstance(item, VideoBoxItem):
+            self._edit_video(item)
         elif isinstance(item, PictureBoxItem):
             self._edit_picture(item)
 
@@ -2014,6 +2019,27 @@ class SlideWindow(QMainWindow):
         self._reload_scene()
         self._select_last()
         self._touch_current()
+
+    def _add_video(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose video", "", VIDEO_FILTER)
+        if not path:
+            return
+        obj = SlideVideo(path=path)
+        self._place_stacked(obj)
+        self.slide.objects.append(obj)
+        self._reload_scene()
+        self._select_last()
+        self._touch_current()
+
+    def _edit_video(self, item=None):
+        item = item or self._selected_item()
+        if item is None or not isinstance(item.obj, SlideVideo):
+            return
+        if edit_video(item.obj, self):
+            item._pix_path = None      # poster may have changed
+            item.update()
+            self._touch_current()
 
     def _on_image_dropped(self, path, scene_pos):
         """An image file was dragged onto the canvas — place a picture box
@@ -2389,7 +2415,8 @@ class SlideWindow(QMainWindow):
                 menu.addAction("Ungroup", self._ungroup_selected)
             if len(sel) > 1 or any(getattr(it.obj, "group", 0) for it in sel):
                 menu.addSeparator()
-            positioned = isinstance(item.obj, (SlideLine, SlideShape))
+            positioned = isinstance(item.obj, (SlideLine, SlideShape,
+                                               SlideVideo))
             locked = getattr(item.obj, "locked", True)
             lk = menu.addAction("Lock position (no dragging)" if positioned
                                 else "Locked (beamer places it)")
@@ -2428,6 +2455,8 @@ class SlideWindow(QMainWindow):
             elif isinstance(item.obj, SlideTable):
                 menu.addAction("Table design…", self._table_design_dialog)
                 menu.addAction("Table properties…", self._table_props_dialog)
+            elif isinstance(item.obj, SlideVideo):
+                menu.addAction("Video properties…", self._edit_video)
             else:
                 menu.addAction("Box style (border / fill)…",
                                self._box_style_dialog)

@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from .model import (
     Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
-    TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE,
+    SlideVideo, TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE,
 )
 from . import shapes as _shapes
 
@@ -777,6 +777,62 @@ class PictureBoxItem(BoxItem):
         self._paint_selection(painter)
 
 
+class VideoBoxItem(BoxItem):
+    """A video box: shows the poster image if one is set, else a dark
+    placeholder — always with a play-button badge and the filename so the
+    canvas reads like PowerPoint's video frame. Double-click swaps the
+    video file (handled by the window)."""
+
+    def __init__(self, obj, page_w, page_h, gap=0.0, font_scale=FONT_SCALE):
+        super().__init__(obj, page_w, page_h, gap, font_scale)
+        self._pix: QPixmap | None = None
+        self._pix_path = None
+
+    def _poster(self) -> QPixmap | None:
+        if self.obj.poster != self._pix_path:
+            self._pix_path = self.obj.poster
+            pm = QPixmap(self.obj.poster) if self.obj.poster else QPixmap()
+            self._pix = pm if not pm.isNull() else None
+        return self._pix
+
+    def paint(self, painter, option, widget=None):
+        pm = self._poster()
+        if pm is not None:
+            painter.save()
+            painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+            painter.drawPixmap(self._rect, pm, QRectF(pm.rect()))
+            painter.restore()
+        else:
+            painter.fillRect(self._rect, QColor(38, 38, 38))
+        # Play badge: translucent disc + white triangle, centred.
+        r = min(self._rect.width(), self._rect.height()) * 0.18
+        cx, cy = self._rect.center().x(), self._rect.center().y()
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 130))
+        painter.drawEllipse(QPointF(cx, cy), r, r)
+        tri = QPolygonF([QPointF(cx - r * 0.35, cy - r * 0.55),
+                         QPointF(cx - r * 0.35, cy + r * 0.55),
+                         QPointF(cx + r * 0.65, cy)])
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawPolygon(tri)
+        painter.restore()
+        # Filename strip along the bottom (or a hint when no file yet).
+        import os
+        label = (os.path.basename(self.obj.path) if self.obj.path
+                 else "Video (double-click to choose a file)")
+        painter.setPen(QPen(QColor(255, 255, 255)))
+        f = painter.font()
+        f.setPixelSize(max(9, int(self._rect.height() * 0.07)))
+        painter.setFont(f)
+        strip = QRectF(self._rect.x(), self._rect.bottom() - f.pixelSize() * 2,
+                       self._rect.width(), f.pixelSize() * 2)
+        painter.fillRect(strip, QColor(0, 0, 0, 110))
+        painter.drawText(strip, Qt.AlignCenter, label)
+        self._paint_selection(painter)
+
+
 class TableBoxItem(BoxItem):
     """A grid of cells stretched to the box. Double-clicking a cell asks
     the window to edit that cell in place."""
@@ -1107,6 +1163,8 @@ class ShapeBoxItem(BoxItem):
 def make_item(obj, page_w, page_h, gap=0.0, font_scale=FONT_SCALE) -> BoxItem:
     if isinstance(obj, SlideText):
         return TextBoxItem(obj, page_w, page_h, gap, font_scale)
+    if isinstance(obj, SlideVideo):
+        return VideoBoxItem(obj, page_w, page_h, gap, font_scale)
     if isinstance(obj, SlideTable):
         return TableBoxItem(obj, page_w, page_h, gap, font_scale)
     if isinstance(obj, SlideLine):

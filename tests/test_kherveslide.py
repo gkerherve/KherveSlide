@@ -2056,6 +2056,63 @@ def test_import_sty_names_beamer_themes(tmp_path):
     assert (dest / "colors.sty").exists()
 
 
+# --- video boxes (click-to-play file: links) ---
+
+def test_video_round_trip():
+    from kherveslide.model import SlideVideo
+    deck = Deck(slides=[Slide(objects=[SlideVideo(
+        path="demo.mp4", poster="p.png", x=0.2, y=0.3, w=0.5, h=0.4)])])
+    assert deck_from_json(deck_to_json(deck)) == deck
+
+
+def test_video_emits_file_launch_link():
+    # NOT beamer's \movie: under tectonic (XeTeX + xdvipdfmx) \movie is
+    # silently dropped from the PDF, while an \href{file:...} survives as
+    # a real /Launch annotation. Guard against a well-meaning "upgrade".
+    from kherveslide.model import SlideVideo
+    deck = Deck(slides=[Slide(objects=[SlideVideo(path="C:\\vids\\demo.mp4")])],
+                nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "\\href{file:C:/vids/demo.mp4}" in tex   # backslashes normalised
+    assert "\\movie" not in tex and "multimedia" not in tex
+    # No poster -> a text-built placeholder (colorbox + play glyph). It must
+    # NOT be tikz or \rule: xdvipdfmx sizes link annotations to glyphs and
+    # images, so a drawn-only face loses its click area entirely.
+    assert "\\colorbox[HTML]{262626}" in tex
+    assert "\\blacktriangleright" in tex
+    assert "\\usepackage{amssymb}" in tex
+    assert "\\usepackage{tikz}" not in tex
+
+
+def test_video_poster_replaces_placeholder():
+    from kherveslide.model import SlideVideo
+    deck = Deck(slides=[Slide(objects=[SlideVideo(
+        path="demo.mp4", poster="poster.png")])], nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "\\includegraphics[width=\\linewidth" in tex
+    assert "\\blacktriangleright" not in tex
+    assert "\\usepackage{amssymb}" not in tex
+
+
+def test_video_without_file_is_placeholder_only():
+    from kherveslide.model import SlideVideo
+    deck = Deck(slides=[Slide(objects=[SlideVideo()])], nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "\\href" not in tex           # no file yet -> nothing to launch
+    assert "\\colorbox[HTML]{262626}" in tex   # but the placeholder shows
+
+
+def test_video_never_flows_even_when_locked():
+    # A locked video must still be absolutely placed (textpos), never
+    # handed to beamer's flow layout.
+    from kherveslide.model import SlideVideo
+    deck = Deck(slides=[Slide(objects=[SlideVideo(path="a.mp4", locked=True)])],
+                nav_symbols=False)
+    tex = serialize_deck(deck)
+    assert "% video (free-positioned)" in tex
+    assert "\\begin{textblock}" in tex
+
+
 def test_window_themes_define_the_full_key_set():
     # Every appearance theme must define every colour key the QPalette
     # builder and QSS generators read — a missing key is a runtime KeyError

@@ -1026,6 +1026,24 @@ def image_box() -> QIcon:
     return QIcon(px)
 
 
+def video_box() -> QIcon:
+    """Film frame with a play triangle — add a video box."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 1.6))
+    p.setBrush(QBrush(QColor("#3a3a3a") if _dark else QColor("#f4f4f4")))
+    p.drawRect(3, 5, 18, 14)
+    # Sprocket holes down the left/right edges make it read as film.
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(_fg()))
+    for y in (7, 11, 15):
+        p.drawRect(QRect(4, y, 2, 2))
+        p.drawRect(QRect(18, y, 2, 2))
+    p.setBrush(QBrush(_accent()))
+    p.drawPolygon([QPointF(10, 8.5), QPointF(10, 15.5), QPointF(16, 12)])
+    p.end()
+    return QIcon(px)
+
+
 def _stack_icon(front: bool) -> QIcon:
     """Two overlapping squares; the highlighted one is the moved layer."""
     px, p = _new_canvas()

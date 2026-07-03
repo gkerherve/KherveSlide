@@ -12,7 +12,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
-    QDoubleSpinBox, QFormLayout, QPushButton,
+    QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton,
 )
 
 from . import shapes
@@ -150,6 +151,69 @@ def edit_shape(o, parent=None) -> bool:
     o.corner = corner.currentText()
     o.opacity = opacity.value()
     o.rotation = rot.value()
+    return True
+
+
+VIDEO_FILTER = ("Videos (*.mp4 *.m4v *.mov *.avi *.mkv *.webm *.wmv);;"
+                "All files (*)")
+POSTER_FILTER = "Images (*.png *.jpg *.jpeg *.bmp *.gif)"
+
+
+def _path_row(initial: str, browse, parent=None):
+    """A read-only path field with a Browse… button; returns (layout, edit)."""
+    edit = QLineEdit(initial)
+    edit.setReadOnly(True)
+    btn = QPushButton("Browse…")
+    btn.clicked.connect(lambda: browse(edit))
+    row = QHBoxLayout()
+    row.addWidget(edit, 1)
+    row.addWidget(btn)
+    return row, edit
+
+
+def edit_video(o, parent=None) -> bool:
+    """Video file / poster image / playback mode for a video box."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Video properties")
+    form = QFormLayout(dlg)
+
+    def pick_video(edit):
+        p, _ = QFileDialog.getOpenFileName(dlg, "Choose video", edit.text(),
+                                           VIDEO_FILTER)
+        if p:
+            edit.setText(p)
+
+    def pick_poster(edit):
+        p, _ = QFileDialog.getOpenFileName(dlg, "Choose poster image",
+                                           edit.text(), POSTER_FILTER)
+        if p:
+            edit.setText(p)
+
+    vrow, vedit = _path_row(o.path, pick_video, dlg)
+    form.addRow("Video file", vrow)
+    prow, pedit = _path_row(o.poster, pick_poster, dlg)
+    clear_poster = QPushButton("None")
+    clear_poster.setToolTip("Use the dark play-button placeholder instead")
+    clear_poster.clicked.connect(lambda: pedit.setText(""))
+    prow.addWidget(clear_poster)
+    form.addRow("Poster image", prow)
+
+    note = QLabel("In the finished PDF the video area is a click-to-play "
+                  "link: it opens the file in your system video player "
+                  "(the PDF viewer may ask to confirm). The video is NOT "
+                  "embedded in the PDF — keep the file with the PDF when "
+                  "presenting on another machine.")
+    note.setWordWrap(True)
+    note.setStyleSheet("color: #666;")
+    form.addRow(note)
+
+    bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+    form.addRow(bb)
+    if not dlg.exec():
+        return False
+    o.path = vedit.text()
+    o.poster = pedit.text()
     return True
 
 

@@ -24,8 +24,8 @@ from __future__ import annotations
 from . import shapes as _shapes
 from .model import (
     Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
-    blend_over_white, TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE,
-    TABLE_CAPTION_FG,
+    SlideVideo, blend_over_white, TABLE_HEADER_BG, TABLE_HEADER_FG,
+    TABLE_RULE, TABLE_CAPTION_FG,
 )
 
 
@@ -227,6 +227,39 @@ def _serialize_picture(obj: SlidePicture) -> str:
     return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
             f"{_frame_wrap(_picture_graphic(obj), obj)}\n"
             f"\\end{{textblock}}")
+
+
+def _video_face(obj: SlideVideo) -> str:
+    r"""What the video shows on the page: the poster image stretched to the
+    box, or a dark player-style placeholder with a white play triangle.
+    The placeholder is deliberately built from TEXT material (colorbox +
+    parbox + an amssymb glyph), not tikz or \rule: xdvipdfmx sizes link
+    annotations to the glyphs/images inside, so a drawn-only face loses
+    its click area entirely (verified — the link vanishes from the PDF)."""
+    h = f"{_fmt(obj.h)}\\TPVertModule"
+    if obj.poster:
+        poster = obj.poster.replace("\\", "/")
+        return (f"\\includegraphics[width=\\linewidth,height={h}]"
+                f"{{{poster}}}")
+    return ("{\\setlength{\\fboxsep}{0pt}\\colorbox[HTML]{262626}"
+            f"{{\\parbox[b][{h}][c]{{\\linewidth}}"
+            "{\\centering\\textcolor{white}"
+            "{\\Huge$\\blacktriangleright$}}}}")
+
+
+def _serialize_video(obj: SlideVideo) -> str:
+    r"""A click-to-play video area: a hyperref ``file:`` launch link over
+    the poster/placeholder, so clicking it in the finished PDF opens the
+    video in the system player. This is deliberately NOT beamer's
+    ``\movie`` (the ``multimedia`` package): under tectonic's XeTeX +
+    xdvipdfmx pipeline \movie is silently dropped, while a file: link
+    survives as a real /Launch annotation (verified)."""
+    face = _video_face(obj)
+    path = (obj.path or "").replace("\\", "/")
+    if path:
+        face = f"\\href{{file:{path}}}{{{face}}}"
+    return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
+            f"{face}\n\\end{{textblock}}")
 
 
 _ALIGN_COL = {"left": "l", "center": "c", "right": "r"}
@@ -772,6 +805,8 @@ def _overlay_object(obj, gap: float, counter: list) -> str | None:
         return block
     if isinstance(obj, SlidePicture):
         return _serialize_picture(obj) or None
+    if isinstance(obj, SlideVideo):
+        return _serialize_video(obj)
     return None
 
 
@@ -815,7 +850,7 @@ def _nav_symbols_block(gap: float) -> str:
 
 _OBJ_LABEL = {SlideText: "text box", SlidePicture: "picture",
               SlideTable: "table", SlideLine: "line / arrow",
-              SlideShape: "shape"}
+              SlideShape: "shape", SlideVideo: "video"}
 
 
 def _obj_label(obj) -> str:
@@ -837,7 +872,7 @@ def _serialize_slide(slide: Slide, plain: bool = True, gap: float = 0.0,
 
     def _is_flow(o) -> bool:
         return (getattr(o, "locked", True)
-                and not isinstance(o, (SlideLine, SlideShape)))
+                and not isinstance(o, (SlideLine, SlideShape, SlideVideo)))
 
     # beamer renders ALL absolutely-placed (textpos / tikz overlay) content
     # above the flow body, so a line/shape that the user sent *below* a
@@ -1011,6 +1046,9 @@ def serialize_deck(deck: Deck) -> str:
     # colortbl / shadows) is pulled in even when only the master needs it.
     _all_objs = [o for s in deck.slides for o in s.objects]
     _all_objs += list(getattr(deck, "master", Slide()).objects)
+    if any(isinstance(o, SlideVideo) and not o.poster for o in _all_objs):
+        # the ▶ glyph on the video placeholder
+        lines.append("\\usepackage{amssymb}")
     needs_tikz = any(isinstance(o, (SlideLine, SlideShape)) or _has_frame(o)
                      for o in _all_objs)
     needs_opacity = any(isinstance(o, SlidePicture) and o.opacity < 1.0
