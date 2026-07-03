@@ -2054,3 +2054,14 @@ def test_import_sty_names_beamer_themes(tmp_path):
     assert custom_themes.import_sty(helper, directory=dest) == ""
     assert custom_themes.installed_sty_themes(directory=dest) == ["Nord"]
     assert (dest / "colors.sty").exists()
+
+
+def test_window_themes_define_the_full_key_set():
+    # Every appearance theme must define every colour key the QPalette
+    # builder and QSS generators read — a missing key is a runtime KeyError
+    # the moment that theme is picked from View > Appearance.
+    from kherveslide.themes import THEMES
+    reference = set(THEMES["Light"])
+    for name, theme in THEMES.items():
+        assert set(theme) == reference, f"{name} palette keys differ"
+        assert theme["dark"] in ("0", "1")
