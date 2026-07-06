@@ -56,28 +56,21 @@ from .object_props import (
     VIDEO_FILTER,
 )
 from .preview import PdfPreview
-from .serializer import serialize_deck, _ALL_BLOCK_ENVS
+from .serializer import (
+    serialize_deck, _ALL_BLOCK_ENVS,
+    BEAMER_THEMES, BEAMER_COLOR_THEMES,
+)
 
 _COLOURED_BLOCKS = {"block", "alertblock", "exampleblock"}
 _TEXT_KINDS = {"text", "equation"} | _ALL_BLOCK_ENVS
 
 
-# The full set of beamer's built-in presentation themes and colour themes
-# (no extra packages needed, so they all work with the bundled engine).
-_THEMES = [
-    "default", "AnnArbor", "Antibes", "Bergen", "Berkeley", "Berlin",
-    "Boadilla", "CambridgeUS", "Copenhagen", "Darmstadt", "Dresden",
-    "Frankfurt", "Goettingen", "Hannover", "Ilmenau", "JuanLesPins",
-    "Luebeck", "Madrid", "Malmoe", "Marburg", "Montpellier", "PaloAlto",
-    "Pittsburgh", "Rochester", "Singapore", "Szeged", "Warsaw",
-    # Third-party themes (fetched by tectonic; verified to compile).
-    "metropolis", "Auriga", "Trigon", "sintef",
-]
-_COLOUR_THEMES = [
-    "", "default", "albatross", "beaver", "beetle", "crane", "dolphin",
-    "dove", "fly", "lily", "monarca", "orchid", "rose", "seagull",
-    "seahorse", "spruce", "structure", "whale", "wolverine",
-]
+# The full set of beamer presentation themes and colour themes. Canonical
+# in serializer.py so the offline warm-up (offline.py) pre-caches exactly
+# what these dropdowns offer — a theme added there is both selectable AND
+# offline-ready. The leading "" is the UI's "(none)" colour-theme choice.
+_THEMES = BEAMER_THEMES
+_COLOUR_THEMES = ["", *BEAMER_COLOR_THEMES]
 _ASPECTS = ["169", "1610", "43", "32", "54", "141"]
 _ASPECT_LABELS = {
     "169": "16:9", "1610": "16:10", "43": "4:3",

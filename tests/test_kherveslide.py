@@ -2156,3 +2156,22 @@ def test_window_themes_define_the_full_key_set():
         assert theme["dark"] in ("0", "1")
     # The startup default must always name a real theme.
     assert DEFAULT_THEME in THEMES
+
+
+def test_offline_warmup_covers_every_offered_theme_and_font():
+    # The offline pre-cache (offline.py) must warm EVERY beamer theme,
+    # colour theme and font the app can emit — otherwise picking one the
+    # warm-up skipped would still hit the network. offline.py reads its
+    # lists straight from serializer, so this guards that the single
+    # source stays authoritative and that fonts stay wired through.
+    from kherveslide import offline
+    from kherveslide.serializer import (
+        BEAMER_THEMES, BEAMER_COLOR_THEMES, FONT_FAMILIES,
+    )
+    names = {n for n, _tex in offline._documents()}
+    for t in BEAMER_THEMES:
+        assert f"theme {t}" in names, f"offline warm-up misses theme {t}"
+    for c in BEAMER_COLOR_THEMES:
+        assert f"colours {c}" in names, f"offline warm-up misses colours {c}"
+    for key in FONT_FAMILIES:
+        assert f"font {key}" in names, f"offline warm-up misses font {key}"

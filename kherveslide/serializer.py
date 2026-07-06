@@ -458,6 +458,28 @@ FONT_FAMILIES: dict[str, tuple[str, list[str]]] = {
                 ["\\usepackage{XCharter}", "\\usefonttheme{serif}"]),
 }
 
+# The full set of beamer presentation themes and colour themes KherveSlide
+# offers. Canonical here (Qt-free) so the UI dropdowns (window.py) AND the
+# offline warm-up (offline.py) read the SAME lists — add a theme in one place
+# and it is both selectable and pre-cached for offline use. The first block is
+# beamer's built-ins; the second is third-party themes tectonic fetches (all
+# verified to compile). COLOR_THEMES has no "" entry — that "(none)" choice is
+# a UI concern window.py prepends itself.
+BEAMER_THEMES: list[str] = [
+    "default", "AnnArbor", "Antibes", "Bergen", "Berkeley", "Berlin",
+    "Boadilla", "CambridgeUS", "Copenhagen", "Darmstadt", "Dresden",
+    "Frankfurt", "Goettingen", "Hannover", "Ilmenau", "JuanLesPins",
+    "Luebeck", "Madrid", "Malmoe", "Marburg", "Montpellier", "PaloAlto",
+    "Pittsburgh", "Rochester", "Singapore", "Szeged", "Warsaw",
+    # Third-party themes (fetched by tectonic; verified to compile).
+    "metropolis", "Auriga", "Trigon", "sintef",
+]
+BEAMER_COLOR_THEMES: list[str] = [
+    "default", "albatross", "beaver", "beetle", "crane", "dolphin",
+    "dove", "fly", "lily", "monarca", "orchid", "rose", "seagull",
+    "seahorse", "spruce", "structure", "whale", "wolverine",
+]
+
 
 def _font_family_lines(spec) -> list[str]:
     """Preamble lines for the theme's typeface. Kept separate from

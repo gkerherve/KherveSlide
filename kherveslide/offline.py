@@ -12,18 +12,8 @@ import tempfile
 from pathlib import Path
 
 from .compiler import compile_tex, tectonic_available
-
-_THEMES = [
-    "default", "AnnArbor", "Antibes", "Bergen", "Berkeley", "Berlin",
-    "Boadilla", "CambridgeUS", "Copenhagen", "Darmstadt", "Dresden",
-    "Frankfurt", "Goettingen", "Hannover", "Ilmenau", "JuanLesPins",
-    "Luebeck", "Madrid", "Malmoe", "Marburg", "Montpellier", "PaloAlto",
-    "Pittsburgh", "Rochester", "Singapore", "Szeged", "Warsaw",
-    "metropolis", "Auriga", "Trigon", "sintef",
-]
-_COLOUR = ["default", "albatross", "beaver", "beetle", "crane", "dolphin",
-           "dove", "fly", "lily", "monarca", "orchid", "rose", "seagull",
-           "seahorse", "spruce", "structure", "whale", "wolverine"]
+from .serializer import BEAMER_THEMES as _THEMES
+from .serializer import BEAMER_COLOR_THEMES as _COLOUR
 
 # Every package / tikz library the serializer can emit, so warming caches
 # them all (a deck using cropped images, shadows or tables then needs no net).
