@@ -2158,6 +2158,33 @@ def test_window_themes_define_the_full_key_set():
     assert DEFAULT_THEME in THEMES
 
 
+def test_compile_defaults_to_offline_first():
+    # KherveSlide is an offline app: the in-app compile must prefer the local
+    # cache by default so a normal compile never reaches the network.
+    import inspect
+    from kherveslide.compiler import compile_tex
+    sig = inspect.signature(compile_tex)
+    assert sig.parameters["prefer_cached"].default is True
+
+
+def test_missing_resource_triggers_network_but_syntax_error_does_not():
+    # The one-shot network fallback must fire only for a fetchable missing
+    # package/font — never for an ordinary LaTeX error in the user's source,
+    # otherwise a source typo would drag the live preview onto the network.
+    from kherveslide.compiler import _log_wants_network
+    missing_sty = "! LaTeX Error: File `beamerthemeMetropolis.sty' not found."
+    missing_cls = "! LaTeX Error: File `revtex4-2.cls' not found."
+    assert _log_wants_network(missing_sty)
+    assert _log_wants_network(missing_cls)
+    # Source-level errors: no network retry.
+    assert not _log_wants_network("! Undefined control sequence.")
+    assert not _log_wants_network("! Missing $ inserted.")
+    assert not _log_wants_network("")
+    # A missing IMAGE is handled up front (placeholder box), so it must not be
+    # mistaken for a fetchable resource and drag the compile onto the network.
+    assert not _log_wants_network("! Package pdftex.def Error: File `p.png' not found")
+
+
 def test_offline_warmup_covers_every_offered_theme_and_font():
     # The offline pre-cache (offline.py) must warm EVERY beamer theme,
     # colour theme and font the app can emit — otherwise picking one the

@@ -24,6 +24,25 @@ _INCLUDEGRAPHICS_RE = re.compile(
     r"\\includegraphics(\*?)(\[[^\]]*\])?\{([^}]+)\}")
 
 
+# A tectonic failure whose log matches this is a MISSING RESOURCE the network
+# could still supply — a class/style/font not in the offline cache — as opposed
+# to an ordinary LaTeX error (undefined control sequence, missing $, runaway
+# argument…) that the network can't fix. Only the former is worth a one-shot
+# online retry; the latter must fail fast so a source typo doesn't hit the net.
+# `File `x.sty' not found` / `.cls`/`.def`/`.fd`/`.tfm`… is the tell-tale that a
+# bundle file was absent from the cache (missing IMAGES are handled separately,
+# up front, by _rewrite_includegraphics, so they never reach here).
+_MISSING_RESOURCE_RE = re.compile(
+    r"File `[^']+\.(?:sty|cls|clo|def|fd|cfg|tex|ldf|enc|map|tfm|pfb|otf|ttf)'"
+    r" not found|not found in the bundle|unable to open main file")
+
+
+def _log_wants_network(log: str) -> bool:
+    """True when a failed offline compile looks like a fetchable missing
+    package/font rather than a source-level LaTeX error."""
+    return bool(_MISSING_RESOURCE_RE.search(log or ""))
+
+
 def _empty_image_box(opts: str) -> str:
     r"""An empty framed box (never prints the file path) sized to the
     \includegraphics width/height options — drawn where an image would go when
@@ -423,11 +442,24 @@ def compile_tex(
     use_compile_range: bool = False,
     on_line=None,
     only_cached: bool = False,
+    prefer_cached: bool = True,
 ) -> CompileResult:
     """Write `tex_source` to `workdir/basename.tex` and compile with tectonic.
 
     `workdir` is created if missing. Returns a CompileResult; on failure the
     `log` field contains tectonic's full output for diagnosis.
+
+    KherveSlide is an offline LaTeX app, so by default (`prefer_cached=True`)
+    the compile runs against tectonic's LOCAL CACHE ONLY (`--only-cached`) and
+    never touches the network. The one exception is self-healing: if the
+    offline pass fails *because a package/font isn't cached yet* (e.g. a
+    brand-new install whose warm-up hasn't finished, or a just-imported theme),
+    we retry once with the network to fetch it — after which it stays cached
+    and every later compile is offline again. A plain LaTeX error (a typo in
+    the source) is NOT a missing resource, so it fails fast with no network
+    round-trip. Set `prefer_cached=False` to always allow the network (used by
+    the warm-up, which exists precisely to download); `only_cached=True` forces
+    strict offline with no fallback (used by the cache-warmth probes).
 
     `source_dir`, when supplied, is the directory of the user's original
     document. It's added to TEXINPUTS so relative \\includegraphics paths
@@ -497,84 +529,104 @@ def compile_tex(
         existing = env.get("TEXINPUTS", "")
         env["TEXINPUTS"] = sep.join(texinputs_parts) + sep + existing
 
-    cmd = [
-        tectonic_path,
-        "-Z", "continue-on-errors",
-        "--keep-logs",
-        "--synctex",
-        "--outdir", str(workdir),
-    ]
-    if only_cached:
-        # Compile using ONLY tectonic's local cache (never the network) — used
-        # to detect whether the offline packages are already warmed.
-        cmd.append("--only-cached")
-    cmd.append(str(tex_path))
-    if on_line is not None:
-        # Streaming mode: read tectonic's output line by line so the caller
-        # can report live progress (e.g. "downloading …" the first time).
-        import threading
-        popen_kw: dict = dict(
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace", env=env)
-        if sys.platform == "win32":
-            popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+    def _attempt(cache_only: bool) -> CompileResult:
+        cmd = [
+            tectonic_path,
+            "-Z", "continue-on-errors",
+            "--keep-logs",
+            "--synctex",
+            "--outdir", str(workdir),
+        ]
+        if cache_only:
+            # Compile using ONLY tectonic's local cache — never the network.
+            cmd.append("--only-cached")
+        cmd.append(str(tex_path))
+        if on_line is not None:
+            # Streaming mode: read tectonic's output line by line so the caller
+            # can report live progress (e.g. "downloading …" the first time).
+            import threading
+            popen_kw: dict = dict(
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace", env=env)
+            if sys.platform == "win32":
+                popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+            try:
+                sproc = subprocess.Popen(cmd, **popen_kw)
+            except OSError as exc:
+                return CompileResult(False, None, "", f"tectonic failed: {exc}")
+            lines: list[str] = []
+            timed_out = {"v": False}
+
+            def _watch():
+                try:
+                    sproc.wait(timeout=180)
+                except subprocess.TimeoutExpired:
+                    timed_out["v"] = True
+                    sproc.kill()
+
+            watcher = threading.Thread(target=_watch, daemon=True)
+            watcher.start()
+            for raw in sproc.stdout:
+                ln = raw.rstrip("\n")
+                lines.append(ln)
+                try:
+                    on_line(ln)
+                except Exception:
+                    pass
+            sproc.wait()
+            watcher.join(timeout=1)
+            returncode = sproc.returncode
+            log = "\n".join(lines)
+            if timed_out["v"]:
+                return CompileResult(False, None, log,
+                                     "tectonic timed out after 180s")
+            pdf_path = workdir / f"{basename}.pdf"
+            if returncode == 0 and pdf_path.exists():
+                return CompileResult(True, pdf_path, log, None)
+            return CompileResult(
+                ok=False, pdf_path=pdf_path if pdf_path.exists() else None,
+                log=log, error=f"tectonic exited with code {returncode}")
+
         try:
-            sproc = subprocess.Popen(cmd, **popen_kw)
-        except OSError as exc:
-            return CompileResult(False, None, "", f"tectonic failed: {exc}")
-        lines: list[str] = []
-        timed_out = {"v": False}
+            kw: dict = dict(capture_output=True, text=True, encoding="utf-8",
+                            errors="replace", timeout=120, env=env)
+            if sys.platform == "win32":
+                kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+            proc = subprocess.run(cmd, **kw)
+        except subprocess.TimeoutExpired:
+            return CompileResult(False, None, "", "tectonic timed out after 120s")
 
-        def _watch():
-            try:
-                sproc.wait(timeout=180)
-            except subprocess.TimeoutExpired:
-                timed_out["v"] = True
-                sproc.kill()
-
-        watcher = threading.Thread(target=_watch, daemon=True)
-        watcher.start()
-        for raw in sproc.stdout:
-            ln = raw.rstrip("\n")
-            lines.append(ln)
-            try:
-                on_line(ln)
-            except Exception:
-                pass
-        sproc.wait()
-        watcher.join(timeout=1)
-        returncode = sproc.returncode
-        log = "\n".join(lines)
-        if timed_out["v"]:
-            return CompileResult(False, None, log,
-                                 "tectonic timed out after 180s")
+        log = (proc.stdout or "") + (proc.stderr or "")
         pdf_path = workdir / f"{basename}.pdf"
-        if returncode == 0 and pdf_path.exists():
+        if proc.returncode == 0 and pdf_path.exists():
             return CompileResult(True, pdf_path, log, None)
+
         return CompileResult(
-            ok=False, pdf_path=pdf_path if pdf_path.exists() else None,
-            log=log, error=f"tectonic exited with code {returncode}")
+            ok=False,
+            pdf_path=pdf_path if pdf_path.exists() else None,
+            log=log,
+            error=f"tectonic exited with code {proc.returncode}",
+        )
 
-    try:
-        kw: dict = dict(capture_output=True, text=True, encoding="utf-8",
-                        errors="replace", timeout=120, env=env)
-        if sys.platform == "win32":
-            kw["creationflags"] = subprocess.CREATE_NO_WINDOW
-        proc = subprocess.run(cmd, **kw)
-    except subprocess.TimeoutExpired:
-        return CompileResult(False, None, "", "tectonic timed out after 120s")
-
-    log = (proc.stdout or "") + (proc.stderr or "")
-    pdf_path = workdir / f"{basename}.pdf"
-    if proc.returncode == 0 and pdf_path.exists():
-        return CompileResult(True, pdf_path, log, None)
-
-    return CompileResult(
-        ok=False,
-        pdf_path=pdf_path if pdf_path.exists() else None,
-        log=log,
-        error=f"tectonic exited with code {proc.returncode}",
-    )
+    # Strict offline: cache only, no network fallback (cache-warmth probes).
+    if only_cached:
+        return _attempt(cache_only=True)
+    # Explicit network mode: the warm-up passes this to actually download.
+    if not prefer_cached:
+        return _attempt(cache_only=False)
+    # Offline-first (the default for every in-app compile): try the local
+    # cache; only reach for the network if the failure is a missing package
+    # tectonic could fetch — not an ordinary LaTeX error in the source.
+    res = _attempt(cache_only=True)
+    if res.ok or not _log_wants_network(res.log):
+        return res
+    if on_line is not None:
+        try:
+            on_line("note: a package isn't in the offline cache yet — "
+                    "fetching it once from the network…")
+        except Exception:
+            pass
+    return _attempt(cache_only=False)
 
 
 # ======================= Typst compiler =======================

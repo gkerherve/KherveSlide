@@ -89,7 +89,10 @@ def download_offline(on_output=None, force=False) -> bool:
             continue
         if on_output:
             on_output(f"[{i}/{n}] caching {name}…")
-        if compile_tex(tex, wd, "warm").ok:
+        # prefer_cached=False: the warm-up exists to DOWNLOAD, so go straight
+        # to the network instead of the offline-first path every other compile
+        # uses.
+        if compile_tex(tex, wd, "warm", prefer_cached=False).ok:
             fetched += 1
         else:
             ok = False
