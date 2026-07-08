@@ -67,6 +67,17 @@ def _math_only(text: str) -> str | None:
     return None
 
 
+def rewrap_math(original: str, latex: str) -> str:
+    """Put *latex* back inside whichever delimiters *original* used, so
+    re-editing a display equation doesn't silently demote it to inline."""
+    t = (original or "").strip()
+    if t.startswith("\\["):
+        return f"\\[{latex}\\]"
+    if t.startswith("\\("):
+        return f"\\({latex}\\)"
+    return f"${latex}$"
+
+
 def latex_to_html(text: str) -> str:
     """Render a text box's LaTeX-ish content as HTML so itemize/enumerate
     look like real bullet / numbered lists on the canvas — including nested

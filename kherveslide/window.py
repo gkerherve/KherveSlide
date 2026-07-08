@@ -39,7 +39,7 @@ from . import git_backend, icons, shapes, spellcheck, templates, themes, version
 from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
     VideoBoxItem, make_item, page_size_px, FONT_SCALE, latex_to_html,
-    document_to_latex, canvas_font, _dropped_image,
+    document_to_latex, canvas_font, rewrap_math, _dropped_image, _math_only,
 )
 from .compiler import compile_tex, tectonic_available
 from .drawing_dialog import DrawingDialog
@@ -1647,11 +1647,27 @@ class SlideWindow(QMainWindow):
     # ---------------- in-place editing ----------------
     def _on_double_click(self, item):
         if isinstance(item, TextBoxItem):
+            if self._edit_equation_item(item):
+                return
             self._edit_text_item(item)
         elif isinstance(item, VideoBoxItem):
             self._edit_video(item)
         elif isinstance(item, PictureBoxItem):
             self._edit_picture(item)
+
+    def _edit_equation_item(self, item) -> bool:
+        """A box holding nothing but maths is painted as a rendered equation,
+        so double-clicking it should reopen the editor that built it rather
+        than dropping the user into raw LaTeX. Returns True if handled."""
+        inner = _math_only(item.obj.text)
+        if inner is None:
+            return False
+        from .equation_editor import EquationEditorDialog
+        dlg = EquationEditorDialog(self, initial_latex=inner)
+        if dlg.exec() and dlg.latex():
+            self._commit_obj_text(item, rewrap_math(item.obj.text, dlg.latex()))
+            self._touch_current()
+        return True
 
     def _edit_picture(self, item=None):
         item = item or self._selected_item()

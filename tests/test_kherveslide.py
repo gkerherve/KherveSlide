@@ -2202,3 +2202,34 @@ def test_offline_warmup_covers_every_offered_theme_and_font():
         assert f"colours {c}" in names, f"offline warm-up misses colours {c}"
     for key in FONT_FAMILIES:
         assert f"font {key}" in names, f"offline warm-up misses font {key}"
+
+
+# --- double-click an equation box reopens the equation editor ---
+
+def test_math_only_detects_each_delimiter():
+    from kherveslide.canvas import _math_only
+    assert _math_only(r"$\frac{x}{y}$") == r"\frac{x}{y}"
+    assert _math_only(r"\[E=mc^2\]") == "E=mc^2"
+    assert _math_only(r"\(a+b\)") == "a+b"
+
+
+def test_math_only_rejects_prose_and_mixed_content():
+    from kherveslide.canvas import _math_only
+    assert _math_only("Hello world") is None
+    assert _math_only("cost is $5 and $6") is None
+    assert _math_only("") is None
+
+
+def test_rewrap_math_preserves_the_original_delimiters():
+    """Re-editing a display equation must not silently demote it to inline."""
+    from kherveslide.canvas import rewrap_math
+    assert rewrap_math(r"\[E=mc^2\]", "a+b") == r"\[a+b\]"
+    assert rewrap_math(r"\(E=mc^2\)", "a+b") == r"\(a+b\)"
+    assert rewrap_math(r"$E=mc^2$", "a+b") == "$a+b$"
+
+
+def test_math_only_rewrap_round_trip():
+    from kherveslide.canvas import _math_only, rewrap_math
+    for original in (r"$\frac{x}{y}$", r"\[E=mc^2\]", r"\(a+b\)"):
+        inner = _math_only(original)
+        assert _math_only(rewrap_math(original, inner)) == inner
