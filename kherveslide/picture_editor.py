@@ -325,6 +325,9 @@ class PictureEditDialog(QDialog):
             ("Fade starts", slider("fade_start", 0, 1)),
             ("Fade ends", slider("fade_end", 0, 1)),
             ("Soft edges", slider("soft_edge", 0, 0.5)),
+            ("Shape", combo("mask", [
+                ("", "Rectangle"), ("ellipse", "Oval"),
+                ("rounded", "Rounded rectangle")])),
         ]), "Transparency")
         tabs.addTab(page([
             ("Glow colour", colour("glow_color", "#ffd966")),

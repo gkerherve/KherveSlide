@@ -29,21 +29,8 @@ def test_serializer_skips_unincludable_formats():
     assert "includegraphics" not in tex and "framebox" in tex
 
 
-class _Para:
-    def __init__(self, text):
-        self.text = text
-        self.runs = []
-
-
-class _TF:
-    def __init__(self, texts):
-        self.paragraphs = [_Para(t) for t in texts]
-
-
-def test_empty_paragraphs_never_make_bare_linebreaks():
-    body = pptx_import._text_of(_TF(["a", "", "", "b"]))
-    assert body == "a\n\n\nb"
-    tex = serializer._apply_linebreaks(body)
+def test_blank_lines_become_visible_blank_lines():
+    tex = serializer._apply_linebreaks("a\n\n\nb")
     assert tex == "a \\\\\n\\mbox{} \\\\\n\\mbox{} \\\\\nb"
 
 

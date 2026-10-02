@@ -28,7 +28,7 @@ from . import image_effects as _image_effects
 from . import shapes as _shapes
 from .model import (
     Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
-    SlideVideo, blend_over_white, TABLE_HEADER_BG, TABLE_HEADER_FG,
+    SlideVideo, blend_over_white, line_path, TABLE_HEADER_BG, TABLE_HEADER_FG,
     TABLE_RULE, TABLE_CAPTION_FG,
 )
 
@@ -493,6 +493,10 @@ FONT_FAMILIES: dict[str, tuple[str, list[str]]] = {
     "lato": ("Lato", ["\\usepackage[default]{lato}"]),
     "opensans": ("Open Sans", ["\\usepackage[default]{opensans}"]),
     "roboto": ("Roboto", ["\\usepackage[sfdefault]{roboto}"]),
+    # Metric-compatible with Calibri (PowerPoint's default), so imported
+    # decks wrap their lines where PowerPoint does.
+    "carlito": ("Carlito (Calibri-like)",
+                ["\\usepackage[sfdefault,lf]{carlito}"]),
     "times": ("Times (serif)",
               ["\\usepackage{newtxtext}", "\\usefonttheme{serif}"]),
     "palatino": ("Palatino (serif)",
@@ -545,7 +549,14 @@ def _theme_spec_lines(spec) -> list[str]:
         lines.append(f"\\useoutertheme{{{spec.outer}}}")
     if spec.fonts:
         lines.append(f"\\usefonttheme{{{spec.fonts}}}")
-    if spec.bullets:
+    if spec.bullets == "dot":
+        # PowerPoint's plain "•" in the text colour (imported decks).
+        lines += ["\\setbeamertemplate{itemize items}{\\textbullet}",
+                  "\\setbeamercolor{itemize item}"
+                  "{use=normal text,fg=normal text.fg}",
+                  "\\setbeamercolor{itemize subitem}"
+                  "{use=normal text,fg=normal text.fg}"]
+    elif spec.bullets:
         lines.append(f"\\setbeamertemplate{{itemize items}}[{spec.bullets}]")
 
     # Colours: one \definecolor per value, then merged \setbeamercolor.
@@ -741,11 +752,22 @@ def _serialize_line(obj: SlideLine, gap: float, idx: int) -> str:
     def loc(fx, fy):
         return f"({_fmt(fx)}\\linewidth,-{_fmt(fy * bh)}\\TPVertModule)"
 
+    path = f"{loc(f1x, f1y)} -- {loc(f2x, f2y)}"
+    pts = line_path(obj)
+    if len(pts) > 2:
+        # A curve: absolute offsets (it may bulge outside the ends' box).
+        def at(px, py):
+            return (f"({_fmt(px - left)}\\TPHorizModule,"
+                    f"-{_fmt(py - top)}\\TPVertModule)")
+        path = at(*pts[0])
+        for i in range(1, len(pts) - 2, 3):
+            path += (f" .. controls {at(*pts[i])} and {at(*pts[i + 1])}"
+                     f" .. {at(*pts[i + 2])}")
     pic = (
         f"\\begin{{tikzpicture}}\n"
         f"\\useasboundingbox (0,0) rectangle ({wlen},-{hlen});\n"
         f"\\draw[line width={_fmt(obj.width_pt)}pt,color=ksline{idx}"
-        f"{arrow}{dash}{opacity}] {loc(f1x, f1y)} -- {loc(f2x, f2y)};\n"
+        f"{arrow}{dash}{opacity}] {path};\n"
         f"\\end{{tikzpicture}}")
     return (f"\\definecolor{{ksline{idx}}}{{HTML}}{{{colour}}}\n"
             f"\\begin{{textblock}}{{{_fmt(bw)}}}({_fmt(left)},{_fmt(top)})\n"
@@ -1329,6 +1351,15 @@ def serialize_backdrop(deck: Deck) -> str:
         probes += [""] + _probe_frame(size)
     return tex.replace("\n\\end{document}",
                        "\n" + "\n".join(probes) + "\n\n\\end{document}")
+
+
+def deck_typeface(deck: Deck) -> str:
+    """The theme's FONT_FAMILIES key ("" = beamer's Latin Modern); the
+    canvas draws its text in that face when it can load it."""
+    spec = getattr(deck, "theme_spec", None)
+    if spec is None or not getattr(spec, "enabled", False):
+        return ""
+    return getattr(spec, "font_family", "") or ""
 
 
 def deck_body_family(deck: Deck) -> str:

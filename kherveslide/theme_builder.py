@@ -35,7 +35,7 @@ _OUTER = ["", "default", "infolines", "miniframes", "smoothbars",
           "sidebar", "split", "shadow", "tree"]
 _FONTS = ["", "default", "serif", "professionalfonts", "structurebold",
           "structureitalicserif", "structuresmallcapsserif"]
-_BULLETS = ["", "default", "circle", "square", "ball", "triangle"]
+_BULLETS = ["", "default", "circle", "square", "ball", "triangle", "dot"]
 _SIZES = ["", "small", "normal", "large", "Large", "huge"]
 _ASPECT_OPT = {"169": "aspectratio=169", "1610": "aspectratio=1610",
                "43": "", "32": "aspectratio=32", "54": "aspectratio=54",

@@ -61,7 +61,8 @@ from .object_props import (
 )
 from .preview import PdfPreview
 from .serializer import (
-    serialize_deck, serialize_backdrop, deck_body_family, PROBE_SIZES,
+    serialize_deck, serialize_backdrop, deck_body_family, deck_typeface,
+    PROBE_SIZES,
     _ALL_BLOCK_ENVS,
     BEAMER_THEMES, BEAMER_COLOR_THEMES,
 )
@@ -1592,7 +1593,8 @@ class SlideWindow(QMainWindow):
         pw, ph, self._font_scale = page_size_px(
             self.deck.aspect, self.deck.page_w_cm, self.deck.page_h_cm)
         self.scene.set_page(pw, ph, self.deck.gap)
-        set_body_family(deck_body_family(self.deck))
+        set_body_family(deck_body_family(self.deck),
+                        latex_fonts.load_typeface(deck_typeface(self.deck)))
         self._apply_backdrop()
         self.scene.page_color = (blend_over_white(self.slide.bg,
                                                   self.slide.bg_alpha)
@@ -4382,6 +4384,13 @@ class SlideWindow(QMainWindow):
         # for the canvas text if it wasn't there at start-up.
         if not latex_fonts.available() and latex_fonts.ensure_loaded():
             self.scene.update()
+        # Likewise a theme typeface (e.g. Carlito) the first compile fetched.
+        face = deck_typeface(self.deck)
+        if face and face not in latex_fonts._typefaces_loaded \
+                and latex_fonts.load_typeface(face):
+            set_body_family(deck_body_family(self.deck),
+                            latex_fonts.load_typeface(face))
+            self._reload_scene()
         self._apply_backdrop()
         self.nav.refresh(self.deck, self.current)
 

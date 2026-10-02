@@ -90,5 +90,39 @@ def ensure_loaded() -> bool:
     return ok
 
 
+# Typefaces a theme can pick (serializer.FONT_FAMILIES keys) that the
+# canvas can also draw: Qt family name + the files tectonic caches once a
+# presentation using them has compiled.
+TYPEFACES = {
+    "carlito": ("Carlito", ["Carlito-Regular.ttf", "Carlito-Bold.ttf",
+                            "Carlito-Italic.ttf", "Carlito-BoldItalic.ttf"]),
+}
+_typefaces_loaded: set[str] = set()
+
+
+def load_typeface(key: str) -> str:
+    """Register a theme typeface's files from tectonic's cache with Qt and
+    return its Qt family name ("" if unknown or not cached yet)."""
+    entry = TYPEFACES.get(key or "")
+    if entry is None:
+        return ""
+    family, files = entry
+    if key in _typefaces_loaded:
+        return family
+    from PySide6.QtGui import QFontDatabase
+    ok = False
+    for root in _candidate_roots():
+        for name in files:
+            for f in sorted(Path(root).glob(f"data/*/{name}"))[:1]:
+                if QFontDatabase.addApplicationFont(str(f)) >= 0:
+                    ok = True
+        if ok:
+            break
+    if ok:
+        _typefaces_loaded.add(key)
+        return family
+    return ""
+
+
 def available() -> bool:
     return _loaded

@@ -13,7 +13,8 @@ import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QFontMetricsF, QLinearGradient, QPainter, QPen,
+    QBrush, QColor, QFont, QFontMetricsF, QLinearGradient, QPainter,
+    QPainterPath, QPen,
     QPixmap, QPolygonF, QTextBlockFormat, QTextCharFormat, QTextCursor,
     QTextDocument, QTextListFormat, QTextOption,
 )
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from .model import (
     Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
-    SlideVideo, TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE,
+    SlideVideo, TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_RULE, line_path,
 )
 from . import shapes as _shapes
 
@@ -403,9 +404,19 @@ MONO_FONT_FAMILIES = ["Latin Modern Mono", "Consolas", "Courier New",
 _body_family = "sf"
 
 
-def set_body_family(family: str) -> None:
-    global _body_family
+# A theme typeface's Qt family (e.g. "Carlito") drawn in front of the
+# sans stack, so the canvas wraps text where the PDF does.
+_body_typeface = ""
+
+
+def set_body_family(family: str, typeface: str = "") -> None:
+    global _body_family, _body_typeface
     _body_family = "rm" if family == "rm" else "sf"
+    _body_typeface = typeface or ""
+
+
+def _sans_families() -> list[str]:
+    return ([_body_typeface] if _body_typeface else []) + CANVAS_FONT_FAMILIES
 
 
 # The theme's own itemize bullets, cut from the backdrop's probe pages
@@ -595,7 +606,7 @@ def _draw_bullets(painter, items: list, size_pt: float,
 
 def canvas_font(pixel_size: int = 0, *, stretch: int = 0) -> QFont:
     """A QFont using the WYSIWYG body family stack."""
-    fams = SERIF_FONT_FAMILIES if _body_family == "rm" else CANVAS_FONT_FAMILIES
+    fams = SERIF_FONT_FAMILIES if _body_family == "rm" else _sans_families()
     f = QFont(fams[0])
     f.setFamilies(fams)
     if pixel_size:
@@ -614,7 +625,7 @@ def _apply_font_family(font: QFont, family: str) -> None:
         font.setFamilies(MONO_FONT_FAMILIES)
         font.setStyleHint(QFont.Monospace)
     elif family == "sf":
-        font.setFamilies(CANVAS_FONT_FAMILIES)
+        font.setFamilies(_sans_families())
         font.setStyleHint(QFont.SansSerif)
 
 _ASPECT_RATIO = {              # width : height multiplier
@@ -1484,6 +1495,31 @@ class LineBoxItem(BoxItem):
         p2 = QPointF((o.x + o.w - left) * cw, (o.y + o.h - top) * ch)
         return p1, p2
 
+    def _curve_local(self):
+        """All path points in item coordinates (ends + Bézier controls)."""
+        cw, ch, _, _ = self._content()
+        o = self.obj
+        left, top = min(o.x, o.x + o.w), min(o.y, o.y + o.h)
+        return [QPointF((px - left) * cw, (py - top) * ch)
+                for px, py in line_path(o)]
+
+    def _curve_path(self):
+        pts = self._curve_local()
+        path = QPainterPath(pts[0])
+        if len(pts) == 2:
+            path.lineTo(pts[1])
+        for i in range(1, len(pts) - 2, 3):
+            path.cubicTo(pts[i], pts[i + 1], pts[i + 2])
+        return path
+
+    def boundingRect(self) -> QRectF:
+        r = super().boundingRect()
+        if getattr(self.obj, "curve", None):
+            m = HANDLE + 1 + max(4.0, self.obj.width_pt * self._font_scale * 4)
+            r = r.united(self._curve_path().boundingRect().adjusted(
+                -m, -m, m, m))
+        return r
+
     def _end_handles(self):
         p1, p2 = self._endpoints_local()
         h = HANDLE + 1
@@ -1594,11 +1630,21 @@ class LineBoxItem(BoxItem):
         pen.setStyle(_PEN_STYLE.get(getattr(obj, "style", "solid"),
                                     Qt.SolidLine))
         painter.setPen(pen)
-        painter.drawLine(p1, p2)
-        if obj.arrow_end:
-            self._arrowhead(painter, p1, p2, wpx)
-        if obj.arrow_start:
-            self._arrowhead(painter, p2, p1, wpx)
+        if getattr(obj, "curve", None):
+            pts = self._curve_local()
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(self._curve_path())
+            # Arrowheads follow the curve's tangent at each end.
+            if obj.arrow_end:
+                self._arrowhead(painter, pts[-2], pts[-1], wpx)
+            if obj.arrow_start:
+                self._arrowhead(painter, pts[1], pts[0], wpx)
+        else:
+            painter.drawLine(p1, p2)
+            if obj.arrow_end:
+                self._arrowhead(painter, p1, p2, wpx)
+            if obj.arrow_start:
+                self._arrowhead(painter, p2, p1, wpx)
         painter.restore()
         self._paint_line_chrome(painter)
 

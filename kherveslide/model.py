@@ -112,6 +112,7 @@ class SlidePicture:
     glow_color: str = ""
     glow_size: float = 0.0      # fraction of the shorter side
     reflection: float = 0.0     # reflection height, fraction of the picture
+    mask: str = ""              # picture shape: "" (rectangle) | ellipse | rounded
     locked: bool = True         # see SlideText.locked
     group: int = 0
     type: str = "SlidePicture"
@@ -183,6 +184,12 @@ class SlideLine:
     style: str = "solid"        # solid | dashed | dotted
     opacity: float = 1.0        # 0..1
     head_size: float = 1.0      # arrowhead scale (Stealth length multiplier)
+    # A curved line: cubic Bézier segments from end 1 to end 2, six numbers
+    # each (control 1, control 2, segment end) as (u, v) fractions of the
+    # line's (w, h) measured from end 1 — so moving or stretching the line
+    # carries the curve with it. The last segment ends at (1, 1). Empty =
+    # straight.
+    curve: list = field(default_factory=list)
     # A line is inherently positioned, so it is always drawn absolutely in
     # the PDF; locked only governs whether it can be dragged on the canvas.
     # Unlocked by default so a fresh line / arrow can be moved right away.
@@ -270,7 +277,7 @@ class ThemeSpec:
     # fonts"): a key into serializer.FONT_FAMILIES ("helvetica", "fira",
     # "times", …). "" = keep the base theme's font.
     font_family: str = ""
-    bullets: str = ""          # default|circle|square|ball|triangle
+    bullets: str = ""          # default|circle|square|ball|triangle|dot
     structure: str = ""        # hex — drives many derived beamer colours
     text_fg: str = ""          # normal text
     canvas_bg: str = ""        # slide background canvas (gradient top)
@@ -356,13 +363,26 @@ _PICTURE_EFFECTS = {
     "saturation": 1.0, "temperature": 0.0, "recolor": "",
     "recolor_color": "", "artistic": "", "artistic_amount": 0.5,
     "fade": "", "fade_start": 0.0, "fade_end": 0.5, "soft_edge": 0.0,
-    "glow_color": "", "glow_size": 0.0, "reflection": 0.0,
+    "glow_color": "", "glow_size": 0.0, "reflection": 0.0, "mask": "",
 }
 
 
 def _picture_effects_from(d: dict) -> dict:
     """Picture-effect fields from JSON, typed like their defaults."""
     return {k: type(v)(d.get(k, v)) for k, v in _PICTURE_EFFECTS.items()}
+
+
+def line_path(line) -> list[tuple[float, float]]:
+    """A line's points in slide fractions: end 1, then for each Bézier
+    segment its two controls and its end (just the two ends if straight)."""
+    x0, y0 = line.x, line.y
+    pts = [(x0, y0)]
+    c = list(getattr(line, "curve", []) or [])
+    if len(c) < 6:
+        return pts + [(x0 + line.w, y0 + line.h)]
+    for i in range(0, len(c) - len(c) % 6, 2):
+        pts.append((x0 + c[i] * line.w, y0 + c[i + 1] * line.h))
+    return pts
 
 
 def _plain_blank_lines(text: str) -> str:
@@ -479,6 +499,8 @@ def _build_object(d: dict) -> SlideObject:
             style=str(d.get("style", "solid")),
             opacity=float(d.get("opacity", 1.0)),
             head_size=float(d.get("head_size", 1.0)),
+            curve=[float(v) for v in d.get("curve", [])
+                   ][:len(d.get("curve", [])) // 6 * 6],
             locked=bool(d.get("locked", True)),
             group=int(d.get("group", 0)),
         )

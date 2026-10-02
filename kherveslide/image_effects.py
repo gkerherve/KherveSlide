@@ -25,6 +25,7 @@ RECOLORS = ["", "grayscale", "sepia", "washout", "bw", "duotone"]
 ARTISTIC = ["", "blur", "pencil", "line_drawing", "mosaic", "posterize",
             "emboss", "glow_edges", "watercolor"]
 FADES = ["", "left", "right", "top", "bottom", "radial"]
+MASKS = ["", "ellipse", "rounded"]
 
 
 def _active(obj, name) -> bool:
@@ -215,7 +216,29 @@ def render(im, obj):
         else:
             m = np.clip((t - s) / (e - s), 0, 1)
         a = a * m
+    mask = getattr(obj, "mask", "")
+    if mask in ("ellipse", "rounded"):
+        # Crop to a shape (PowerPoint's picture geometry), antialiased by
+        # drawing the mask at 4x and scaling down.
+        from PIL import ImageDraw
+        big = Image.new("L", (w * 4, h * 4), 0)
+        draw = ImageDraw.Draw(big)
+        if mask == "ellipse":
+            draw.ellipse((0, 0, w * 4 - 1, h * 4 - 1), fill=255)
+        else:
+            draw.rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1),
+                                   radius=int(min(w, h) * 4 * 0.16), fill=255)
+        m = np.asarray(big.resize((w, h), Image.LANCZOS), np.float32) / 255
+        a = a * m
     se = max(0.0, min(0.5, getattr(obj, "soft_edge", 0.0)))
+    if se and mask == "ellipse":
+        # Feather inward from the ellipse's edge, not the box's.
+        X, Y = np.meshgrid((np.arange(w) + 0.5) / w * 2 - 1,
+                           (np.arange(h) + 0.5) / h * 2 - 1)
+        dist = 1 - np.sqrt(X ** 2 + Y ** 2)          # 0 at the rim
+        r = se * min(w, h) / (min(w, h) / 2)
+        a = a * np.clip(dist / max(r, 1e-6), 0, 1)
+        se = 0.0
     if se:
         r = se * side
         xs = np.arange(w, dtype=np.float32) + 0.5
