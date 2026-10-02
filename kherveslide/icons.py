@@ -1178,6 +1178,26 @@ def toggle_navigator() -> QIcon:
     return QIcon(px)
 
 
+def pdf_side_panel() -> QIcon:
+    """A window split in two, the right half a red-tagged PDF page — show
+    the compiled PDF beside the slide (off = WYSIWYG only)."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setBrush(Qt.NoBrush)
+    p.drawRoundedRect(QRectF(2.5, 4.5, 19, 15), 2, 2)
+    p.drawLine(QPointF(12, 5), QPointF(12, 19))
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(_accent()))
+    p.drawRect(QRectF(4.5, 7, 5.5, 3))          # slide title bar (left)
+    p.setBrush(QBrush(QColor("#c62828")))
+    p.drawRect(QRectF(14, 7, 6, 3.2))            # PDF tag (right)
+    p.setBrush(QBrush(_fg()))
+    for i in range(3):
+        p.drawRect(QRectF(14, 12 + i * 2.4, 6 - (2 if i == 2 else 0), 1.1))
+    p.end()
+    return QIcon(px)
+
+
 def line_tool() -> QIcon:
     """A plain diagonal line."""
     px, p = _new_canvas()

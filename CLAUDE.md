@@ -74,6 +74,20 @@ drag to reorder + the live canvas); right = tabs for the generated
 LaTeX source and the compiler Console (+ a PDF preview). The LaTeX view
 stays live as you edit on the left.
 
+Start-up mirrors KherveTeX too: a runtime-painted splash
+(`splash.py`), then a Welcome page (`welcome.py`: new / open / import,
+templates, recent files) that also asks how to work — WYSIWYG + PDF
+side by side, WYSIWYG only (PDF/console hidden, no background
+compiles), or just the slide (slides list folded). Switch any time from
+View or Ctrl+4. Help holds the Welcome page and the GitHub auto-updater
+(`updater.py`, ported from KhervePlot: fast-forwards a clean checkout).
+
+The canvas is drawn to look like the PDF: text uses beamer's Latin
+Modern faces from tectonic's cache (`latex_fonts.py`), and the theme's
+own furniture (title bar, head/foot lines, numbers, background, master)
+is a compiled backdrop — `serializer.serialize_backdrop` is the deck
+with the objects removed, page *i* under slide *i*.
+
 Editing is in-place, PowerPoint-style — there is **no properties side
 panel**. Double-click a text box to type into it (a floating editor
 commits on focus-out / Escape); double-click a picture to swap the

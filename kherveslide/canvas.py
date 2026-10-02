@@ -193,16 +193,31 @@ FONT_SCALE = SCENE_H / 272.8
 HANDLE = 9.0                    # half-size of a resize handle, in px
 MIN_PX = 24.0                   # smallest box dimension
 
-# WYSIWYG body font. Calibri (with the metric-compatible Carlito as a
-# fallback) reads much closer to beamer's Latin Modern than Qt's Helvetica
-# substitute did; the trailing families keep it sane on other machines.
-CANVAS_FONT_FAMILIES = ["Calibri", "Carlito", "Segoe UI", "Helvetica"]
+# WYSIWYG body font: beamer's own Latin Modern Sans (loaded from tectonic's
+# cache by latex_fonts), so the canvas text has the PDF's shapes and widths.
+# Calibri / Carlito are the closest stand-ins until the cache has the fonts;
+# the trailing families keep it sane on other machines.
+CANVAS_FONT_FAMILIES = ["Latin Modern Sans", "Calibri", "Carlito",
+                        "Segoe UI", "Helvetica"]
+SERIF_FONT_FAMILIES = ["Latin Modern Roman", "Georgia", "Times New Roman",
+                       "serif"]
+MONO_FONT_FAMILIES = ["Latin Modern Mono", "Consolas", "Courier New",
+                      "monospace"]
+# The deck-wide default family ("sf" or "rm"), following the theme's font
+# choice: beamer's serif font theme sets the whole slide in Roman.
+_body_family = "sf"
+
+
+def set_body_family(family: str) -> None:
+    global _body_family
+    _body_family = "rm" if family == "rm" else "sf"
 
 
 def canvas_font(pixel_size: int = 0, *, stretch: int = 0) -> QFont:
     """A QFont using the WYSIWYG body family stack."""
-    f = QFont(CANVAS_FONT_FAMILIES[0])
-    f.setFamilies(CANVAS_FONT_FAMILIES)
+    fams = SERIF_FONT_FAMILIES if _body_family == "rm" else CANVAS_FONT_FAMILIES
+    f = QFont(fams[0])
+    f.setFamilies(fams)
     if pixel_size:
         f.setPixelSize(pixel_size)
     if stretch:
@@ -213,14 +228,14 @@ def canvas_font(pixel_size: int = 0, *, stretch: int = 0) -> QFont:
 def _apply_font_family(font: QFont, family: str) -> None:
     """Reflect a box's LaTeX font type (rm/sf/tt) on the canvas."""
     if family == "rm":
-        font.setFamilies(["Latin Modern Roman", "Georgia", "Times New Roman",
-                          "serif"])
+        font.setFamilies(SERIF_FONT_FAMILIES)
         font.setStyleHint(QFont.Serif)
     elif family == "tt":
-        font.setFamilies(["Consolas", "Courier New", "monospace"])
+        font.setFamilies(MONO_FONT_FAMILIES)
         font.setStyleHint(QFont.Monospace)
     elif family == "sf":
-        font.setStyleHint(QFont.SansSerif)  # keep the sans body stack
+        font.setFamilies(CANVAS_FONT_FAMILIES)
+        font.setStyleHint(QFont.SansSerif)
 
 _ASPECT_RATIO = {              # width : height multiplier
     "169": 16 / 9, "1610": 16 / 10, "43": 4 / 3,
@@ -1419,13 +1434,16 @@ class SlideView(QGraphicsView):
             self.fit_mode = True
 
 
-def render_thumbnail(slide: Slide, deck, width_px: int = 160) -> QPixmap:
+def render_thumbnail(slide: Slide, deck, width_px: int = 160,
+                     backdrop: QPixmap | None = None) -> QPixmap:
     """Render *slide* to a small pixmap for the navigator — reuses the
-    same item painting as the live canvas so the thumbnail matches."""
+    same item painting as the live canvas so the thumbnail matches.
+    *backdrop* is the slide's themed page, drawn under the objects."""
     pw, ph, fs = page_size_px(deck.aspect, deck.page_w_cm, deck.page_h_cm)
     scene = SlideScene(deck.aspect)
     scene.set_page(pw, ph, deck.gap)
     scene.page_color = slide.bg or "#FFFFFF"
+    scene.backdrop = backdrop
     for obj in slide.objects:
         item = make_item(obj, pw, ph, deck.gap, fs)
         item.setSelected(False)

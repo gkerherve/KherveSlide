@@ -21,6 +21,8 @@ layout; the user composes the slide entirely from boxes.
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
 from . import shapes as _shapes
 from .model import (
     Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
@@ -1129,3 +1131,34 @@ def serialize_deck(deck: Deck) -> str:
                                       master=getattr(deck, "master", None)))
     lines += ["", "\\end{document}"]
     return "\n".join(lines) + "\n"
+
+
+def serialize_backdrop(deck: Deck) -> str:
+    """The presentation with every slide's own objects removed — only what
+    the beamer theme draws around them is left: the frame title bar,
+    headline / footline, slide numbers, navigation symbols, background and
+    the master slide. Page *i* of its PDF is the "empty" themed slide *i*;
+    the canvas lays it under the editable boxes so the WYSIWYG page looks
+    like the LaTeX one. Each frame keeps an invisible ``\\mbox{}`` so an
+    empty slide still ships out a page and the page numbers line up."""
+    slides = [Slide(objects=[], title=s.title, bg=s.bg, bg_alpha=s.bg_alpha,
+                    free=s.free)
+              for s in deck.slides]
+    bare = replace(deck, slides=slides)
+    tex = serialize_deck(bare)
+    return tex.replace("\\end{frame}", "  \\mbox{}\n\\end{frame}")
+
+
+def deck_body_family(deck: Deck) -> str:
+    """"rm" when the deck's theme sets the slides in a serif face (beamer's
+    serif font theme, or a serif typeface picked in the theme builder),
+    else "sf" — beamer's sans default. The canvas follows it."""
+    spec = getattr(deck, "theme_spec", None)
+    if spec is None or not getattr(spec, "enabled", False):
+        return "sf"
+    if getattr(spec, "fonts", "") == "serif":
+        return "rm"
+    entry = FONT_FAMILIES.get(getattr(spec, "font_family", "") or "")
+    if entry and "\\usefonttheme{serif}" in entry[1]:
+        return "rm"
+    return "sf"

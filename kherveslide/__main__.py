@@ -29,11 +29,11 @@ def _silence_fontconfig() -> None:
 
 _silence_fontconfig()
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
-from . import icons, themes
+from . import icons, latex_fonts, themes
 from .window import SlideWindow
 
 
@@ -56,13 +56,31 @@ def main() -> int:
     dark = themes.is_dark(theme_name)
     icons.set_dark(dark)
 
+    from .splash import Splash
+    splash = Splash()
+    splash.show()
+    splash.step("Loading the designer")
+    # beamer's own Latin Modern faces for the canvas (from tectonic's cache).
+    latex_fonts.ensure_loaded()
+    splash.step("Building the window")
     win = SlideWindow(dark=dark, theme=theme)
+    # Before the event loop runs, so "WYSIWYG only" never starts a compile.
+    win.apply_layout_mode(settings.value("layout_mode", "side"))
     _center_on_main_screen(win)
+    splash.step("Opening the presentation")
     win.show()
+    splash.step("Ready")
+    splash.finish(win)
 
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    opened = False
     if args and Path(args[0]).exists():
         win.open_path(args[0])
+        opened = True
+    if not opened and settings.value("show_welcome", True, type=bool):
+        QTimer.singleShot(0, win.show_welcome)
+    if win.updater is not None:
+        win.updater.schedule()
     return app.exec()
 
 

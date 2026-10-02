@@ -39,6 +39,14 @@ class SlideNavigator(QListWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
         self._suppress = False
+        # Optional callable (index, width) -> QPixmap | None giving the
+        # themed page to draw under each thumbnail (set by the window).
+        self.backdrop_for = None
+
+    def _backdrop(self, index: int):
+        if self.backdrop_for is None:
+            return None
+        return self.backdrop_for(index, THUMB_W * 2)
 
     def _on_row(self, row: int):
         if not self._suppress and row >= 0:
@@ -56,7 +64,7 @@ class SlideNavigator(QListWidget):
         self._suppress = True
         self.clear()
         for i, slide in enumerate(deck.slides):
-            pm = render_thumbnail(slide, deck, THUMB_W)
+            pm = render_thumbnail(slide, deck, THUMB_W, self._backdrop(i))
             item = QListWidgetItem(QIcon(pm), f"  {i + 1}")
             item.setSizeHint(QSize(THUMB_W + 8, pm.height() + 8))
             item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -69,7 +77,8 @@ class SlideNavigator(QListWidget):
         """Re-render just one thumbnail (after editing its slide) without
         disturbing selection or scroll position."""
         if 0 <= index < self.count():
-            pm = render_thumbnail(deck.slides[index], deck, THUMB_W)
+            pm = render_thumbnail(deck.slides[index], deck, THUMB_W,
+                                  self._backdrop(index))
             self.item(index).setIcon(QIcon(pm))
 
     def dropEvent(self, event):

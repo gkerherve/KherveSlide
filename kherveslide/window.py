@@ -35,11 +35,15 @@ from PySide6.QtWidgets import (
     QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
-from . import git_backend, icons, shapes, spellcheck, templates, themes, version_string
+from . import (
+    git_backend, icons, latex_fonts, shapes, spellcheck, templates, themes,
+    version_string,
+)
 from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
     VideoBoxItem, make_item, page_size_px, FONT_SCALE, latex_to_html,
     document_to_latex, canvas_font, rewrap_math, _dropped_image, _math_only,
+    set_body_family,
 )
 from .compiler import compile_tex, tectonic_available
 from .drawing_dialog import DrawingDialog
@@ -57,8 +61,12 @@ from .object_props import (
 )
 from .preview import PdfPreview
 from .serializer import (
-    serialize_deck, _ALL_BLOCK_ENVS,
+    serialize_deck, serialize_backdrop, deck_body_family, _ALL_BLOCK_ENVS,
     BEAMER_THEMES, BEAMER_COLOR_THEMES,
+)
+from .welcome import (
+    LAYOUT_SIDE, LAYOUT_SLIDE, LAYOUT_TEXT, LAYOUT_VISUAL, LAYOUTS,
+    normalise_layout,
 )
 
 _COLOURED_BLOCKS = {"block", "alertblock", "exampleblock"}
@@ -98,6 +106,29 @@ class _CompileWorker(QThread):
                              skip_images=self._skip_images,
                              on_line=lambda s: self.line.emit(s))
         self.done.emit(result)
+
+
+class _BackdropWorker(QThread):
+    """Compiles the theme-only version of the presentation (see
+    serializer.serialize_backdrop) off the UI thread and hands back the
+    PDF bytes, so the canvas can lay each themed page under its boxes."""
+
+    done = Signal(object, str)   # pdf bytes (None on failure), source tex
+
+    def __init__(self, tex, workdir):
+        super().__init__()
+        self._tex = tex
+        self._workdir = workdir
+
+    def run(self):
+        data = None
+        try:
+            result = compile_tex(self._tex, self._workdir, "backdrop")
+            if result.ok and result.pdf_path:
+                data = Path(result.pdf_path).read_bytes()
+        except Exception:
+            data = None
+        self.done.emit(data, self._tex)
 
 
 class _DownloadWorker(QThread):
@@ -403,6 +434,24 @@ class SlideWindow(QMainWindow):
         self._git_worker: _GitNetworkWorker | None = None
         self._pending_commit_msg: str | None = None
         self._theme_cache: dict = {}   # theme name -> preview QPixmap
+        # Layout: "side" (WYSIWYG + PDF), "visual" (WYSIWYG only, no
+        # background compiles) or "slide" (visual, slides list folded too).
+        self._layout_mode = LAYOUT_SIDE
+        # Themed backdrop: the theme-only PDF (frame title bar, head/foot
+        # lines, numbers, background, master) laid under the canvas boxes so
+        # the WYSIWYG page looks like the LaTeX one.
+        self._show_theme = QSettings("kherveDOC", "KherveSlide").value(
+            "canvas_theme", True, type=bool)
+        self._bd_worker: _BackdropWorker | None = None
+        self._bd_wanted = ""        # backdrop tex the deck currently needs
+        self._bd_done = ""          # backdrop tex the pages below came from
+        self._bd_pdf = None         # pymupdf document of the backdrop
+        self._bd_cache: dict = {}   # (page, width) -> QPixmap
+        self._bd_timer = QTimer(self)
+        self._bd_timer.setSingleShot(True)
+        self._bd_timer.setInterval(450)
+        self._bd_timer.timeout.connect(self._start_backdrop)
+        self.updater = None
 
         # Undo/redo: a debounced snapshot history of the whole presentation
         # (it is fully JSON-serialisable, so every action is captured).
@@ -495,11 +544,50 @@ class SlideWindow(QMainWindow):
         m_edit.addAction("Page setup…", self._page_setup)
 
         m_view = mb.addMenu("&View")
-        self.act_show_nav = m_view.addAction("Show slide navigator")
+        # One choice, not separate switches: how the window is laid out —
+        # the same choice the Welcome page offers.
+        self._layout_group = QActionGroup(self)
+        self._layout_actions: dict = {}
+        for mode in LAYOUTS:
+            a = m_view.addAction(LAYOUT_TEXT[mode][0])
+            a.setCheckable(True)
+            a.setStatusTip(LAYOUT_TEXT[mode][1])
+            a.triggered.connect(
+                lambda _=False, m=mode: self.apply_layout_mode(m))
+            self._layout_group.addAction(a)
+            self._layout_actions[mode] = a
+        self._layout_actions[LAYOUT_SIDE].setChecked(True)
+        # Ctrl+4 flips between the two main modes (as in KherveTeX).
+        self.act_pdf_side = QAction(icons.pdf_side_panel(),
+                                    "Show the PDF beside the slide", self)
+        self.act_pdf_side.setCheckable(True)
+        self.act_pdf_side.setChecked(True)
+        self.act_pdf_side.setShortcut("Ctrl+4")
+        self.act_pdf_side.setToolTip(
+            "PDF side by side (Ctrl+4) — off: WYSIWYG only, like "
+            "PowerPoint, with no background compiles")
+        self.act_pdf_side.triggered.connect(
+            lambda on: self.apply_layout_mode(
+                LAYOUT_SIDE if on else LAYOUT_VISUAL))
+        self._themed_icons.append((self.act_pdf_side, icons.pdf_side_panel))
+        m_view.addAction(self.act_pdf_side)
+        m_view.addSeparator()
+        self.act_show_nav = m_view.addAction("Show slides list")
         self.act_show_nav.setCheckable(True)
         self.act_show_nav.setChecked(True)
         self.act_show_nav.setShortcut("Ctrl+B")
+        self.act_show_nav.setToolTip("Show / hide the slides list (Ctrl+B)")
         self.act_show_nav.toggled.connect(self._toggle_navigator)
+        self._themed_icons.append((self.act_show_nav, icons.toggle_navigator))
+        self.act_show_nav.setIcon(icons.toggle_navigator())
+        self.act_canvas_theme = m_view.addAction(
+            "Show the theme on the slide (as in the PDF)")
+        self.act_canvas_theme.setCheckable(True)
+        self.act_canvas_theme.setChecked(self._show_theme)
+        self.act_canvas_theme.setStatusTip(
+            "Draw the beamer theme's title bar, head / foot lines and "
+            "background on the slide you edit, so it looks like the PDF")
+        self.act_canvas_theme.toggled.connect(self._toggle_canvas_theme)
         m_view.addSeparator()
         # Drawing aids: grid + snapping, for aligning objects on the slide.
         self.act_grid = m_view.addAction("Show grid")
@@ -720,6 +808,15 @@ class SlideWindow(QMainWindow):
         m_git.addSeparator()
         m_git.addAction(self.act_configure_remotes)
 
+        m_help = mb.addMenu("&Help")
+        m_help.addAction("&Welcome page…", self.show_welcome)
+        m_help.addSeparator()
+        from .updater import Updater
+        self.updater = Updater(self)
+        self.updater.add_menu_actions(m_help)
+        m_help.addSeparator()
+        m_help.addAction("&About KherveSlide", self._about)
+
     # ---------------- toolbars ----------------
     def _build_toolbar(self):
         # Row 1 — document actions: file, history, build, zoom, theme.
@@ -866,6 +963,8 @@ class SlideWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
+        tb.addAction(self.act_pdf_side)
+        tb.addSeparator()
         self.act_skip_img = QAction(icons.compile_no_images(),
                                     "Skip images", self)
         self.act_skip_img.setCheckable(True)
@@ -910,8 +1009,7 @@ class SlideWindow(QMainWindow):
         # Navigation — jump between slides and show/hide the navigator panel.
         vact(icons.prev_slide, "Previous slide", self._prev_slide)
         vact(icons.next_slide, "Next slide", self._next_slide)
-        vact(icons.toggle_navigator, "Show / hide slide navigator",
-             lambda: self.act_show_nav.toggle())
+        tb.addAction(self.act_show_nav)
         tb.addSeparator()
 
         # Slides — the add button has a dropdown of layouts (click = blank).
@@ -995,15 +1093,54 @@ class SlideWindow(QMainWindow):
     # ---------------- layout ----------------
     def _build_ui(self):
         self.nav = SlideNavigator()
+        self.nav.backdrop_for = self.backdrop_pixmap
         self.nav.slideSelected.connect(self._on_slide_changed)
         self.nav.slidesReordered.connect(self._on_reorder)
         self.nav.slideMenuRequested.connect(self._slide_context_menu)
 
+        # The slides list folds away to a slim strip and back with one
+        # click (« in its header, the strip itself, Ctrl+B, the toolbar
+        # button or View ▸ Show slides list).
+        self._nav_list_panel = QWidget()
+        nv = QVBoxLayout(self._nav_list_panel)
+        nv.setContentsMargins(4, 4, 4, 4)
+        nv.setSpacing(2)
+        nav_head = QHBoxLayout()
+        nav_head.setContentsMargins(2, 0, 0, 0)
+        nav_title = QLabel("Slides")
+        f = nav_title.font(); f.setBold(True); nav_title.setFont(f)
+        nav_head.addWidget(nav_title)
+        nav_head.addStretch(1)
+        fold = QToolButton()
+        fold.setText("«")
+        fold.setAutoRaise(True)
+        fold.setToolTip("Hide the slides list (Ctrl+B)")
+        fold.clicked.connect(lambda: self.act_show_nav.setChecked(False))
+        nav_head.addWidget(fold)
+        nv.addLayout(nav_head)
+        nv.addWidget(self.nav)
+
+        self._nav_strip = QToolButton()
+        self._nav_strip.setText("»\nS\nl\ni\nd\ne\ns")
+        self._nav_strip.setToolTip("Show the slides list (Ctrl+B)")
+        self._nav_strip.setAutoRaise(True)
+        self._nav_strip.setFixedWidth(22)
+        self._nav_strip.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self._nav_strip.setStyleSheet(
+            "QToolButton { border: none; border-right: 1px solid #c8ccd2;"
+            " padding: 8px 0; color: #4b5563; }"
+            "QToolButton:hover { background: rgba(222, 106, 20, 40); }")
+        self._nav_strip.clicked.connect(
+            lambda: self.act_show_nav.setChecked(True))
+        self._nav_strip.hide()
+
         nav_panel = QWidget()
         self._nav_panel = nav_panel
-        nv = QVBoxLayout(nav_panel); nv.setContentsMargins(4, 4, 4, 4)
-        nv.addWidget(QLabel("Slides"))
-        nv.addWidget(self.nav)
+        nh = QHBoxLayout(nav_panel)
+        nh.setContentsMargins(0, 0, 0, 0)
+        nh.setSpacing(0)
+        nh.addWidget(self._nav_list_panel)
+        nh.addWidget(self._nav_strip)
 
         self.scene = SlideScene(self.deck.aspect)
         self.scene.grid_frac = 1.0 / max(2, getattr(self, "_grid_divisions", 40))
@@ -1088,7 +1225,9 @@ class SlideWindow(QMainWindow):
         wysiwyg.addWidget(nav_panel)
         wysiwyg.addWidget(canvas_box)
         wysiwyg.setStretchFactor(1, 1)
+        wysiwyg.setCollapsible(0, False)
         wysiwyg.setSizes([220, 760])
+        self._wysiwyg_split = wysiwyg
 
         # LEFT tabs: the WYSIWYG (default) and the live, editable LaTeX.
         self.latex_view = LatexView()
@@ -1120,6 +1259,7 @@ class SlideWindow(QMainWindow):
         self.right_tabs.setCurrentIndex(0)
 
         main = QSplitter(Qt.Horizontal)
+        self._main_split = main
         main.addWidget(self.left_tabs)
         main.addWidget(self.right_tabs)
         main.setStretchFactor(0, 1); main.setStretchFactor(1, 1)
@@ -1259,6 +1399,8 @@ class SlideWindow(QMainWindow):
         pw, ph, self._font_scale = page_size_px(
             self.deck.aspect, self.deck.page_w_cm, self.deck.page_h_cm)
         self.scene.set_page(pw, ph, self.deck.gap)
+        set_body_family(deck_body_family(self.deck))
+        self._apply_backdrop()
         self.scene.page_color = (blend_over_white(self.slide.bg,
                                                   self.slide.bg_alpha)
                                  if self.slide.bg else "#FFFFFF")
@@ -1374,6 +1516,7 @@ class SlideWindow(QMainWindow):
         else:
             self.latex_view.set_source(tex)
         self._schedule_compile()
+        self._schedule_backdrop()
         if not self._loading and not self._restoring:
             self._undo_timer.start()   # debounced snapshot for undo
 
@@ -1464,6 +1607,7 @@ class SlideWindow(QMainWindow):
         """Debounce: (re)start the timer so a compile fires shortly after
         the last change. Skipped while bulk-loading or when auto-compile off."""
         if (not self._loading and self._auto_compile
+                and self._layout_mode == LAYOUT_SIDE
                 and tectonic_available()):
             self._auto_timer.start()
 
@@ -1492,7 +1636,7 @@ class SlideWindow(QMainWindow):
         self.statusBar().showMessage(
             "Skip images ON — faster compiles (placeholders shown)"
             if on else "Skip images OFF — pictures included", 3000)
-        if tectonic_available():
+        if tectonic_available() and self._layout_mode == LAYOUT_SIDE:
             self._auto_timer.stop()
             self._start_compile()
 
@@ -1640,6 +1784,11 @@ class SlideWindow(QMainWindow):
             self._dl_worker.wait(2000)
         if self._gen_worker is not None:
             self._gen_worker.wait(4000)
+        self._bd_timer.stop()
+        if self._bd_worker is not None:
+            self._bd_worker.wait(4000)
+        if self.updater is not None:
+            self.updater.wait(3000)
         if self in SlideWindow._extra_windows:
             SlideWindow._extra_windows.remove(self)
         super().closeEvent(event)
@@ -3151,7 +3300,195 @@ class SlideWindow(QMainWindow):
 
     # ---------------- view ----------------
     def _toggle_navigator(self, show):
-        self._nav_panel.setVisible(show)
+        """Fold the slides list to a slim strip (or open it again)."""
+        self._nav_list_panel.setVisible(show)
+        self._nav_strip.setVisible(not show)
+        if show:
+            sizes = self._wysiwyg_split.sizes()
+            if len(sizes) == 2 and sizes[0] < 150:
+                total = sum(sizes)
+                self._wysiwyg_split.setSizes([220, max(200, total - 220)])
+        if self.view.fit_mode:
+            QTimer.singleShot(0, self.view.fit_to_window)
+
+    # ---------------- layout modes / welcome / help ----------------
+    def apply_layout_mode(self, mode: str) -> None:
+        """"side": WYSIWYG with the live PDF beside it.
+        "visual": WYSIWYG only, like PowerPoint — the PDF / console panel
+        is hidden and nothing compiles in the background.
+        "slide": as "visual", with the slides list folded away too."""
+        mode = normalise_layout(mode)
+        prev = self._layout_mode
+        self._layout_mode = mode
+        side = mode == LAYOUT_SIDE
+        self.right_tabs.setVisible(side)
+        self.act_auto.setEnabled(side)
+        self._layout_actions[mode].setChecked(True)
+        self.act_pdf_side.blockSignals(True)
+        self.act_pdf_side.setChecked(side)
+        self.act_pdf_side.blockSignals(False)
+        if mode == LAYOUT_SLIDE:
+            self.act_show_nav.setChecked(False)
+        elif prev == LAYOUT_SLIDE:
+            self.act_show_nav.setChecked(True)
+        if side:
+            # Bring the PDF up to date with what was edited meanwhile.
+            if prev != LAYOUT_SIDE and self._auto_compile:
+                self._auto_timer.stop()
+                self._start_compile()
+        else:
+            self._auto_timer.stop()
+        QSettings("kherveDOC", "KherveSlide").setValue("layout_mode", mode)
+        if self.view.fit_mode:
+            QTimer.singleShot(0, self.view.fit_to_window)
+        if prev != mode:
+            self.statusBar().showMessage(LAYOUT_TEXT[mode][0], 3000)
+
+    def show_welcome(self) -> None:
+        from .welcome import WelcomeDialog
+        settings = QSettings("kherveDOC", "KherveSlide")
+        dlg = WelcomeDialog(
+            recent=self._recent_files(),
+            templates=self.store.all_names(),
+            layout=self._layout_mode,
+            show_at_start=settings.value("show_welcome", True, type=bool),
+            parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            dlg.choice = ("continue",)
+        settings.setValue("show_welcome", dlg.show_at_start())
+        self.apply_layout_mode(dlg.layout_mode)
+        kind = dlg.choice[0]
+        if kind == "new":
+            self._new_deck()
+        elif kind == "open":
+            self._open_deck()
+        elif kind == "pptx":
+            self._import_pptx()
+        elif kind == "template":
+            self._new_from_template(dlg.choice[1])
+        elif kind == "recent":
+            self.open_path(dlg.choice[1])
+
+    def offer_save_before(self, doing: str) -> bool:
+        """Ask to save before e.g. restarting into an update. False means
+        the user cancelled."""
+        if self._hist_index <= 0 and self.path is None:
+            return True
+        ans = QMessageBox.question(
+            self, "KherveSlide",
+            f"Save the presentation before {doing}?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Save)
+        if ans == QMessageBox.Cancel:
+            return False
+        if ans == QMessageBox.Save:
+            self._save_deck()
+            return self.path is not None
+        return True
+
+    def _about(self) -> None:
+        from . import __version__
+        QMessageBox.about(
+            self, "About KherveSlide",
+            f"<h3>KherveSlide {version_string()}</h3>"
+            "<p>Design slides like in PowerPoint — drag, resize and stack "
+            "text and pictures freely — and get beamer LaTeX compiled to "
+            "PDF with tectonic.</p>"
+            "<p>© 2026 Gwilherm Kerherve · GPL-3.0<br>"
+            "<a href='https://github.com/gkerherve/KherveSlide'>"
+            "github.com/gkerherve/KherveSlide</a></p>")
+
+    # ---------------- themed backdrop (canvas looks like the PDF) -------
+    def _toggle_canvas_theme(self, on):
+        self._show_theme = on
+        QSettings("kherveDOC", "KherveSlide").setValue("canvas_theme", on)
+        if on:
+            self._schedule_backdrop()
+        self._apply_backdrop()
+        self.nav.refresh(self.deck, self.current)
+
+    def _schedule_backdrop(self):
+        if not self._show_theme or not tectonic_available():
+            return
+        tex = serialize_backdrop(self.deck)
+        if tex == self._bd_wanted:
+            return
+        self._bd_wanted = tex
+        self._bd_timer.start()
+
+    def _start_backdrop(self):
+        if self._bd_worker is not None:
+            return                      # _on_backdrop_finished re-checks
+        if not self._bd_wanted or self._bd_wanted == self._bd_done:
+            return
+        workdir = Path(tempfile.gettempdir()) / "kherveslide_backdrop"
+        worker = _BackdropWorker(self._bd_wanted, workdir)
+        worker.done.connect(self._on_backdrop)
+        worker.finished.connect(self._on_backdrop_finished)
+        self._bd_worker = worker
+        worker.start()
+
+    def _on_backdrop(self, data, tex):
+        if data is None:
+            # A failed compile (e.g. a package not cached yet while
+            # offline): keep the last good backdrop rather than flashing.
+            return
+        try:
+            import pymupdf
+            pdf = pymupdf.open(stream=data, filetype="pdf")
+        except Exception:
+            return
+        self._bd_pdf = pdf
+        self._bd_done = tex
+        self._bd_cache.clear()
+        # The compile also filled tectonic's cache: pick up Latin Modern
+        # for the canvas text if it wasn't there at start-up.
+        if not latex_fonts.available() and latex_fonts.ensure_loaded():
+            self.scene.update()
+        self._apply_backdrop()
+        self.nav.refresh(self.deck, self.current)
+
+    def _on_backdrop_finished(self):
+        worker = self._bd_worker
+        self._bd_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        if self._bd_wanted != self._bd_done:
+            self._bd_timer.start()
+
+    def backdrop_pixmap(self, index: int, width: int):
+        """The themed page for slide *index*, *width* px wide — or None
+        when there is none (theme display off, no compile yet, or the
+        pages are for a different number of slides)."""
+        pdf = self._bd_pdf
+        if (not self._show_theme or pdf is None
+                or pdf.page_count != len(self.deck.slides)
+                or not 0 <= index < pdf.page_count):
+            return None
+        key = (index, width)
+        pm = self._bd_cache.get(key)
+        if pm is None:
+            from PySide6.QtGui import QImage
+            try:
+                import pymupdf
+                page = pdf[index]
+                zoom = width / max(1.0, page.rect.width)
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom),
+                                      alpha=False)
+                img = QImage(pix.samples, pix.width, pix.height, pix.stride,
+                             QImage.Format_RGB888).copy()
+            except Exception:
+                return None
+            pm = QPixmap.fromImage(img)
+            if len(self._bd_cache) > 400:
+                self._bd_cache.clear()
+            self._bd_cache[key] = pm
+        return pm
+
+    def _apply_backdrop(self):
+        width = int(self.scene.page_w * 1.5)
+        self.scene.backdrop = self.backdrop_pixmap(self.current, width)
+        self.scene.update()
 
     def _toggle_grid(self, on):
         self.scene.show_grid = on
@@ -3311,6 +3648,8 @@ class SlideWindow(QMainWindow):
             self.console.setPlainText("tectonic is not available on this system.")
             self.right_tabs.setCurrentWidget(self.console)
             return
+        if self._layout_mode != LAYOUT_SIDE:
+            self.apply_layout_mode(LAYOUT_SIDE)
         self.right_tabs.setCurrentWidget(self.pdf_view)
         self._auto_timer.stop()
         self._start_compile()
@@ -3330,6 +3669,7 @@ class SlideWindow(QMainWindow):
         # Hold a reference so the new window isn't garbage-collected, and
         # offset it a little so it doesn't land exactly on top of this one.
         SlideWindow._extra_windows.append(win)
+        win.apply_layout_mode(self._layout_mode)
         win.move(self.x() + 40, self.y() + 40)
         win.show()
 

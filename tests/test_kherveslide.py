@@ -2233,3 +2233,148 @@ def test_math_only_rewrap_round_trip():
     for original in (r"$\frac{x}{y}$", r"\[E=mc^2\]", r"\(a+b\)"):
         inner = _math_only(original)
         assert _math_only(rewrap_math(original, inner)) == inner
+
+
+# --- themed backdrop: the canvas page looks like the LaTeX one ---
+
+def test_backdrop_keeps_theme_furniture_but_drops_objects():
+    from kherveslide.serializer import serialize_backdrop
+    d = _sample_deck()
+    d.plain_frames = False
+    d.page_number = "of_total"
+    tex = serialize_backdrop(d)
+    assert "\\usetheme{Madrid}" in tex
+    assert "\\frametitle{Intro}" in tex          # the title bar stays
+    assert "Hello" not in tex                    # the boxes are gone
+    assert "img/a.png" not in tex
+    assert "\\inserttotalframenumber" in tex     # numbers still line up
+    # one page per slide, even for slides that end up empty
+    assert tex.count("\\begin{frame}") == len(d.slides)
+    assert tex.count("\\mbox{}\n\\end{frame}") == len(d.slides)
+
+
+def test_backdrop_leaves_the_deck_untouched():
+    from kherveslide.serializer import serialize_backdrop
+    d = _sample_deck()
+    before = deck_to_json(d)
+    serialize_backdrop(d)
+    assert deck_to_json(d) == before
+
+
+def test_backdrop_keeps_slide_background_and_master():
+    from kherveslide.serializer import serialize_backdrop
+    d = _sample_deck()
+    d.master = Slide(objects=[SlideText(text="LOGO", x=0.8, y=0.9,
+                                        w=0.1, h=0.05)])
+    tex = serialize_backdrop(d)
+    assert "FFEECC" in tex      # Intro slide's background colour
+    assert "LOGO" in tex        # the master is part of the backdrop
+
+
+def test_deck_body_family_follows_serif_themes():
+    from kherveslide.serializer import deck_body_family
+    d = _sample_deck()
+    assert deck_body_family(d) == "sf"
+    d.theme_spec = ThemeSpec(enabled=True, fonts="serif")
+    assert deck_body_family(d) == "rm"
+    d.theme_spec = ThemeSpec(enabled=True, font_family="palatino")
+    assert deck_body_family(d) == "rm"
+    d.theme_spec = ThemeSpec(enabled=True, font_family="fira")
+    assert deck_body_family(d) == "sf"
+    d.theme_spec = ThemeSpec(enabled=False, fonts="serif")
+    assert deck_body_family(d) == "sf"
+
+
+# --- Latin Modern for the canvas ---
+
+def test_latex_fonts_finds_the_cache_folder(tmp_path):
+    from kherveslide import latex_fonts
+    assert latex_fonts.find_font_dir([tmp_path]) is None
+    d = tmp_path / "data" / "abc123"
+    d.mkdir(parents=True)
+    (d / "lmsans10-regular.otf").write_bytes(b"")
+    assert latex_fonts.find_font_dir([tmp_path / "nope", tmp_path]) == d
+
+
+# --- welcome page layout modes ---
+
+def test_layout_modes_normalise_to_side():
+    from kherveslide.welcome import (
+        LAYOUTS, LAYOUT_SIDE, LAYOUT_TEXT, normalise_layout)
+    for m in LAYOUTS:
+        assert normalise_layout(m) == m
+        assert m in LAYOUT_TEXT
+    assert normalise_layout("window") == LAYOUT_SIDE
+    assert normalise_layout(None) == LAYOUT_SIDE
+
+
+# --- updater ---
+
+def test_updater_version_parsing():
+    from kherveslide.updater import parse_version, newer_release
+    assert parse_version("v0.123") == (0, 123)
+    assert parse_version("0.12.345+abc1234") == (0, 12, 345)
+    assert parse_version("nonsense") is None
+    assert newer_release("v0.124", "0.123")
+    assert newer_release("v1.0", "0.999")
+    assert not newer_release("v0.123", "0.123")
+    assert not newer_release("garbage", "0.1")
+
+
+def test_updater_status_only_fast_forwards_clean_checkouts():
+    from kherveslide.updater import Status
+    assert Status(behind=2).can_fast_forward
+    assert not Status(behind=0).available
+    dirty = Status(behind=1, dirty=True)
+    assert dirty.available and not dirty.can_fast_forward
+    assert "uncommitted" in dirty.why_not()
+    ahead = Status(behind=1, ahead=2, upstream="origin/dev")
+    assert not ahead.can_fast_forward
+    assert "2 commit(s)" in ahead.why_not()
+
+
+def test_updater_changelog_bolds_the_prefix():
+    from kherveslide.updater import changelog_markdown
+    md = changelog_markdown(["v0.123: welcome page", "plain subject"])
+    assert md.splitlines() == ["- **v0.123** — welcome page",
+                               "- plain subject"]
+
+
+def test_updater_against_a_local_remote(tmp_path):
+    """A clean clone behind its remote is fast-forwarded; a dirty one is
+    left alone."""
+    import shutil
+    import subprocess
+    if shutil.which("git") is None:
+        pytest.skip("git not installed")
+    from kherveslide import updater
+
+    def git(cwd, *a):
+        subprocess.run(["git", *a], cwd=cwd, check=True,
+                       capture_output=True)
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    git(origin, "init", "-q", "-b", "main")
+    git(origin, "config", "user.email", "t@t")
+    git(origin, "config", "user.name", "t")
+    (origin / "a.txt").write_text("1")
+    git(origin, "add", "a.txt")
+    git(origin, "commit", "-q", "-m", "v0.1: first")
+    clone = tmp_path / "clone"
+    git(tmp_path, "clone", "-q", str(origin), str(clone))
+    st = updater.check(clone)
+    assert st.behind == 0 and not st.available
+    (origin / "a.txt").write_text("2")
+    git(origin, "commit", "-q", "-am", "v0.2: second")
+    st = updater.check(clone)
+    assert st.behind == 1 and st.can_fast_forward
+    assert st.subjects == ["v0.2: second"]
+    updater.fast_forward(clone, st)
+    assert (clone / "a.txt").read_text() == "2"
+    (origin / "a.txt").write_text("3")
+    git(origin, "commit", "-q", "-am", "v0.3: third")
+    (clone / "a.txt").write_text("local edit")
+    st = updater.check(clone)
+    assert st.available and not st.can_fast_forward
+    with pytest.raises(updater.UpdateError):
+        updater.fast_forward(clone, st)
