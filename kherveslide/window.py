@@ -623,7 +623,11 @@ class SlideWindow(QMainWindow):
         m_file.addSeparator()
         m_file.addAction("Export LaTeX (.tex)…", self._export_tex)
         m_file.addAction("Export PDF…", self._export_pdf)
+        m_file.addAction("Export PowerPoint (.pptx)…", self._export_pptx)
         m_file.addAction("Compile to PDF", self._compile).setShortcut("Ctrl+R")
+        m_file.addSeparator()
+        m_file.addAction("Print preview…", self._print)
+        m_file.addAction("Print…", self._print).setShortcut("Ctrl+P")
         m_file.addSeparator()
         m_file.addAction("Download LaTeX packages (offline)…",
                          self._download_packages)
@@ -4480,6 +4484,98 @@ class SlideWindow(QMainWindow):
             a.triggered.connect(
                 lambda _=False, n=name: setattr(self, "_show_screen_name", n))
             group.addAction(a)
+
+    # ---------------- print / PowerPoint ----------------
+    def _print(self) -> None:
+        """Print and print preview: full page slides or handouts, from
+        the compiled PDF (printing.py)."""
+        from .printing import PrintDialog, PrintSettings
+        self._finish_edit()
+        pdf = self._slideshow_pdf()
+        if pdf is None:
+            return
+        settings = PrintSettings(current=self._pdf_page_of(self.current),
+                                 title=self.deck.title or (
+                                     self.path.stem if self.path else ""))
+        PrintDialog(pdf, settings, self).exec()
+
+    def _export_pptx(self) -> None:
+        """PowerPoint export: editable objects on the theme's background,
+        or every slide as an exact picture (pptx_export.py)."""
+        import threading
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtWidgets import QProgressDialog
+        from .pptx_export import ExportError, export_pptx
+        from .pptx_export_dialog import PptxExportDialog
+        self._finish_edit()
+        if not tectonic_available():
+            QMessageBox.warning(self, "Export to PowerPoint",
+                                "LaTeX (tectonic) is not available, so the "
+                                "slides cannot be built.")
+            return
+        hidden = sum(1 for s in self.deck.slides if s.hidden)
+        dlg = PptxExportDialog(hidden, self)
+        if not dlg.exec():
+            return
+        opts = dlg.options(self._theme_primary())
+        default = (str(self.path.with_suffix(".pptx")) if self.path
+                   else "presentation.pptx")
+        out, _ = QFileDialog.getSaveFileName(
+            self, "Export to PowerPoint", default,
+            "PowerPoint presentation (*.pptx)")
+        if not out:
+            return
+        if not out.lower().endswith(".pptx"):
+            out += ".pptx"
+        state = {"msg": "Starting…", "frac": 0.0}
+
+        def progress(msg, frac):
+            state["msg"], state["frac"] = msg, frac
+
+        def run():
+            try:
+                state["report"] = export_pptx(
+                    self.deck, out, self.path.parent if self.path else None,
+                    opts, progress=progress)
+            except Exception as e:              # shown below
+                state["error"] = e
+        bar = QProgressDialog("Exporting to PowerPoint…", None, 0, 100, self)
+        bar.setWindowTitle("Export to PowerPoint")
+        bar.setMinimumDuration(0)
+        bar.setValue(0)
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        while t.is_alive():
+            bar.setLabelText(state["msg"])
+            bar.setValue(int(state["frac"] * 100))
+            QApplication.processEvents()
+            t.join(0.05)
+        bar.close()
+        err = state.get("error")
+        if err is not None:
+            QMessageBox.warning(
+                self, "Export to PowerPoint",
+                str(err) if isinstance(err, ExportError)
+                else f"The export failed: {err}")
+            return
+        rep = state["report"]
+        text = (f"Exported {rep.slides} slide{'s' * (rep.slides != 1)} to "
+                f"{Path(out).name}.")
+        if opts.mode == "editable":
+            text += (f"\n\n{rep.editable} objects are editable in "
+                     f"PowerPoint; {rep.pictures} came in as exact pictures "
+                     "(equations, blocks, picture effects).")
+        if rep.notes:
+            text += "\n\n" + "\n".join(rep.notes[:6])
+        box = QMessageBox(QMessageBox.Information, "Export to PowerPoint",
+                          text, parent=self)
+        open_btn = box.addButton("Open in PowerPoint", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Close)
+        box.exec()
+        if box.clickedButton() is open_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(out))
+        self.statusBar().showMessage(f"Exported {out}", 5000)
 
     def _slideshow_pdf(self) -> Path | None:
         """The compiled PDF of the presentation as it is now (with its

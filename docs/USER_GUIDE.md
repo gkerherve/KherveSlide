@@ -264,6 +264,43 @@ and the margin.
   computer. **File → Download LaTeX packages (offline)…** fetches all of
   them in one go, e.g. before travelling.
 
+## Printing
+
+**File → Print…** (`Ctrl+P`, or **File → Print preview…**) opens one
+window: the settings on the left, a live preview of the printed pages
+on the right.
+
+- **Layout**: *Full page slides* (one per page, landscape) or
+  *Handouts* with 2, 3, 4, 6 or 9 slides per page — the 3-per-page
+  handout has lines beside each slide for notes.
+- **Print**: all slides, the current slide, or a list such as `1-3, 5`.
+- **Colour** or **Greyscale**, a thin **frame** round each slide, and the
+  **title, date and page numbers** on every page.
+- **Print…** opens the system print window (printer, copies, paper);
+  **Save as PDF…** keeps the pages — e.g. the handouts — as a PDF.
+
+What is printed is the compiled PDF, exactly as in the slideshow; hidden
+slides are left out.
+
+## Export to PowerPoint
+
+**File → Export PowerPoint (.pptx)…** asks how the slides should arrive:
+
+- **Editable** (recommended): titles, text boxes (bold, italic, colours,
+  bullets and numbering), pictures (cropped, rotated, faded), tables,
+  shapes, lines, arrows and videos become real PowerPoint objects you can
+  change. The theme — title bar, footers, slide numbers, background and
+  the master — is each slide's background, so it looks like the PDF.
+  Equations, beamer blocks and theorems, and pictures with effects come
+  in as exact pictures cut from the PDF.
+- **Exact look**: every slide is one picture, identical to the PDF — for
+  presenting from a computer without KherveSlide.
+
+Pick the picture quality (150–300 dpi). Hidden slides go along hidden,
+or can be left out. PowerPoint fonts stand in for LaTeX's Latin Modern
+(Calibri, Cambria, Consolas — or your theme's typeface), so a line may
+break in a slightly different place.
+
 ## Slideshow
 
 Present the compiled PDF full screen from the **Slideshow** menu:
@@ -356,6 +393,7 @@ restart when an update has been installed.
 | Group / Ungroup | `Ctrl+G` / `Ctrl+Shift+G` |
 | Find / Check spelling | `Ctrl+F` / `F7` |
 | Compile now | `Ctrl+R` |
+| Print / print preview | `Ctrl+P` |
 | Equation builder / Chemical reaction / Chemical structure | `Ctrl+Shift+E` / `Ctrl+Shift+R` / `Ctrl+Shift+T` |
 | Flowchart builder | `Ctrl+Shift+F` |
 | Move slide up / down | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` |
