@@ -1387,3 +1387,432 @@ def remove_bg() -> QIcon:
     p.drawEllipse(QRectF(18, 6, 5, 5))                # wand tip
     p.end()
     return QIcon(px)
+
+
+# ----- drawing dialog (paint tools) -----
+# Drawn on a 24-unit grid but rendered at 2x so the larger palette buttons
+# stay crisp on hi-DPI screens.
+
+def _paint_canvas() -> tuple[QPixmap, QPainter]:
+    px = QPixmap(_SIZE * 2, _SIZE * 2)
+    px.fill(Qt.transparent)
+    p = QPainter(px)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    p.setRenderHint(QPainter.TextAntialiasing, True)
+    p.scale(2, 2)
+    return px, p
+
+
+def _pen(color, w=1.6) -> QPen:
+    return QPen(color, w, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+
+
+def _fill_soft() -> QColor:
+    c = QColor(_accent())
+    c.setAlpha(60)
+    return c
+
+
+def _pt_pointer(p):
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(QBrush(_fg()))
+    p.drawPolygon(QPolygonF([QPointF(6, 3), QPointF(6, 19), QPointF(10, 15),
+                             QPointF(13, 21), QPointF(15.5, 20),
+                             QPointF(12.5, 14), QPointF(18, 14)]))
+
+
+def _pt_pencil(p):
+    p.setPen(_pen(_fg(), 1.3)); p.setBrush(QBrush(_accent2()))
+    p.drawPolygon(QPolygonF([QPointF(16, 3), QPointF(21, 8), QPointF(9, 20),
+                             QPointF(4, 15)]))
+    p.setBrush(QBrush(_fg()))
+    p.drawPolygon(QPolygonF([QPointF(4, 15), QPointF(9, 20), QPointF(3, 21)]))
+    p.setPen(_pen(_fg(), 1.1))
+    p.drawLine(QPointF(14, 5), QPointF(19, 10))
+
+
+def _pt_eraser(p):
+    p.setPen(_pen(_fg(), 1.3))
+    p.setBrush(QBrush(QColor("#f28b9b")))
+    p.drawPolygon(QPolygonF([QPointF(13, 3), QPointF(21, 11), QPointF(14, 18),
+                             QPointF(6, 10)]))
+    p.setBrush(QBrush(QColor("#ffffff") if not _dark else QColor("#666")))
+    p.drawPolygon(QPolygonF([QPointF(6, 10), QPointF(14, 18), QPointF(11, 21),
+                             QPointF(7, 21), QPointF(3, 17), QPointF(3, 13)]))
+    p.drawLine(QPointF(11, 21), QPointF(21, 21))
+
+
+def _pt_bucket(p):
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(QBrush(_fill_soft()))
+    p.drawPolygon(QPolygonF([QPointF(10, 3), QPointF(18, 11), QPointF(11, 18),
+                             QPointF(3, 10)]))
+    p.drawLine(QPointF(10, 3), QPointF(8, 1.5))
+    p.setPen(Qt.NoPen); p.setBrush(QBrush(_accent()))
+    path = QPainterPath(QPointF(19.5, 13))
+    path.cubicTo(QPointF(22, 17), QPointF(22.5, 20), QPointF(19.5, 20.5))
+    path.cubicTo(QPointF(16.5, 20), QPointF(17, 17), QPointF(19.5, 13))
+    p.drawPath(path)
+
+
+def _pt_picker(p):
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(QBrush(_fg()))
+    p.drawEllipse(QPointF(18, 6), 3.2, 3.2)
+    p.setBrush(Qt.NoBrush)
+    p.drawLine(QPointF(15, 7), QPointF(17, 9))
+    p.setPen(_pen(_fg(), 2.2))
+    p.drawLine(QPointF(15.5, 8.5), QPointF(6, 18))
+    p.setPen(_pen(_accent(), 2.2))
+    p.drawLine(QPointF(6, 18), QPointF(4, 20))
+
+
+def _pt_line(p):
+    p.setPen(_pen(_fg(), 2.0))
+    p.drawLine(QPointF(4, 20), QPointF(20, 4))
+    p.setBrush(QBrush(_accent())); p.setPen(Qt.NoPen)
+    p.drawEllipse(QPointF(4, 20), 2, 2); p.drawEllipse(QPointF(20, 4), 2, 2)
+
+
+def _pt_arrow(p):
+    p.setPen(_pen(_fg(), 2.0))
+    p.drawLine(QPointF(4, 20), QPointF(17, 7))
+    p.setBrush(QBrush(_fg()))
+    p.drawPolygon(QPolygonF([QPointF(21, 3), QPointF(19.5, 12),
+                             QPointF(12, 4.5)]))
+
+
+def _pt_dimension(p):
+    p.setPen(_pen(_fg(), 1.3))
+    p.drawLine(QPointF(3, 7), QPointF(3, 19)); p.drawLine(QPointF(21, 7), QPointF(21, 19))
+    p.drawLine(QPointF(4, 13), QPointF(20, 13))
+    p.setBrush(QBrush(_fg()))
+    p.drawPolygon(QPolygonF([QPointF(4, 13), QPointF(8, 11), QPointF(8, 15)]))
+    p.drawPolygon(QPolygonF([QPointF(20, 13), QPointF(16, 11), QPointF(16, 15)]))
+    f = QFont(); f.setPixelSize(7); f.setBold(True); p.setFont(f)
+    p.setPen(_accent())
+    p.drawText(QRectF(4, 3, 16, 9), Qt.AlignCenter, "mm")
+
+
+def _pt_protractor(p):
+    p.setPen(_pen(_fg(), 1.5)); p.setBrush(QBrush(_fill_soft()))
+    path = QPainterPath(QPointF(3, 19))
+    path.arcTo(QRectF(3, 5, 18, 28), 180, -180)
+    path.closeSubpath()
+    p.drawPath(path)
+    p.setPen(_pen(_accent(), 1.5))
+    p.drawLine(QPointF(12, 19), QPointF(17, 9))
+
+
+def _pt_shape(p, kind):
+    p.setPen(_pen(_fg(), 1.7)); p.setBrush(QBrush(_fill_soft()))
+    box = QRectF(3.5, 5.5, 17, 13)
+    if kind == "rect":
+        p.drawRect(box)
+    elif kind == "roundrect":
+        p.drawRoundedRect(box, 4, 4)
+    elif kind == "circle":
+        p.drawEllipse(QRectF(4, 4, 16, 16))
+    elif kind == "ellipse":
+        p.drawEllipse(QRectF(2.5, 6.5, 19, 11))
+    else:
+        from .paint import canvas
+        r = QRectF(3.5, 3.5, 17, 17)
+        if kind in canvas.ARC_KINDS:
+            p.drawPath(canvas.arc_path(kind, r))
+        else:
+            p.drawPolygon(canvas.polygon_for_kind(kind, r))
+
+
+def _pt_text(p):
+    f = QFont("Georgia"); f.setPixelSize(19); f.setBold(True)
+    p.setFont(f); p.setPen(_fg())
+    p.drawText(QRectF(0, 0, 24, 24), Qt.AlignCenter, "T")
+    p.setPen(_pen(_accent(), 1.2))
+    p.drawLine(QPointF(19, 5), QPointF(19, 19))
+
+
+def _pt_image(p):
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(Qt.NoBrush)
+    p.drawRoundedRect(QRectF(3, 4, 18, 16), 2, 2)
+    p.setBrush(QBrush(_accent())); p.setPen(Qt.NoPen)
+    p.drawPolygon(QPolygonF([QPointF(4.5, 18.5), QPointF(10, 11),
+                             QPointF(14, 15.5), QPointF(16, 13.5),
+                             QPointF(19.5, 18.5)]))
+    p.setBrush(QBrush(_accent2()))
+    p.drawEllipse(QPointF(16, 8.5), 2, 2)
+
+
+def _pt_group(p, ungroup=False):
+    p.setPen(QPen(_accent(), 1.2, Qt.DashLine)); p.setBrush(Qt.NoBrush)
+    if not ungroup:
+        p.drawRect(QRectF(2.5, 2.5, 19, 19))
+    p.setPen(_pen(_fg(), 1.5)); p.setBrush(QBrush(_fill_soft()))
+    d = 1.5 if ungroup else 0
+    p.drawRect(QRectF(5 - d, 5 - d, 8, 8))
+    p.drawEllipse(QRectF(11 + d, 11 + d, 8, 8))
+
+
+def _pt_zorder(p, up: bool, full: bool):
+    back = QColor("#b9c3cf") if not _dark else QColor("#666")
+    front = _accent()
+    p.setPen(_pen(_fg(), 1.2))
+    lo, hi = (QRectF(3, 9, 11, 11), QRectF(10, 4, 11, 11))
+    p.setBrush(QBrush(back if up else front)); p.drawRect(lo if up else hi)
+    p.setBrush(QBrush(front if up else back)); p.drawRect(hi if up else lo)
+    if full:
+        p.setPen(_pen(_fg(), 1.6))
+        y = 2 if up else 22
+        p.drawLine(QPointF(3, y), QPointF(8, y))
+
+
+def _pt_copy(p):
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(Qt.NoBrush)
+    p.drawRoundedRect(QRectF(4, 3, 11, 13), 1.5, 1.5)
+    p.setBrush(QBrush(QColor("#ffffff") if not _dark else QColor("#333")))
+    p.drawRoundedRect(QRectF(9, 8, 11, 13), 1.5, 1.5)
+
+
+def _pt_paste(p):
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(QBrush(_fill_soft()))
+    p.drawRoundedRect(QRectF(4, 4, 16, 18), 2, 2)
+    p.setBrush(QBrush(_fg()))
+    p.drawRoundedRect(QRectF(8.5, 2, 7, 4), 1, 1)
+
+
+def _pt_duplicate(p):
+    _pt_copy(p)
+    p.setPen(_pen(_accent(), 1.6))
+    p.drawLine(QPointF(14.5, 11.5), QPointF(14.5, 17.5))
+    p.drawLine(QPointF(11.5, 14.5), QPointF(17.5, 14.5))
+
+
+def _pt_delete(p):
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(Qt.NoBrush)
+    p.drawLine(QPointF(4, 6), QPointF(20, 6))
+    p.drawRect(QRectF(9.5, 3, 5, 3))
+    p.drawPolygon(QPolygonF([QPointF(6, 6), QPointF(18, 6), QPointF(17, 21),
+                             QPointF(7, 21)]))
+    p.drawLine(QPointF(10, 9.5), QPointF(10, 18))
+    p.drawLine(QPointF(14, 9.5), QPointF(14, 18))
+
+
+def _pt_grid(p):
+    p.setPen(_pen(_fg(), 1.0))
+    for v in (4, 10, 16, 22):
+        p.drawLine(QPointF(v - 1, 3), QPointF(v - 1, 21))
+        p.drawLine(QPointF(3, v - 1), QPointF(21, v - 1))
+
+
+def _pt_snap(p):
+    _pt_grid(p)
+    p.setPen(Qt.NoPen); p.setBrush(QBrush(_accent()))
+    p.drawEllipse(QPointF(9, 9), 3, 3)
+
+
+def _pt_fit(p):
+    p.setPen(QPen(_accent(), 1.2, Qt.DashLine)); p.setBrush(Qt.NoBrush)
+    p.drawRect(QRectF(6, 6, 12, 12))
+    p.setPen(_pen(_fg(), 1.6))
+    for (x, y, dx, dy) in ((3, 3, 1, 1), (21, 3, -1, 1), (3, 21, 1, -1),
+                           (21, 21, -1, -1)):
+        p.drawLine(QPointF(x, y), QPointF(x + 4 * dx, y))
+        p.drawLine(QPointF(x, y), QPointF(x, y + 4 * dy))
+
+
+def _pt_flip(p, vertical=False):
+    if vertical:
+        p.translate(24, 0); p.rotate(90)
+    p.setPen(QPen(_fg(), 1.1, Qt.DashLine))
+    p.drawLine(QPointF(12, 2), QPointF(12, 22))
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(QBrush(_fg()))
+    p.drawPolygon(QPolygonF([QPointF(10, 5), QPointF(10, 19), QPointF(3, 19)]))
+    p.setBrush(QBrush(_fill_soft()))
+    p.drawPolygon(QPolygonF([QPointF(14, 5), QPointF(14, 19), QPointF(21, 19)]))
+
+
+def _pt_rotate(p):
+    p.setPen(_pen(_fg(), 1.8)); p.setBrush(Qt.NoBrush)
+    path = QPainterPath(QPointF(19, 12))
+    path.arcTo(QRectF(5, 5, 14, 14), 0, 270)
+    p.drawPath(path)
+    p.setBrush(QBrush(_fg())); p.setPen(Qt.NoPen)
+    p.drawPolygon(QPolygonF([QPointF(15.5, 2), QPointF(15.5, 10),
+                             QPointF(9.5, 5.5)]))
+
+
+def _pt_explode(p):
+    p.setPen(_pen(_fg(), 1.6))
+    p.drawLine(QPointF(3, 8), QPointF(10, 3))
+    p.drawLine(QPointF(14, 3), QPointF(21, 8))
+    p.drawLine(QPointF(21, 13), QPointF(21, 21))
+    p.drawLine(QPointF(3, 13), QPointF(3, 21))
+    p.drawLine(QPointF(7, 21), QPointF(17, 21))
+
+
+def _pt_flowchart(p):
+    p.setPen(_pen(_fg(), 1.3)); p.setBrush(QBrush(_fill_soft()))
+    p.drawRoundedRect(QRectF(7, 1.5, 10, 5), 2.5, 2.5)
+    p.drawPolygon(QPolygonF([QPointF(12, 9), QPointF(17, 12.5),
+                             QPointF(12, 16), QPointF(7, 12.5)]))
+    p.drawRect(QRectF(7, 18.5, 10, 4.5))
+    p.drawLine(QPointF(12, 6.5), QPointF(12, 9))
+    p.drawLine(QPointF(12, 16), QPointF(12, 18.5))
+
+
+def _pt_electrical(p):
+    p.setPen(_pen(_fg(), 1.5)); p.setBrush(Qt.NoBrush)
+    p.drawLine(QPointF(2, 12), QPointF(6, 12))
+    p.drawPolyline(QPolygonF([QPointF(6, 12), QPointF(7.5, 8), QPointF(10, 16),
+                              QPointF(12.5, 8), QPointF(15, 16),
+                              QPointF(17.5, 8), QPointF(18.5, 12)]))
+    p.drawLine(QPointF(18.5, 12), QPointF(22, 12))
+
+
+def _pt_optics(p):
+    p.setPen(_pen(QColor("#d8000c"), 1.4))
+    p.drawLine(QPointF(2, 8), QPointF(12, 12)); p.drawLine(QPointF(2, 16), QPointF(12, 12))
+    p.drawLine(QPointF(12, 12), QPointF(22, 12))
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(QBrush(_fill_soft()))
+    path = QPainterPath(QPointF(9, 3))
+    path.quadTo(QPointF(14, 12), QPointF(9, 21))
+    path.quadTo(QPointF(4, 12), QPointF(9, 3))
+    p.drawPath(path)
+
+
+def _pt_maths(p):
+    p.setPen(_pen(_fg(), 1.3))
+    p.drawLine(QPointF(3, 21), QPointF(21, 21)); p.drawLine(QPointF(3, 21), QPointF(3, 3))
+    p.setPen(_pen(_accent(), 1.6)); p.setBrush(Qt.NoBrush)
+    path = QPainterPath(QPointF(4, 19))
+    path.cubicTo(QPointF(9, 19), QPointF(10, 4), QPointF(13, 4))
+    path.cubicTo(QPointF(16, 4), QPointF(17, 17), QPointF(21, 17))
+    p.drawPath(path)
+
+
+def _pt_callout(p):
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(QBrush(_fill_soft()))
+    path = QPainterPath()
+    path.addRoundedRect(QRectF(2.5, 3, 19, 12), 3, 3)
+    tail = QPainterPath()
+    tail.addPolygon(QPolygonF([QPointF(7, 14), QPointF(6, 21), QPointF(12, 14)]))
+    p.drawPath(path.united(tail))
+
+
+def _pt_labware(p):
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(Qt.NoBrush)
+    outline = QPolygonF([QPointF(9, 2.5), QPointF(9, 9), QPointF(3.5, 20),
+                         QPointF(4.5, 21.5), QPointF(19.5, 21.5),
+                         QPointF(20.5, 20), QPointF(15, 9), QPointF(15, 2.5)])
+    p.setBrush(QBrush(_fill_soft()))
+    p.drawPolygon(outline)
+    p.setPen(_pen(_accent(), 1.2))
+    p.drawLine(QPointF(6.5, 15.5), QPointF(17.5, 15.5))
+
+
+def _pt_chemistry(p):
+    import math
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(Qt.NoBrush)
+    pts = [QPointF(12 + 8.5 * math.cos(math.radians(90 + 60 * k)),
+                   12 + 8.5 * math.sin(math.radians(90 + 60 * k)))
+           for k in range(6)]
+    p.drawPolygon(QPolygonF(pts))
+    p.setPen(_pen(_accent(), 1.3))
+    p.drawEllipse(QPointF(12, 12), 4.8, 4.8)
+
+
+def _pt_canvas(p):
+    p.setPen(_pen(_fg(), 1.4)); p.setBrush(QBrush(QColor("#ffffff")))
+    p.drawRect(QRectF(5, 5, 14, 14))
+    p.setPen(_pen(_accent(), 1.4))
+    p.drawLine(QPointF(2, 5), QPointF(2, 19)); p.drawLine(QPointF(5, 22), QPointF(19, 22))
+
+
+_PAINT_TOOLS = {
+    "pointer": _pt_pointer, "pencil": _pt_pencil, "eraser": _pt_eraser,
+    "bucket": _pt_bucket, "picker": _pt_picker, "line": _pt_line,
+    "arrow": _pt_arrow, "dimension": _pt_dimension,
+    "protractor": _pt_protractor, "text": _pt_text, "image": _pt_image,
+    "group": _pt_group, "ungroup": lambda p: _pt_group(p, True),
+    "front": lambda p: _pt_zorder(p, True, True),
+    "forward": lambda p: _pt_zorder(p, True, False),
+    "backward": lambda p: _pt_zorder(p, False, False),
+    "back": lambda p: _pt_zorder(p, False, True),
+    "copy": _pt_copy, "paste": _pt_paste, "duplicate": _pt_duplicate,
+    "delete": _pt_delete, "grid": _pt_grid, "snap": _pt_snap, "fit": _pt_fit,
+    "flip_h": _pt_flip, "flip_v": lambda p: _pt_flip(p, True),
+    "rotate": _pt_rotate, "explode": _pt_explode,
+    "flowchart": _pt_flowchart, "electrical": _pt_electrical,
+    "optics": _pt_optics, "maths": _pt_maths, "arrows": _pt_callout,
+    "labware": _pt_labware, "chemistry": _pt_chemistry, "canvas": _pt_canvas,
+}
+
+
+def paint_tool(name: str) -> QIcon:
+    """Icon for a drawing-dialog tool or action. Shape tools (rect, circle,
+    polygons, arcs…) are drawn from the shape's own geometry."""
+    px, p = _paint_canvas()
+    fn = _PAINT_TOOLS.get(name)
+    if fn is not None:
+        fn(p)
+    else:
+        _pt_shape(p, name)
+    p.end()
+    return QIcon(px)
+
+
+def color_swatch(color: str, size: int = 16, *, none: bool = False) -> QIcon:
+    """A rounded colour chip; *none* draws the "no colour" red slash."""
+    px = QPixmap(size * 2, size * 2)
+    px.fill(Qt.transparent)
+    p = QPainter(px)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    p.scale(2, 2)
+    r = QRectF(1, 1, size - 2, size - 2)
+    p.setPen(QPen(QColor("#777"), 1))
+    p.setBrush(QBrush(QColor("#ffffff") if none else QColor(color)))
+    p.drawRoundedRect(r, 3, 3)
+    if none:
+        p.setPen(QPen(QColor("#d8000c"), 1.6))
+        p.drawLine(r.bottomLeft() + QPointF(2, -2), r.topRight() + QPointF(-2, 2))
+    p.end()
+    return QIcon(px)
+
+
+def pen_preview(width: float = 2.0, dash: str = "solid", head: str = "",
+                length: int = 44) -> QIcon:
+    """A short stroke sample for the width / dash / arrowhead pickers."""
+    h = 16
+    px = QPixmap(length * 2, h * 2)
+    px.fill(Qt.transparent)
+    p = QPainter(px)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    p.scale(2, 2)
+    styles = {"solid": Qt.SolidLine, "dash": Qt.DashLine, "dot": Qt.DotLine,
+              "dashdot": Qt.DashDotLine}
+    pen = QPen(_fg(), min(width, h - 4), styles.get(dash, Qt.SolidLine),
+               Qt.FlatCap if dash != "dot" else Qt.RoundCap)
+    p.setPen(pen)
+    x0, x1 = 3.0, length - 3.0
+    if head:
+        x1 -= 4
+        if head == "double":
+            x0 += 4
+    p.drawLine(QPointF(x0, h / 2), QPointF(x1, h / 2))
+    if head:
+        p.setPen(_pen(_fg(), 1.3))
+
+        def tip(x, sign):
+            a, b = QPointF(x - sign * 8, h / 2 - 4.5), QPointF(x - sign * 8, h / 2 + 4.5)
+            if head == "open":
+                p.setBrush(Qt.NoBrush)
+                p.drawPolyline(QPolygonF([a, QPointF(x, h / 2), b]))
+            elif head == "stealth":
+                p.setBrush(QBrush(_fg()))
+                p.drawPolygon(QPolygonF([QPointF(x, h / 2), a,
+                                         QPointF(x - sign * 5, h / 2), b]))
+            else:
+                p.setBrush(QBrush(_fg()))
+                p.drawPolygon(QPolygonF([QPointF(x, h / 2), a, b]))
+        tip(length - 2.0, 1)
+        if head == "double":
+            tip(2.0, -1)
+    p.end()
+    return QIcon(px)

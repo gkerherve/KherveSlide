@@ -829,8 +829,10 @@ class TextBoxItem(BoxItem):
         # equation editor's preview, rather than shown as raw LaTeX.
         inner = _math_only(obj.text)
         if inner is not None:
-            from . import equations
-            pm = equations.render_live_preview(inner, 24)
+            from . import chemistry, equations
+            body = chemistry.unwrap_ce(inner)
+            pm = (chemistry.render_live_preview(body, 24) if body is not None
+                  else equations.render_live_preview(inner, 24))
             if pm is not None and not pm.isNull():
                 area = self._rect.adjusted(4, 2, -4, -2)
                 scaled = pm.scaled(area.size().toSize(), Qt.KeepAspectRatio,
@@ -947,6 +949,37 @@ class TextBoxItem(BoxItem):
             cur.mergeCharFormat(fmt)
 
 
+def _mtime(path: str) -> float:
+    import os
+    try:
+        return os.path.getmtime(path) if path else 0.0
+    except OSError:
+        return 0.0
+
+
+def load_picture(path: str, pdf_width: int = 1600) -> QPixmap | None:
+    """A picture box's image: any Qt-readable image, or the first page of
+    a PDF (drawings and chemical structures are vector PDFs, so the slide
+    stays sharp) rendered with PyMuPDF."""
+    if not path:
+        return None
+    if path.lower().endswith(".pdf"):
+        try:
+            import pymupdf
+            from PySide6.QtGui import QImage
+            with pymupdf.open(path) as doc:
+                page = doc[0]
+                z = pdf_width / max(1.0, page.rect.width)
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(z, z), alpha=True)
+                img = QImage(pix.samples, pix.width, pix.height, pix.stride,
+                             QImage.Format_RGBA8888).copy()
+            return QPixmap.fromImage(img)
+        except Exception:
+            return None
+    pm = QPixmap(path)
+    return pm if not pm.isNull() else None
+
+
 class PictureBoxItem(BoxItem):
     def __init__(self, obj, page_w, page_h, gap=0.0, font_scale=FONT_SCALE):
         super().__init__(obj, page_w, page_h, gap, font_scale)
@@ -954,10 +987,12 @@ class PictureBoxItem(BoxItem):
         self._pix_path = None
 
     def _pixmap(self) -> QPixmap | None:
-        if self.obj.path != self._pix_path:
-            self._pix_path = self.obj.path
-            pm = QPixmap(self.obj.path) if self.obj.path else QPixmap()
-            self._pix = pm if not pm.isNull() else None
+        # Keyed on the file's mtime too, so a drawing or chemical structure
+        # re-saved under the same name shows its new content.
+        key = (self.obj.path, _mtime(self.obj.path))
+        if key != self._pix_path:
+            self._pix_path = key
+            self._pix = load_picture(self.obj.path)
         return self._pix
 
     def _aspect_locked(self):

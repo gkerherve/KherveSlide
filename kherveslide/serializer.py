@@ -1130,6 +1130,16 @@ def serialize_deck(deck: Deck) -> str:
     # colortbl / shadows) is pulled in even when only the master needs it.
     _all_objs = [o for s in deck.slides for o in s.objects]
     _all_objs += list(getattr(deck, "master", Slide()).objects)
+    # Chemistry typed into boxes (the chemistry editor writes \ce{…};
+    # chemfig structures are normally placed as compiled pictures).
+    _texts = " ".join(
+        [getattr(o, "text", "") or "" for o in _all_objs]
+        + [c for o in _all_objs if isinstance(o, SlideTable)
+           for row in o.rows for c in row])
+    if "\\ce{" in _texts or "\\pu{" in _texts:
+        lines.append("\\usepackage[version=4]{mhchem}")
+    if "\\chemfig" in _texts:
+        lines.append("\\usepackage{chemfig}")
     if any(isinstance(o, SlideVideo) and not o.poster for o in _all_objs):
         # the ▶ glyph on the video placeholder
         lines.append("\\usepackage{amssymb}")

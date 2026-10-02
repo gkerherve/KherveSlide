@@ -302,9 +302,9 @@ class PictureEditDialog(QDialog):
         user can draw on it (pen, lines, shapes, fill); bake the result back."""
         if self._src.isNull() or not self.path:
             return
-        from .drawing_dialog import DrawingDialog
+        from .annotate_dialog import DrawingDialog as AnnotateDialog
         d = Path(tempfile.gettempdir()) / "kherveslide_pasted"
-        dlg = DrawingDialog(d, self, background_path=Path(self.path))
+        dlg = AnnotateDialog(d, self, background_path=Path(self.path))
         if dlg.exec() and dlg.saved_path():
             self._set_image(str(dlg.saved_path()))
 

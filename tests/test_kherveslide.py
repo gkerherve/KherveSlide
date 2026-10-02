@@ -1668,14 +1668,14 @@ def test_paste_image_fills_selected_picture_box(monkeypatch):
     assert item.obj.path                        # picture now has a file
 
 
-def test_drawing_dialog_background_and_fill():
+def test_annotate_dialog_background_and_fill():
     from PySide6.QtWidgets import QApplication, QGraphicsRectItem
     QApplication.instance() or QApplication([])
     from PySide6.QtGui import QPixmap, QColor, QImage, QPainter
     from PySide6.QtCore import QRectF, Qt
     import tempfile
     from pathlib import Path
-    from kherveslide.drawing_dialog import DrawingDialog
+    from kherveslide.annotate_dialog import DrawingDialog
     wd = Path(tempfile.mkdtemp(prefix="ks_dd_"))
     src = wd / "bg.png"
     pm = QPixmap(60, 40); pm.fill(QColor("#3478f6")); pm.save(str(src))
@@ -2695,3 +2695,31 @@ def test_beamer_import_rejects_other_files(tmp_path):
         install_beamer_theme(plain, tmp_path / "s")
     with pytest.raises(ValueError):
         install_beamer_theme(tmp_path / "x.docx", tmp_path / "s")
+
+
+# --- chemistry from the KherveTeX builders ---
+
+def test_mhchem_and_chemfig_packages_follow_the_content():
+    d = _sample_deck()
+    assert "mhchem" not in serialize_deck(d)
+    d.slides[1].objects.append(SlideText(text="$\\ce{2H2 + O2 -> 2H2O}$"))
+    tex = serialize_deck(d)
+    assert "\\usepackage[version=4]{mhchem}" in tex and "chemfig" not in tex
+    d.slides[1].objects.append(SlideTable(rows=[["\\chemfig{A-B}"]]))
+    assert "\\usepackage{chemfig}" in serialize_deck(d)
+
+
+def test_canvas_loads_pdf_pictures(tmp_path):
+    import pymupdf
+    from kherveslide.canvas import load_picture
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    pdf = tmp_path / "fig.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=200, height=100)
+    page.draw_rect(pymupdf.Rect(10, 10, 190, 90), color=(1, 0, 0), fill=(1, 0, 0))
+    doc.save(str(pdf))
+    pm = load_picture(str(pdf), pdf_width=400)
+    assert pm is not None and pm.width() == 400 and pm.height() == 200
+    assert load_picture(str(tmp_path / "missing.pdf")) is None
+    assert load_picture("") is None

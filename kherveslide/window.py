@@ -814,6 +814,8 @@ class SlideWindow(QMainWindow):
         m_insert.addAction("Video…", self._add_video)
         m_insert.addAction("Table…", self._insert_table_picker)
         m_insert.addAction("Equation…", self._add_equation)
+        m_insert.addAction("Chemical equation…", self._add_chemistry)
+        m_insert.addAction("Chemical structure…", self._add_chem_structure)
         m_insert.addAction("Drawing…", self._add_drawing)
 
         m_shapes = mb.addMenu("S&hapes")
@@ -1109,6 +1111,9 @@ class SlideWindow(QMainWindow):
         vact(icons.video_box, "Add video", self._add_video)
         vact(icons.table, "Add table", self._add_table)
         vact(icons.math_block, "Add equation", self._add_equation)
+        vact(lambda: icons.paint_tool("chemistry"),
+             "Add chemical equation / structure",
+             self._add_chemistry_menu)
         vact(icons.symbol, "Insert symbol…", self._insert_symbol)
         vact(icons.drawing, "Add drawing", self._add_drawing)
         vact(icons.line_tool, "Add line", self._add_line)
@@ -1945,17 +1950,32 @@ class SlideWindow(QMainWindow):
         elif isinstance(item, VideoBoxItem):
             self._edit_video(item)
         elif isinstance(item, PictureBoxItem):
-            self._edit_picture(item)
+            # A drawing or a chemical structure reopens the editor that
+            # made it (its source sits next to the picture).
+            from .drawing_dialog import drawing_source_for
+            p = Path(item.obj.path or "")
+            if p.with_suffix(".chemfig").exists():
+                self._add_chem_structure(item)
+            elif item.obj.path and drawing_source_for(p) is not None:
+                self._edit_drawing(item)
+            else:
+                self._edit_picture(item)
 
     def _edit_equation_item(self, item) -> bool:
         """A box holding nothing but maths is painted as a rendered equation,
         so double-clicking it should reopen the editor that built it rather
-        than dropping the user into raw LaTeX. Returns True if handled."""
+        than dropping the user into raw LaTeX — the chemistry editor for a
+        \\ce{} reaction. Returns True if handled."""
         inner = _math_only(item.obj.text)
         if inner is None:
             return False
-        from .equation_editor import EquationEditorDialog
-        dlg = EquationEditorDialog(self, initial_latex=inner)
+        from . import chemistry
+        from .equation_editor import ChemistryEditorDialog, EquationEditorDialog
+        body = chemistry.unwrap_ce(inner)
+        if body is not None:
+            dlg = ChemistryEditorDialog(self, initial_latex=body)
+        else:
+            dlg = EquationEditorDialog(self, initial_latex=inner)
         if dlg.exec() and dlg.latex():
             self._commit_obj_text(item, rewrap_math(item.obj.text, dlg.latex()))
             self._touch_current()
@@ -2475,23 +2495,146 @@ class SlideWindow(QMainWindow):
         from .equation_editor import EquationEditorDialog
         dlg = EquationEditorDialog(self)
         if dlg.exec() and dlg.latex():
+            # Wide, so the maths stays on one line in the PDF as on the
+            # canvas (inline maths would otherwise break at + or =).
             obj = SlideText(text=f"${dlg.latex()}$", font_pt=28,
-                            align="center")
+                            align="center", x=0.08, w=0.84, h=0.14,
+                            locked=False)
             self._place_stacked(obj)
+            obj.x, obj.w = 0.08, 0.84     # keep it wide (see above)
             self.slide.objects.append(obj)
             self._reload_scene()
             self._select_last()
             self._touch_current()
 
+    def _figures_dir(self) -> Path:
+        """Where drawings and chemical structures are saved: a figures/
+        folder beside the presentation (a temp folder until it's saved)."""
+        d = (self.path.parent / "figures" if self.path
+             else Path(tempfile.gettempdir()) / "kherveslide_drawings")
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _add_chemistry_menu(self):
+        menu = QMenu(self)
+        menu.addAction("Chemical equation (mhchem)…", self._add_chemistry)
+        menu.addAction("Chemical structure (chemfig)…",
+                       self._add_chem_structure)
+        from PySide6.QtGui import QCursor
+        menu.exec(QCursor.pos())
+
+    def _add_chemistry(self):
+        """A reaction / formula typeset by mhchem, e.g. 2H2 + O2 -> 2H2O."""
+        from .equation_editor import ChemistryEditorDialog
+        dlg = ChemistryEditorDialog(self)
+        if dlg.exec() and dlg.latex():
+            obj = SlideText(text=f"${dlg.latex()}$", font_pt=28,
+                            align="center", x=0.08, w=0.84, h=0.14,
+                            locked=False)
+            self._place_stacked(obj)
+            obj.x, obj.w = 0.08, 0.84     # keep it wide (see above)
+            self.slide.objects.append(obj)
+            self._reload_scene()
+            self._select_last()
+            self._touch_current()
+
+    def _compile_figure(self, tex: str, out_pdf: Path) -> tuple[bool, str]:
+        """Compile a standalone figure to *out_pdf*, keeping the UI alive
+        meanwhile (a first compile may fetch packages)."""
+        import threading
+        if not tectonic_available():
+            return False, "LaTeX (tectonic) is not available."
+        box: dict = {}
+        workdir = Path(tempfile.gettempdir()) / "kherveslide_figure"
+
+        def run():
+            box["r"] = compile_tex(tex, workdir, "figure")
+        t = threading.Thread(target=run, daemon=True)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            t.start()
+            while t.is_alive():
+                QApplication.processEvents()
+                t.join(0.03)
+        finally:
+            QApplication.restoreOverrideCursor()
+        r = box.get("r")
+        if r is None or not (r.ok and r.pdf_path):
+            return False, self._clean_log(getattr(r, "log", "") or "")
+        shutil.copy2(r.pdf_path, out_pdf)
+        return True, ""
+
+    def _add_chem_structure(self, item=None):
+        """A 2-D molecule drawn by chemfig, compiled once to a vector PDF
+        placed as a picture; its chemfig source is kept beside it (.chemfig)
+        so double-clicking reopens the structure editor."""
+        from . import chemfig
+        from .equation_editor import ChemfigEditorDialog
+        existing = Path(item.obj.path) if item is not None else None
+        src = existing.with_suffix(".chemfig") if existing else None
+        initial = src.read_text(encoding="utf-8") if src and src.exists() \
+            else ""
+        dlg = ChemfigEditorDialog(self, initial_latex=initial)
+        if not dlg.exec() or not dlg.latex():
+            return
+        body = dlg.latex()
+        if existing is not None:
+            pdf = existing.with_suffix(".pdf")
+        else:
+            d = self._figures_dir()
+            n = 1
+            while (d / f"structure_{n:03d}.pdf").exists():
+                n += 1
+            pdf = d / f"structure_{n:03d}.pdf"
+        ok, log = self._compile_figure(chemfig.build_preview_doc(body), pdf)
+        if not ok:
+            QMessageBox.warning(self, "Chemical structure",
+                                "The structure could not be compiled:\n\n"
+                                + log[-1200:])
+            return
+        pdf.with_suffix(".chemfig").write_text(body, encoding="utf-8")
+        if item is not None:
+            item.obj.path = str(pdf)
+            item._pix_path = None
+            item.update()
+            self._touch_current()
+            return
+        obj = SlidePicture(path=str(pdf), x=0.3, y=0.3, w=0.35, h=0.35,
+                           keep_aspect=True, locked=False)
+        self._place_stacked(obj)
+        self.slide.objects.append(obj)
+        self._reload_scene()
+        self._select_last()
+        self._touch_current()
+
     def _add_drawing(self):
-        images_dir = (self.path.parent if self.path
-                      else Path(tempfile.gettempdir()) / "kherveslide_drawings")
-        dlg = DrawingDialog(images_dir, self)
+        dlg = DrawingDialog(self._figures_dir(), self)
         dlg.drawingSaved.connect(self._on_drawing_saved)
         dlg.exec()
 
+    def _edit_drawing(self, item):
+        """Reopen a drawing in the full drawing editor (its .svg source)."""
+        png = Path(item.obj.path).with_suffix(".png")
+        dlg = DrawingDialog(png.parent, self, existing_path=png)
+
+        def saved(path):
+            item.obj.path = self._drawing_file(path)
+            item._pix_path = None
+            item.update()
+            self._touch_current()
+        dlg.drawingSaved.connect(saved)
+        dlg.exec()
+
+    @staticmethod
+    def _drawing_file(png_path) -> str:
+        """The drawing's vector PDF when it has one (sharp in the slides),
+        else its PNG."""
+        pdf = Path(png_path).with_suffix(".pdf")
+        return str(pdf) if pdf.exists() else str(png_path)
+
     def _on_drawing_saved(self, png_path):
-        obj = SlidePicture(path=png_path, w=0.4, h=0.4, keep_aspect=True)
+        obj = SlidePicture(path=self._drawing_file(png_path), w=0.4, h=0.4,
+                           keep_aspect=True, locked=False)
         self._place_stacked(obj)
         self.slide.objects.append(obj)
         self._reload_scene()
@@ -2759,6 +2902,10 @@ class SlideWindow(QMainWindow):
             menu.addAction("Add image…", self._add_picture)
             menu.addAction("Add table", self._add_table)
             menu.addAction("Add equation…", self._add_equation)
+            menu.addAction("Add chemical equation…", self._add_chemistry)
+            menu.addAction("Add chemical structure…",
+                           self._add_chem_structure)
+            menu.addAction("Add drawing…", self._add_drawing)
             menu.addSeparator()
             paste = menu.addAction("Paste", lambda: self._paste(scene_pos))
             paste.setEnabled(self._can_paste())

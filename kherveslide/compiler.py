@@ -141,6 +141,36 @@ def tectonic_cache_size_mb() -> float:
     return total / (1024 * 1024)
 
 
+def default_tectonic_cache_dir() -> Path:
+    """Tectonic's per-OS cache location, used when the binary can't be asked.
+    (Synced from KherveTeX for the ported maths layout.)"""
+    if sys.platform == "win32":
+        return (Path.home() / "AppData" / "Local"
+                / "TectonicProject" / "Tectonic" / "bundles")
+    if sys.platform == "darwin":
+        return (Path.home() / "Library" / "Caches"
+                / "TectonicProject.Tectonic" / "bundles")
+    base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return base / "Tectonic" / "bundles"
+
+
+def query_tectonic_cache_dir(tectonic_path: str) -> Path | None:
+    """Ask the tectonic binary where it caches bundle files."""
+    try:
+        kw: dict = dict(capture_output=True, text=True, encoding="utf-8",
+                        errors="replace", timeout=10)
+        if sys.platform == "win32":
+            kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+        proc = subprocess.run(
+            [tectonic_path, "-X", "show", "user-cache-dir"], **kw)
+        lines = (proc.stdout or "").strip().splitlines()
+        if proc.returncode == 0 and lines:
+            return Path(lines[-1].strip())
+    except Exception:
+        pass
+    return None
+
+
 def _tectonic_cache_dir() -> Path | None:
     """Return the tectonic bundle cache directory, or None."""
     tectonic_path = _find_tectonic()

@@ -50,7 +50,10 @@ Prefix the commit subject with `v0.XX:` when it includes a version bump.
   `\paperwidth`/`\paperheight` so the canvas matches the PDF.
 - Toolbar icons are drawn at runtime in `icons.py` with QPainter — do
   not ship PNG/SVG files. `icons.py`, `themes.py`, `compiler.py`,
-  `style_manager.py`, `preview.py`, `latex_view.py` are vendored from
+  `style_manager.py`, `preview.py`, `latex_view.py` — and the builders
+  `equation_editor.py`, `math_widget.py`, `mathbox.py`, `mathlayout.py`,
+  `chemistry.py`, `chemfig.py`, `drawing_dialog.py`, `paint/`,
+  `khervepaint_link.py`, the `mcp_*` modules — are vendored from
   KherveTeX to keep the same look and engine; keep them in sync by hand
   when intentionally diverging.
 - The light Fusion palette is intentional (the Windows dark theme made
