@@ -199,3 +199,48 @@ def test_thumbnails_render_at_high_resolution(qapp):
     assert pm.devicePixelRatio() == 2.0 and pm.width() == 400
     assert pm.deviceIndependentSize().width() == 200
     assert thumbnail_dpr() >= 2.0
+
+
+# --- the user guide (Help > User Guide, F1) ---
+
+def test_user_guide_loads_with_its_contents(qapp):
+    from kherveslide.help import HelpDialog, parse_headings, user_guide_path
+    md = user_guide_path().read_text(encoding="utf-8")
+    heads = [t for _lvl, t, _o in parse_headings(md)]
+    for chapter in ("Getting started", "Ways of working", "Themes",
+                    "Slideshow", "Keyboard shortcuts"):
+        assert chapter in heads
+    dlg = HelpDialog()
+    assert dlg.toc.count() == len(heads)
+    dlg.toc_filter.setText("theme")
+    visible = [dlg.toc.item(i).text() for i in range(dlg.toc.count())
+               if not dlg.toc.item(i).isHidden()]
+    assert visible and all("theme" in v.lower() for v in visible)
+    dlg.close()
+
+
+def test_user_guide_matches_the_app(qapp, monkeypatch):
+    """The guide names every top-level menu and only shortcuts the
+    window really has, so it can't silently drift from the app."""
+    import re
+    from kherveslide.help import user_guide_path
+    from kherveslide.window import SlideWindow
+    for name in ("_start_compile", "_start_backdrop",
+                 "_maybe_autodownload_packages"):
+        monkeypatch.setattr(SlideWindow, name, lambda self, *a: None)
+    md = user_guide_path().read_text(encoding="utf-8")
+    w = SlideWindow()
+    menus = [a.text().replace("&", "") for a in w.menuBar().actions()]
+    for m in menus:
+        assert f"**{m}" in md or f"{m} →" in md or f"{m} menu" in md, m
+    keys = set()
+    for a in w.findChildren(type(w.act_undo)):
+        for seq in a.shortcuts():
+            keys.add(seq.toString())
+    for shortcut in re.findall(r"`((?:Ctrl|Alt|Shift|F\d)[^`]*)`", md):
+        if any(s in shortcut for s in ("↑", "↓")) or not (
+                "+" in shortcut or re.fullmatch(r"F\d+", shortcut)):
+            continue
+        assert shortcut in keys or shortcut in ("Ctrl+I", "Shift+Tab"), \
+            shortcut
+    w.close()

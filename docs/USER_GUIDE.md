@@ -1,0 +1,277 @@
+# KherveSlide User Guide
+
+KherveSlide is a slide designer that works like PowerPoint — you drag,
+resize and stack text, pictures and shapes freely on a slide — but your
+presentation is written as LaTeX **beamer** and compiled to a PDF. You get
+the ease of PowerPoint and the typesetting of LaTeX: real equations,
+consistent themes, and a PDF that looks the same on every computer.
+
+Press **F1** at any time to open this guide.
+
+## Getting started
+
+When KherveSlide starts, the **Welcome page** fills the slide area:
+
+- **New presentation**, **Open…**, **Import PowerPoint…** and
+  **Continue** (back to what was open).
+- **Templates** — empty presentations with a starting layout.
+- **Example presentations** — complete talks that show what KherveSlide
+  can do. Open one, look at how it is built, and change anything.
+- **How do you want to work?** — see *Ways of working* below.
+- **Recent** — your recent presentations, listed on the left.
+
+Untick *Show this page when KherveSlide starts* to skip it.
+**Help → Welcome page** brings it back at any time.
+
+You can also open a presentation by **dragging a `.kslide` file onto the
+window** (a `.pptx` dropped the same way is imported).
+
+## Ways of working
+
+| Mode | What you see | Shortcut |
+|------|--------------|----------|
+| **Visual + PDF side by side** | The slide on the left, the compiled PDF on the right, updated as you edit. | `Ctrl+4` |
+| **Visual + PDF in its own window** | The PDF and console in a separate window (put it on a second screen). Close it to dock it back. | `Ctrl+5` |
+| **Visual only** | Just the slides and the editor, like PowerPoint. Nothing compiles while you work. | `Ctrl+6` |
+
+Switch from the **View** menu or the PDF button at the right of the
+toolbar.
+
+## The window
+
+- **Slides** (left) — a thumbnail of every slide. Click one to edit it,
+  drag it to reorder. Fold the list away with **«** (or `Ctrl+B`) and
+  bring it back by clicking the thin *Slides* strip.
+- **Visual** tab — the slide you are editing. It is drawn to look like
+  the PDF: same fonts, the theme's title bar, footer and bullets.
+- **LaTeX** tab — the beamer source of the whole presentation, kept up
+  to date as you edit. You can edit it by hand; *Regenerate from slides*
+  returns to the slides as the source.
+- **PDF** and **Console** (right, in the side-by-side mode) — the
+  compiled result and the LaTeX log.
+- **Frame / Header / Foot** fields — around the slide; see
+  *Titles, headers and footers*.
+
+## Slides
+
+- **Add a slide**: the **+** button on the left toolbar (its small arrow
+  offers layouts with a picture of each), or **Slide → Add slide with
+  layout**.
+- **Right-click a slide** in the list to apply a layout to it, add a new
+  slide after it, duplicate, move or delete it.
+- **Move a slide**: drag it in the list, or `Ctrl+Shift+↑` / `↓`.
+- **Background colour**: **Slide → Background colour…**.
+
+## Text
+
+- **Add a text box**: the **T** button on the left toolbar, **Insert →
+  Text box**, or right-click an empty part of the slide.
+- **Type into a box**: double-click it. Click outside it (or press
+  `Esc`) when you are done.
+- **Format**: the toolbar at the top follows the selected box — font,
+  size, **bold** / *italic* (`Ctrl+B` / `Ctrl+I` while typing),
+  superscript, subscript, alignment, text and fill colours, bullets and
+  numbered lists.
+- **Bullets** look like the theme's own bullets (balls, triangles…).
+  Press `Tab` / `Shift+Tab` on a bullet to make it a sub-bullet or back.
+- **Maths in text**: type it between dollar signs, e.g. `$E = mc^2$`.
+- **Box type** (the *Box* list on the toolbar): plain text, a beamer
+  block (*block*, *alert block*, *example block*), or a theorem,
+  definition, proof… with their own title bar.
+
+### Locked and free boxes
+
+Every object is either **free** — you place it exactly where you want
+and it lands there in the PDF — or **locked**, in which case beamer lays
+it out in the normal flow of the slide. Right-click an object and use
+**Lock position** to switch. Objects you add are free.
+
+## Pictures, video and drawings
+
+- **Picture**: **Insert → Picture**, the picture button, or simply drag an
+  image file onto the slide. Double-click a picture to crop, rotate,
+  replace or draw on it. Right-click for transparency, aspect lock and
+  *Export to PNG*.
+- **Video**: **Insert → Video…** — shown with a poster image; in the PDF
+  it is a click-to-play link.
+- **Drawing**: **Insert → Drawing…** opens the drawing editor (shapes,
+  arrows, dimensions, flowchart, electrical, optics, maths and labware
+  symbols). The drawing is placed as a sharp vector picture;
+  double-click it to edit it again.
+
+## Equations and chemistry
+
+- **Equation builder** (`Ctrl+Shift+E`): build the equation visually —
+  fractions, integrals, matrices, Greek letters — or type LaTeX. The box
+  shows the rendered equation; double-click it to edit.
+- **Chemical reaction** (`Ctrl+Shift+R`): reactions written the mhchem
+  way, e.g. `2H2 + O2 -> 2H2O`, with a live preview.
+- **Chemical structure** (`Ctrl+Shift+T`): molecules drawn with chemfig
+  (rings, bonds, wedges), placed as a sharp picture; double-click it to
+  edit.
+
+## Tables, shapes and lines
+
+- **Insert → Table** — pick the size; double-click a cell to type in it.
+  **Table design…** offers ready-made styles; right-click for rows,
+  columns, header row, caption and properties.
+- **Insert → Shapes** — rectangles, ellipses, arrows, stars, speech
+  bubbles… Right-click a shape for its colours, outline and transparency.
+  Put a text box on top of a shape to label it.
+- **Lines and arrows** — from the left toolbar; drag their ends.
+
+## Arranging objects
+
+- **Select several**: drag a rectangle around them, or `Ctrl`-click
+  (`⌘`-click on a Mac).
+- **Group** (`Ctrl+G`) / **Ungroup** (`Ctrl+Shift+G`).
+- **Order**: bring to front / send to back from the left toolbar or the
+  right-click menu.
+- **Grid and snapping**: **View → Show grid** (`Ctrl+'`), **Grid size**,
+  **Snap to grid**, **Snap to objects**.
+- **Copy / paste / duplicate**: `Ctrl+C` / `Ctrl+V` / `Ctrl+D` — also
+  between two KherveSlide windows (**File → New window**).
+
+## Titles, headers and footers
+
+- **Frame title**: the *Frame* field above the slide — it appears in the
+  theme's title bar.
+- **Header** and **Left / Centre / Right foot**: the fields around the
+  slide. **Double-click a field** to pick what goes in it: slide number,
+  *n / N*, today's date, the year, the presentation title, the author…
+  each shown with how it will look.
+- **Slide numbers** and **navigation symbols**: **Edit → Presentation**.
+- **Title and author** of the presentation: **Edit → Presentation**.
+
+## Themes
+
+Everything about the look is in **View → Slide theme**:
+
+- **Presentation theme** — the classic beamer themes (Madrid, Berlin,
+  Warsaw…). **Preview themes…** shows them side by side.
+- **Colour theme** — recolour the current theme.
+- **Theme wizard** — the easy way to your own theme, in five steps:
+  1. **Start** from a style (including university-style colours) or
+     **import your template**: a PowerPoint template (`.potx` / `.pptx`),
+     a beamer theme (`.sty` or an Overleaf `.zip`), or a picture / PDF
+     of one of your slides.
+  2. **Colours** — main colour, accent, text and background.
+  3. **Logo** — your logo, its corner and size (drawn on every slide).
+  4. **Title & footer** — a coloured title bar, a coloured title, or a
+     title with a line; a footer bar (author · title · slide number), a
+     thin line, or nothing.
+  5. **Typeface & bullets**, then a name. Themes are kept in *My themes*
+     for your other presentations.
+
+  A live preview, compiled with LaTeX, shows the result as you go.
+- **Advanced theme builder** — every beamer setting, for fine control,
+  and **export as a standard beamer `.sty`** to use in any LaTeX project.
+- **Show theme decorations** — switch the title bars and footers off for
+  plain slides.
+
+**Edit → Page setup…** sets the slide shape (16:9, 4:3…), a custom size
+and the margin.
+
+## Templates and examples
+
+- **File → Templates → New presentation from template**.
+- **File → Templates → Save current presentation as template…** turns
+  your presentation into a template (rename or delete them there too).
+- **File → Example presentations** — a research talk, a lecture, a
+  project update, a maths seminar, diagrams & workflows, and a dark
+  lightning talk.
+
+## Compiling and the PDF
+
+- The PDF compiles automatically shortly after each change (in the two
+  PDF modes). The round green-arrow button turns this on or off; the
+  green **▶** button (`Ctrl+R`) compiles now.
+- **Skip images** (toolbar) compiles faster with placeholder boxes
+  instead of pictures — handy for long presentations.
+- **File → Export PDF…** saves the PDF; **File → Export LaTeX (.tex)…**
+  saves the beamer source.
+- Compiling works **offline**: the LaTeX packages are kept on your
+  computer. **File → Download LaTeX packages (offline)…** fetches all of
+  them in one go, e.g. before travelling.
+
+## Slideshow
+
+Present the compiled PDF full screen from the **Slideshow** menu:
+
+| Command | What happens | Shortcut |
+|---------|--------------|----------|
+| **From the beginning** | Full screen from slide 1. | `F5` |
+| **From the current slide** | Full screen from the slide you are on. | `Shift+F5` |
+| **Presenter view** | The slides on the other screen; on yours, the current and next slide, the slide count, a timer and the clock. | `Alt+F5` |
+| **Current + next slide** | Two screens: the current slide on one, the next on the other. | |
+
+**Show the slides on** chooses the screen (normally the other one).
+
+During the show: `→`, `Space`, `Page Down` or a click go forward; `←`,
+`Page Up` or a right-click go back; `Home` / `End`; type a number and
+press `Enter` to jump; `B` / `W` blank the screen black / white; `Esc`
+ends the show.
+
+## Saving and version history
+
+- **File → Save** (`Ctrl+S`) saves a `.kslide` file (a `.tex` copy is
+  written next to it). Every action can be undone with `Ctrl+Z` and
+  redone with `Ctrl+Y`.
+- **Git** menu — every save also records a version, so you can go back:
+  **View version history…**, **Branches…**, and **Connect to GitHub /
+  GitLab…** to keep a copy online (**Save snapshot and upload** /
+  **Download latest from cloud**).
+
+## Spelling and finding text
+
+- Misspelt words are underlined in red; right-click one for suggestions.
+  **View → Check spelling** turns it on or off, **Spell-check language**
+  picks the language, **Edit → Check spelling…** (`F7`) goes through the
+  whole presentation.
+- **Edit → Find…** (`Ctrl+F`) finds text across all slides.
+
+## AI assistant (Claude)
+
+**AI → Connect to Claude…** lets an AI assistant such as Claude Desktop
+or Claude Code work on the presentation you have open — add slides,
+write and lay out content, build a theme from your university's
+template, check each slide as an image. Tick *Let assistants connect*,
+press **Connect** next to your application, and restart it. Choose how
+much the assistant may do (*Read only*, *Edit* or *Full*). Everything it
+changes can be undone with `Ctrl+Z`.
+
+## Updates
+
+**Help → Check for updates…** looks for a newer KherveSlide on GitHub;
+**Update automatically** does it in the background and offers to
+restart when an update has been installed.
+
+## Keyboard shortcuts
+
+| Action | Shortcut |
+|--------|----------|
+| New / Open / Save / Save As | `Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` |
+| New window | `Ctrl+Shift+N` |
+| Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |
+| Copy / Cut / Paste / Duplicate | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` / `Ctrl+D` |
+| Group / Ungroup | `Ctrl+G` / `Ctrl+Shift+G` |
+| Find / Check spelling | `Ctrl+F` / `F7` |
+| Compile now | `Ctrl+R` |
+| Equation builder / Chemical reaction / Chemical structure | `Ctrl+Shift+E` / `Ctrl+Shift+R` / `Ctrl+Shift+T` |
+| Move slide up / down | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` |
+| Show / hide the slides list | `Ctrl+B` |
+| Show grid | `Ctrl+'` |
+| Side by side / PDF window / Visual only | `Ctrl+4` / `Ctrl+5` / `Ctrl+6` |
+| Slideshow / from current slide / presenter view | `F5` / `Shift+F5` / `Alt+F5` |
+| This guide | `F1` |
+
+## Troubleshooting
+
+- **The PDF does not appear** — look at the **Console** tab for the
+  LaTeX message. A missing package is downloaded automatically the
+  first time you are online.
+- **A theme or font is missing offline** — run **File → Download LaTeX
+  packages (offline)…** once while connected.
+- **Text looks different on the slide and in the PDF** — check the PDF:
+  it is the reference. Locked boxes are placed by beamer, so they may sit
+  elsewhere in the PDF; unlock them to place them exactly.

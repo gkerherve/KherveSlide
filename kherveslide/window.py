@@ -949,6 +949,8 @@ class SlideWindow(QMainWindow):
         self._slideshow = None
 
         m_help = mb.addMenu("&Help")
+        m_help.addAction("&User Guide", self.toggle_user_guide).setShortcut(
+            "F1")
         m_help.addAction("&Welcome page…", self.show_welcome)
         m_help.addSeparator()
         from .updater import Updater
@@ -4205,6 +4207,19 @@ class SlideWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    def toggle_user_guide(self) -> None:
+        """Help ▸ User Guide (F1): open the guide, or close it if open."""
+        dlg = getattr(self, "_help_dialog", None)
+        if dlg is not None and dlg.isVisible():
+            dlg.close()
+            return
+        if dlg is None:
+            from .help import HelpDialog
+            dlg = self._help_dialog = HelpDialog(self)
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
     def _about(self) -> None:
         from . import __version__
         QMessageBox.about(
@@ -4213,6 +4228,7 @@ class SlideWindow(QMainWindow):
             "<p>Design slides like in PowerPoint — drag, resize and stack "
             "text and pictures freely — and get beamer LaTeX compiled to "
             "PDF with tectonic.</p>"
+            "<p>Press <b>F1</b> for the User Guide.</p>"
             "<p>© 2026 Gwilherm Kerherve · GPL-3.0<br>"
             "<a href='https://github.com/gkerherve/KherveSlide'>"
             "github.com/gkerherve/KherveSlide</a></p>")
