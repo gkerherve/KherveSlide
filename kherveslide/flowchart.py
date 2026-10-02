@@ -74,6 +74,19 @@ class Edge:
     label: str = ""
     route: str = "auto"     # auto | straight | elbow
     dashed: bool = False
+    head: str = "end"       # arrowheads: end | start | both | none (a line)
+    src_side: str = "auto"  # where it leaves: auto | north | south | east | west
+    dst_side: str = "auto"  # where it arrives (same choices)
+
+
+#: Arrowhead choices: key -> (label, TikZ arrow spec).
+HEADS = {"end": ("→  Arrow", "->"), "start": ("←  Reversed arrow", "<-"),
+         "both": ("↔  Both ends", "<->"), "none": ("—  Line, no arrow", "-")}
+#: Sides of a box an arrow can leave from / arrive at.
+SIDES = {"auto": "Automatic", "north": "Top", "south": "Bottom",
+         "east": "Right", "west": "Left"}
+_STUB = {"north": "(0,0.35)", "south": "(0,-0.35)", "east": "(0.35,0)",
+         "west": "(-0.35,0)"}
 
 
 @dataclass
@@ -260,6 +273,8 @@ def _route(fc: Flowchart, e: Edge) -> str:
     elbow otherwise, and around the side for a loop back."""
     a, b = fc.node(e.src), fc.node(e.dst)
     lbl = _label(e)
+    if e.src_side != "auto" or e.dst_side != "auto":
+        return _sided_route(fc, e, lbl)
     if e.route == "straight" or abs(a.x - b.x) < 0.01 or abs(a.y - b.y) < 0.01:
         if (fc.direction == "TB" and b.y < a.y and abs(a.x - b.x) < 0.01) or \
                 (fc.direction == "LR" and b.x < a.x and abs(a.y - b.y) < 0.01):
@@ -280,6 +295,26 @@ def _route(fc: Flowchart, e: Edge) -> str:
     return f"({e.src}) {turn}{lbl} ({e.dst})"
 
 
+def _sided_route(fc: Flowchart, e: Edge, lbl: str) -> str:
+    """A path that leaves / arrives at the chosen sides: a short stub out
+    of the start side, then an elbow that comes into the end side head
+    on (a top / bottom side is reached vertically, left / right
+    horizontally)."""
+    start = f"({e.src})"
+    if e.src_side in _STUB:
+        start = f"({e.src}.{e.src_side}) -- ++{_STUB[e.src_side]}"
+    end = f"({e.dst}.{e.dst_side})" if e.dst_side in _STUB else f"({e.dst})"
+    if e.route == "straight":
+        return f"{start} --{lbl} {end}"
+    if e.dst_side in ("north", "south"):
+        turn = "-|"                       # finish going up / down
+    elif e.dst_side in ("east", "west"):
+        turn = "|-"                       # finish going sideways
+    else:
+        turn = "|-" if e.src_side in ("east", "west") else "-|"
+    return f"{start} {turn}{lbl} {end}"
+
+
 def _label(e: Edge) -> str:
     if not e.label:
         return ""
@@ -298,7 +333,7 @@ def to_tikz(fc: Flowchart, primary: str = "#1F4E79") -> str:
              f"  >={{Stealth[length=2.4mm]}},",
              "  every node/.style={align=center, minimum height=0.9cm,"
              " inner sep=4pt, text width=2.4cm},",
-             f"  line/.style={{draw=fc-line, thick, ->}},",
+             f"  line/.style={{draw=fc-line, thick}},",
              "]"]
     defs = [f"\\definecolor{{fc-line}}{{HTML}}{{{_hex(cols['line'][0])}}}"]
     for kind in KINDS:
@@ -323,7 +358,8 @@ def to_tikz(fc: Flowchart, primary: str = "#1F4E79") -> str:
     for e in fc.edges:
         if fc.node(e.src) is None or fc.node(e.dst) is None:
             continue
-        style = "line, dashed" if e.dashed else "line"
+        arrow = HEADS.get(e.head, HEADS["end"])[1]
+        style = f"line, {arrow}" + (", dashed" if e.dashed else "")
         body.append(f"  \\draw[{style}] {_route(fc, e)};")
     return "\n".join(defs + lines + body + ["\\end{tikzpicture}"]) + "\n"
 

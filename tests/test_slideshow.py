@@ -355,6 +355,39 @@ def test_flowchart_inserted_as_picture_and_reopened(qapp, tmp_path,
     w.close()
 
 
+def test_flowchart_builder_arrow_and_line_tools(qapp, monkeypatch):
+    from kherveslide import flowchart as F
+    from kherveslide import flowchart_builder as FB
+    monkeypatch.setattr(FB.FlowchartBuilderDialog, "_schedule",
+                        lambda self: None)
+    fc = F.Flowchart()
+    a = fc.add("process", "A")
+    b = fc.add("process", "B")
+    dlg = FB.FlowchartBuilderDialog(chart=fc)
+    items = {i.node.id: i for i in dlg.scene.items()
+             if isinstance(i, FB.NodeItem)}
+    dlg._tool_buttons["none"].setChecked(True)      # the Line tool
+    assert dlg.view.connect_mode
+    dlg._tool_click(items[a.id])
+    dlg._tool_click(items[b.id])
+    assert [(e.src, e.dst, e.head) for e in dlg.fc.edges] == \
+        [(a.id, b.id, "none")]
+    dlg._tool_click(None)                           # empty space: stop
+    assert not dlg.view.connect_mode
+    # choose the sides and the heads from the edge panel
+    edge = next(i for i in dlg.scene.items() if isinstance(i, FB.EdgeItem))
+    dlg.scene.clearSelection()
+    edge.setSelected(True)
+    assert dlg._selected_edge is edge
+    dlg._set_edge(head="both", src_side="east", dst_side="west")
+    e = dlg.fc.edges[0]
+    assert (e.head, e.src_side, e.dst_side) == ("both", "east", "west")
+    edge = next(i for i in dlg.scene.items() if isinstance(i, FB.EdgeItem))
+    assert len(edge._pts) >= 3                      # stub + elbow
+    dlg._reverse_edge()
+    dlg.close()
+
+
 def test_windowed_show_and_its_full_screen_toggle(qapp):
     from PySide6.QtWidgets import QWidget
     host = QWidget()

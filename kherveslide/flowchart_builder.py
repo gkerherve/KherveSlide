@@ -198,8 +198,53 @@ class EdgeItem(QGraphicsItem):
                            c.y())
         return QPointF(c.x(), c.y() + (r.bottom() if dy > 0 else r.top()))
 
+    @staticmethod
+    def _side_point(item: NodeItem, side: str) -> QPointF:
+        c, r = item.pos(), item.rect
+        return {"north": QPointF(c.x(), c.y() + r.top()),
+                "south": QPointF(c.x(), c.y() + r.bottom()),
+                "east": QPointF(c.x() + r.right(), c.y()),
+                "west": QPointF(c.x() + r.left(), c.y())}[side]
+
+    def _sided_points(self) -> list:
+        """Mirror flowchart._sided_route: a stub out of the start side,
+        then an elbow coming into the end side head on."""
+        e = self.edge
+        stub = {"north": (0, -16), "south": (0, 16), "east": (16, 0),
+                "west": (-16, 0)}
+        if e.src_side in stub:
+            p0 = self._side_point(self.a, e.src_side)
+            pts = [p0, QPointF(p0.x() + stub[e.src_side][0],
+                               p0.y() + stub[e.src_side][1])]
+        else:
+            pts = [self._anchor(self.a, self.b.pos())]
+        last = pts[-1]
+        p1 = self._side_point(self.b, e.dst_side) if e.dst_side in stub \
+            else self._anchor(self.b, last)
+        if e.route == "straight":
+            return pts + [p1]
+        if e.dst_side in ("north", "south"):
+            corner = QPointF(p1.x(), last.y())          # -|
+        elif e.dst_side in ("east", "west"):
+            corner = QPointF(last.x(), p1.y())          # |-
+        elif e.src_side in ("east", "west"):
+            corner = QPointF(last.x(), p1.y())
+        else:
+            corner = QPointF(p1.x(), last.y())
+        if e.dst_side not in stub:
+            p1 = self._anchor(self.b, corner)
+        return pts + [corner, p1]
+
     def update_path(self):
         self.prepareGeometryChange()
+        if self.edge.src_side != "auto" or self.edge.dst_side != "auto":
+            pts = self._sided_points()
+            path = QPainterPath()
+            path.moveTo(pts[0])
+            for q in pts[1:]:
+                path.lineTo(q)
+            self._path, self._pts = path, pts
+            return
         a, b = self.a.pos(), self.b.pos()
         path = QPainterPath()
         tb = self.direction == "TB"
@@ -251,19 +296,13 @@ class EdgeItem(QGraphicsItem):
         p.setPen(pen)
         p.setBrush(Qt.NoBrush)
         p.drawPath(self._path)
-        # arrowhead at the last point
-        tip, prev = self._pts[-1], self._pts[-2]
-        v = QPointF(tip.x() - prev.x(), tip.y() - prev.y())
-        length = max(1e-6, (v.x() ** 2 + v.y() ** 2) ** 0.5)
-        ux, uy = v.x() / length, v.y() / length
-        size = 9
-        left = QPointF(tip.x() - ux * size - uy * size * 0.45,
-                       tip.y() - uy * size + ux * size * 0.45)
-        right = QPointF(tip.x() - ux * size + uy * size * 0.45,
-                        tip.y() - uy * size - ux * size * 0.45)
         p.setBrush(col)
         p.setPen(Qt.NoPen)
-        p.drawPolygon(QPolygonF([tip, left, right]))
+        head = self.edge.head
+        if head in ("end", "both"):
+            self._head(p, self._pts[-1], self._pts[-2])
+        if head in ("start", "both"):
+            self._head(p, self._pts[0], self._pts[1])
         if self.edge.label:
             a, b = self._pts[0], self._pts[1]
             mid = QPointF(a.x() + (b.x() - a.x()) * 0.3,
@@ -274,6 +313,18 @@ class EdgeItem(QGraphicsItem):
             p.setPen(QColor("#222222"))
             p.drawText(QRectF(mid.x() + 4, mid.y() - 16, 80, 16),
                        Qt.AlignLeft | Qt.AlignVCenter, self.edge.label)
+
+    @staticmethod
+    def _head(p, tip: QPointF, prev: QPointF) -> None:
+        v = QPointF(tip.x() - prev.x(), tip.y() - prev.y())
+        length = max(1e-6, (v.x() ** 2 + v.y() ** 2) ** 0.5)
+        ux, uy = v.x() / length, v.y() / length
+        size = 9
+        left = QPointF(tip.x() - ux * size - uy * size * 0.45,
+                       tip.y() - uy * size + ux * size * 0.45)
+        right = QPointF(tip.x() - ux * size + uy * size * 0.45,
+                        tip.y() - uy * size - ux * size * 0.45)
+        p.drawPolygon(QPolygonF([tip, left, right]))
 
     def mouseDoubleClickEvent(self, event):
         self.scene().edit_requested.emit(self)
@@ -307,6 +358,8 @@ class FlowScene(QGraphicsScene):
 
 class FlowView(QGraphicsView):
     connect_requested = Signal(object)        # NodeItem Ctrl/⌘-clicked
+    node_clicked = Signal(object)             # a box, in Arrow / Line mode
+    connect_mode = False
     delete_requested = Signal()
     menu_requested = Signal(object, object)   # item | None, global pos
 
@@ -321,6 +374,10 @@ class FlowView(QGraphicsView):
         while item is not None and not isinstance(item, NodeItem) and \
                 item.parentItem() is not None:
             item = item.parentItem()
+        if (self.connect_mode and event.button() == Qt.LeftButton):
+            self.node_clicked.emit(item if isinstance(item, NodeItem)
+                                   else None)
+            return
         if (event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier)
                 and isinstance(item, NodeItem)
                 and event.button() == Qt.LeftButton):
@@ -472,6 +529,25 @@ class FlowchartBuilderDialog(QDialog):
             b.clicked.connect(lambda _=False, k=kind: self._add(k))
             pal.addWidget(b)
             self._palette_buttons.append((b, kind))
+        pal.addSpacing(12)
+        self._tool_buttons = {}
+        for head, text, tip in (
+                ("end", "Arrow", "Draw an arrow: click the box it starts "
+                 "from, then the box it goes to"),
+                ("none", "Line", "Draw a plain line between two boxes: "
+                 "click one, then the other")):
+            b = QToolButton()
+            b.setIcon(self._tool_icon(head))
+            b.setIconSize(QSize(40, 40))
+            b.setText(text)
+            b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            b.setMinimumWidth(72)
+            b.setAutoRaise(True)
+            b.setCheckable(True)
+            b.setToolTip(tip)
+            b.toggled.connect(lambda on, h=head: self._tool(h, on))
+            pal.addWidget(b)
+            self._tool_buttons[head] = b
         pal.addStretch(1)
         root.addLayout(pal)
 
@@ -482,6 +558,9 @@ class FlowchartBuilderDialog(QDialog):
         self.scene.selectionChanged.connect(self._on_selection)
         self.view = FlowView(self.scene)
         self.view.connect_requested.connect(self._connect_to)
+        self.view.node_clicked.connect(self._tool_click)
+        self._tool_head: str | None = None
+        self._tool_from: str | None = None
         self.view.delete_requested.connect(self._delete_selected)
         self.view.menu_requested.connect(self._context_menu)
         split.addWidget(self.view)
@@ -592,6 +671,23 @@ class FlowchartBuilderDialog(QDialog):
         self.edge_route.activated.connect(lambda _i: self._set_edge(
             route=self.edge_route.currentData()))
         f.addRow("Route", self.edge_route)
+        self.edge_head = QComboBox()
+        for key, (label, _spec) in F.HEADS.items():
+            self.edge_head.addItem(label, key)
+        self.edge_head.activated.connect(lambda _i: self._set_edge(
+            head=self.edge_head.currentData()))
+        f.addRow("Arrowheads", self.edge_head)
+        self.edge_src_side = QComboBox()
+        self.edge_dst_side = QComboBox()
+        for combo in (self.edge_src_side, self.edge_dst_side):
+            for key, label in F.SIDES.items():
+                combo.addItem(label, key)
+        self.edge_src_side.activated.connect(lambda _i: self._set_edge(
+            src_side=self.edge_src_side.currentData()))
+        self.edge_dst_side.activated.connect(lambda _i: self._set_edge(
+            dst_side=self.edge_dst_side.currentData()))
+        f.addRow("Leaves from", self.edge_src_side)
+        f.addRow("Arrives at", self.edge_dst_side)
         self.edge_dashed = QCheckBox("Dashed")
         self.edge_dashed.toggled.connect(
             lambda on: self._set_edge(dashed=on))
@@ -701,6 +797,58 @@ class FlowchartBuilderDialog(QDialog):
             self._commit()
             self.status.setText("Arrow added. Select it to give it a label.")
 
+    # ---- Arrow / Line tools ----
+    @staticmethod
+    def _tool_icon(head: str) -> QIcon:
+        pm = QPixmap(80, 80)
+        pm.fill(Qt.transparent)
+        pm.setDevicePixelRatio(2)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor("#404040"), 2))
+        p.drawLine(QPointF(6, 30), QPointF(34, 10))
+        if head == "end":
+            p.setBrush(QColor("#404040"))
+            p.setPen(Qt.NoPen)
+            p.drawPolygon(QPolygonF([QPointF(36, 8), QPointF(26, 10),
+                                     QPointF(31, 17)]))
+        p.end()
+        return QIcon(pm)
+
+    def _tool(self, head: str, on: bool) -> None:
+        """Arrow / Line tool on: the next two box clicks make a link."""
+        for h, b in self._tool_buttons.items():
+            if h != head and on:
+                b.blockSignals(True)
+                b.setChecked(False)
+                b.blockSignals(False)
+        self._tool_head = head if on else None
+        self._tool_from = None
+        self.view.connect_mode = on
+        self.view.setCursor(Qt.CrossCursor if on else Qt.ArrowCursor)
+        kind = "an arrow" if head == "end" else "a line"
+        self.status.setText(f"Click the box {kind} starts from…" if on
+                            else "")
+
+    def _tool_click(self, item) -> None:
+        if item is None:                       # empty space: cancel
+            self._tool_buttons[self._tool_head].setChecked(False)
+            return
+        if self._tool_from is None:
+            self._tool_from = item.node.id
+            self.scene.clearSelection()
+            item.setSelected(True)
+            self.status.setText("…then the box it goes to.")
+            return
+        e = self.fc.connect(self._tool_from, item.node.id)
+        if e is not None:
+            e.head = self._tool_head
+            self._commit()
+        self._tool_from = None
+        kind = "arrow" if self._tool_head == "end" else "line"
+        self.status.setText(f"Done. Click the box the next {kind} starts "
+                            "from, or empty space to stop.")
+
     def _delete_selected(self) -> None:
         changed = False
         for it in self.scene.selectedItems():
@@ -751,6 +899,11 @@ class FlowchartBuilderDialog(QDialog):
             e = edge.edge
             self.edge_label.setText(e.label)
             self.edge_route.setCurrentIndex(self.edge_route.findData(e.route))
+            self.edge_head.setCurrentIndex(self.edge_head.findData(e.head))
+            self.edge_src_side.setCurrentIndex(
+                self.edge_src_side.findData(e.src_side))
+            self.edge_dst_side.setCurrentIndex(
+                self.edge_dst_side.findData(e.dst_side))
             self.edge_dashed.blockSignals(True)
             self.edge_dashed.setChecked(e.dashed)
             self.edge_dashed.blockSignals(False)
@@ -816,6 +969,8 @@ class FlowchartBuilderDialog(QDialog):
         e = self._selected_edge
         if e is not None and e.edge in self.fc.edges:
             e.edge.src, e.edge.dst = e.edge.dst, e.edge.src
+            e.edge.src_side, e.edge.dst_side = (e.edge.dst_side,
+                                                e.edge.src_side)
             self._commit()
 
     def _context_menu(self, item, pos) -> None:
@@ -833,6 +988,12 @@ class FlowchartBuilderDialog(QDialog):
             self.scene.clearSelection()
             item.setSelected(True)
             menu.addAction("Label…", lambda: self._edit_item(item))
+            heads = menu.addMenu("Arrowheads")
+            for key, (label, _s) in F.HEADS.items():
+                a = heads.addAction(label, lambda k=key: self._set_edge(
+                    head=k))
+                a.setCheckable(True)
+                a.setChecked(item.edge.head == key)
             menu.addAction("Reverse direction", self._reverse_edge)
             menu.addAction("Delete", self._delete_selected)
         else:

@@ -2893,6 +2893,39 @@ def test_flowchart_tikz_shapes_routes_and_colours():
         assert make().nodes, name
 
 
+def test_flowchart_arrowheads_lines_and_chosen_sides():
+    from kherveslide.flowchart import Flowchart, to_tikz
+    fc = Flowchart()
+    a = fc.add("process", "A")
+    b = fc.add("process", "B", after=a.id)
+    e = fc.edges[0]
+    assert (e.head, e.src_side, e.dst_side) == ("end", "auto", "auto")
+    assert "\\draw[line, ->]" in to_tikz(fc)
+    e.head = "both"
+    assert "\\draw[line, <->]" in to_tikz(fc)
+    e.head = "none"                            # a plain line
+    e.dashed = True
+    assert "\\draw[line, -, dashed]" in to_tikz(fc)
+    e.head, e.dashed = "start", False
+    assert "\\draw[line, <-]" in to_tikz(fc)
+    # leave from the right, come back into the right: stub then |-
+    e.src_side = e.dst_side = "east"
+    assert (f"({a.id}.east) -- ++(0.35,0) |- ({b.id}.east);"
+            in to_tikz(fc))
+    e.dst_side = "north"                       # into the top: -|
+    assert f"({a.id}.east) -- ++(0.35,0) -| ({b.id}.north);" in to_tikz(fc)
+    e.route = "straight"
+    assert f"({a.id}.east) -- ++(0.35,0) -- ({b.id}.north);" in to_tikz(fc)
+    back = Flowchart.from_json(fc.to_json())
+    assert back == fc and back.edges[0].head == "start"
+    # charts saved before these options still load
+    d = json.loads(fc.to_json())
+    for k in ("head", "src_side", "dst_side"):
+        d["edges"][0].pop(k)
+    old = Flowchart.from_json(json.dumps(d))
+    assert (old.edges[0].head, old.edges[0].src_side) == ("end", "auto")
+
+
 def test_flowchart_auto_layout_ranks_by_path():
     from kherveslide.flowchart import Flowchart, auto_layout, Node
     fc = Flowchart()

@@ -124,6 +124,15 @@ left toolbar) builds a LaTeX (TikZ) flowchart by clicking:
 - **Edit** the text of a box, or the label of an arrow (*Yes*, *No*…), in
   the panel on the right; LaTeX maths is welcome, and `\\` starts a new
   line. Arrows can be automatic, straight or elbowed, and dashed.
+- **Arrow** and **Line** tools (end of the palette): click the box it
+  starts from, then the box it goes to; keep clicking pairs to draw
+  more, and click empty space to stop. A line has no arrowhead.
+- **Which way it points**: select a link and choose its **Arrowheads**
+  — arrow, reversed arrow, both ends, or a plain line (also on its
+  right-click menu); **Reverse direction** swaps its ends.
+- **Which sides it joins**: **Leaves from** and **Arrives at** pick the
+  top, bottom, left or right of each box (or Automatic) — handy for
+  loops and links that go round other boxes.
 - **Direction**: top to bottom, or left to right. **Colours**: your
   presentation's own, or a ready-made scheme. **Tidy up** lays the chart
   out by itself. **Start from** offers ready-made charts.
