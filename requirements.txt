@@ -1,6 +1,7 @@
 PySide6>=6.6
 pygit2>=1.14
 matplotlib>=3.7
+PyMuPDF>=1.23  # renders the compiled PDF to page images
 # Optional — features degrade gracefully if absent:
 python-pptx>=0.6   # File ▸ Import PowerPoint (.pptx)
 pyspellchecker>=0.7  # spell checking in text boxes
