@@ -60,6 +60,9 @@ from .object_props import (
     VIDEO_FILTER,
 )
 from .preview import PdfPreview
+from .overview import SlideOverview
+from .serializer import NO_MASTER_MARK
+from .view_bar import VIEW_MASTER, VIEW_NORMAL, VIEW_OVERVIEW, ViewBar
 from .serializer import (
     serialize_deck, serialize_backdrop, deck_body_family, deck_typeface,
     PROBE_SIZES,
@@ -475,6 +478,10 @@ class SlideWindow(QMainWindow):
         self.store = templates.TemplateStore()
         self.deck: Deck = templates.instantiate_builtin("Title + content")
         self.current = 0
+        # The bottom bar's view: Normal, Overview of all the slides, or the
+        # Master (the canvas then edits deck.master — see `slide`).
+        self._view_mode = VIEW_NORMAL
+        self._master_mode = False
         self.path: Path | None = None
         self._items = []
         self._loading = False
@@ -558,6 +565,18 @@ class SlideWindow(QMainWindow):
         self._status_state = QLabel("Ready")
         self._status_state.setStyleSheet("padding:0 10px; color:#4b5563;")
         self.statusBar().addPermanentWidget(self._status_state)
+        # PowerPoint's bottom bar: slide n of N, theme, Normal / Overview /
+        # Master, slideshow, zoom.
+        self.view_bar = ViewBar(self._theme_menu, self._show_menu)
+        self.view_bar.viewChosen.connect(self.set_view_mode)
+        self.view_bar.slideshowRequested.connect(
+            lambda: self.start_slideshow("full", True))
+        self.view_bar.zoomOutRequested.connect(
+            lambda: self.view.zoom_by(1 / 1.25))
+        self.view_bar.zoomInRequested.connect(
+            lambda: self.view.zoom_by(1.25))
+        self.view_bar.fitRequested.connect(self.view.fit_to_window)
+        self.statusBar().addPermanentWidget(self.view_bar)
         self._reload_all()
         self._reset_history()
         # Drop a .kslide / .pptx anywhere on the window to open it. Drags
@@ -648,6 +667,22 @@ class SlideWindow(QMainWindow):
             lambda on: self.apply_layout_mode(
                 LAYOUT_SIDE if on else LAYOUT_VISUAL))
         self._themed_icons.append((self.act_pdf_side, icons.pdf_side_panel))
+        m_view.addSeparator()
+        self._view_actions = {}
+        group = QActionGroup(self)
+        for key, icon in ((VIEW_NORMAL, icons.view_normal),
+                          (VIEW_OVERVIEW, icons.view_overview),
+                          (VIEW_MASTER, icons.view_master)):
+            label = {VIEW_NORMAL: "&Normal (one slide)",
+                     VIEW_OVERVIEW: "&Overview of all the slides",
+                     VIEW_MASTER: "&Master (the template behind every "
+                                  "slide)"}[key]
+            a = m_view.addAction(icon(), label)
+            a.setCheckable(True)
+            a.triggered.connect(lambda _c=False, k=key: self.set_view_mode(k))
+            group.addAction(a)
+            self._view_actions[key] = a
+        self._view_actions[VIEW_NORMAL].setChecked(True)
         m_view.addSeparator()
         self.act_show_nav = m_view.addAction("Show slides list")
         self.act_show_nav.setCheckable(True)
@@ -748,6 +783,7 @@ class SlideWindow(QMainWindow):
         # only), plus the gallery, the custom builder and decorations.
         m_view.addSeparator()
         m_theme = m_view.addMenu("Slide &theme")
+        self._theme_menu = m_theme
         m_ptheme = m_theme.addMenu("Presentation theme (whole look)")
         self._ptheme_group = QActionGroup(self)
         self._ptheme_actions = {}
@@ -938,6 +974,7 @@ class SlideWindow(QMainWindow):
         m_ai.addAction("Connect to &Claude…", self._show_mcp_dialog)
 
         m_show = mb.addMenu("Sli&deshow")
+        self._show_menu = m_show
         for label, mode, cur, key in (
                 ("From the &beginning", "full", False, "F5"),
                 ("From the &current slide", "full", True, "Shift+F5"),
@@ -1386,10 +1423,28 @@ class SlideWindow(QMainWindow):
         fl.addWidget(self.f_foot_c, 2)
         fl.addWidget(self.f_foot_r, 2)
 
+        # Shown while the master is edited, with the way back.
+        self._master_banner = QWidget()
+        self._master_banner.setStyleSheet(
+            "background: #FCE9DA; color: #7a3a0a;")
+        mb_l = QHBoxLayout(self._master_banner)
+        mb_l.setContentsMargins(10, 4, 6, 4)
+        mb_text = QLabel(
+            "<b>Master</b> — what you put here (logo, text, lines, "
+            "pictures…) shows on every slide, behind the slide's own "
+            "content.")
+        mb_text.setWordWrap(True)
+        mb_l.addWidget(mb_text, 1)
+        mb_close = QPushButton("Close master view")
+        mb_close.clicked.connect(lambda: self.set_view_mode(VIEW_NORMAL))
+        mb_l.addWidget(mb_close)
+        self._master_banner.hide()
+
         canvas_box = QWidget()
         cv = QVBoxLayout(canvas_box)
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(0)
+        cv.addWidget(self._master_banner)
         cv.addWidget(header)
         cv.addWidget(self.view, 1)
         cv.addWidget(footer)
@@ -1417,6 +1472,11 @@ class SlideWindow(QMainWindow):
         self._right_stack = QStackedWidget()
         self._right_stack.addWidget(canvas_box)
         self._right_stack.addWidget(sp)
+        # The overview of all the slides takes the slide's place when the
+        # PDF panel is hidden (Visual only); otherwise it is a tab there.
+        self._canvas_box = canvas_box
+        self._overview_center = self._make_overview()
+        self._right_stack.addWidget(self._overview_center)
         wysiwyg.addWidget(self._right_stack)
         wysiwyg.setStretchFactor(1, 1)
         wysiwyg.setCollapsible(0, False)
@@ -1450,6 +1510,9 @@ class SlideWindow(QMainWindow):
         self.right_tabs = QTabWidget()
         self.right_tabs.addTab(self.pdf_view, "PDF")
         self.right_tabs.addTab(self.console, "Console")
+        self.overview = self._make_overview()
+        self.right_tabs.addTab(self.overview, "Overview")
+        self.right_tabs.currentChanged.connect(self._on_right_tab)
         self.right_tabs.setCurrentIndex(0)
 
         main = QSplitter(Qt.Horizontal)
@@ -1571,6 +1634,9 @@ class SlideWindow(QMainWindow):
     # ---------------- reload ----------------
     @property
     def slide(self) -> Slide:
+        """The slide on the canvas — the master while it is edited."""
+        if self._master_mode:
+            return self.deck.master
         return self.deck.slides[self.current]
 
     def _reload_all(self):
@@ -1584,6 +1650,7 @@ class SlideWindow(QMainWindow):
         mode = getattr(self.deck, "page_number", "none")
         self._pgnum_actions.get(mode, self._pgnum_actions["none"]).setChecked(True)
         self.nav.refresh(self.deck, self.current)
+        self._refresh_overviews()
         self._reload_scene()
 
     def _reload_scene(self):
@@ -1623,6 +1690,7 @@ class SlideWindow(QMainWindow):
             self.view.fit_to_window()
         self._enable_format(False)
         self._sync_top_fields()
+        self._update_counter()
         self._loading = False
         self._refresh_latex()
 
@@ -2435,12 +2503,16 @@ class SlideWindow(QMainWindow):
     def _on_slide_changed(self, row):
         if self._loading or not (0 <= row < len(self.deck.slides)):
             return
+        if self._master_mode:          # the list holds the master alone
+            return
         self.current = row
         self._reload_scene()
         # Jump the PDF preview to the matching page (each slide is one page).
         self.pdf_view.go_to_page(row)
 
     def _on_reorder(self, order):
+        if self._master_mode:
+            return
         self.deck.slides = [self.deck.slides[i] for i in order]
         self.current = order.index(self.current) if self.current in order else 0
         self._reload_all()
@@ -2513,7 +2585,7 @@ class SlideWindow(QMainWindow):
         self._move_slide(delta)
 
     def _slide_context_menu(self, row, global_pos):
-        if not (0 <= row < len(self.deck.slides)):
+        if not (0 <= row < len(self.deck.slides)) or self._master_mode:
             return
         menu = QMenu(self)
         self._fill_layout_menu(menu.addMenu("Apply layout to this slide"),
@@ -2559,7 +2631,108 @@ class SlideWindow(QMainWindow):
         if self._loading:
             return
         self.nav.refresh_one(self.deck, self.current)
+        self._overview_timer.start()
         self._refresh_latex()
+
+    # ---------------- views: Normal / Overview / Master ----------------
+    def _make_overview(self) -> SlideOverview:
+        if not hasattr(self, "_overview_timer"):
+            self._overview_timer = QTimer(self)
+            self._overview_timer.setSingleShot(True)
+            self._overview_timer.setInterval(400)
+            self._overview_timer.timeout.connect(self._refresh_overviews)
+        ov = SlideOverview()
+        ov.backdrop_for = self.backdrop_pixmap
+        ov.slideChosen.connect(self._overview_go)
+        ov.slideOpened.connect(self._overview_open)
+        ov.slidesReordered.connect(self._on_reorder)
+        ov.slideMenuRequested.connect(self._slide_context_menu)
+        return ov
+
+    def _refresh_overviews(self) -> None:
+        for ov in (getattr(self, "overview", None),
+                   getattr(self, "_overview_center", None)):
+            if ov is not None:
+                ov.refresh(self.deck, self.current)
+
+    def _overview_go(self, row: int) -> None:
+        """A click in the overview: that slide comes up in the editor."""
+        if 0 <= row < len(self.deck.slides) and row != self.current:
+            self.nav.setCurrentRow(row)     # → _on_slide_changed
+
+    def _overview_open(self, row: int) -> None:
+        self._overview_go(row)
+        self.set_view_mode(VIEW_NORMAL)
+
+    def _on_right_tab(self, _index: int) -> None:
+        """Picking the Overview tab by hand is the Overview view too."""
+        on = self.right_tabs.currentWidget() is self.overview
+        if on and self._view_mode != VIEW_OVERVIEW:
+            self.set_view_mode(VIEW_OVERVIEW)
+        elif not on and self._view_mode == VIEW_OVERVIEW \
+                and self._right_stack.currentWidget() \
+                is not self._overview_center:
+            self._set_view_marks(VIEW_NORMAL)
+
+    def _set_view_marks(self, mode: str) -> None:
+        self._view_mode = mode
+        if hasattr(self, "view_bar"):
+            self.view_bar.set_view(mode)
+        if mode in getattr(self, "_view_actions", {}):
+            self._view_actions[mode].setChecked(True)
+
+    def set_view_mode(self, mode: str) -> None:
+        """The bottom bar's views. Normal: one slide in the Visual editor.
+        Overview: every slide as a mini page — in the right frame beside
+        the slide, or in the slide's place when the PDF panel is hidden.
+        Master: the canvas edits the master slide, whose objects show on
+        every slide."""
+        if mode not in (VIEW_NORMAL, VIEW_OVERVIEW, VIEW_MASTER):
+            return
+        self._finish_edit()
+        if self.start_page_shown():
+            self.hide_start_page()
+        self.left_tabs.setCurrentIndex(0)
+        master = mode == VIEW_MASTER
+        if master != self._master_mode:
+            self._master_mode = master
+            self.nav.master_index = self.current if master else None
+            self._master_banner.setVisible(master)
+            self.f_frame_title.setEnabled(not master)
+            self._bd_cache.clear()
+            self._schedule_backdrop()
+            self._reload_all()
+        side = self._layout_mode != LAYOUT_VISUAL
+        if mode == VIEW_OVERVIEW:
+            if side:
+                self._right_stack.setCurrentWidget(self._canvas_box)
+                self.right_tabs.blockSignals(True)
+                self.right_tabs.setCurrentWidget(self.overview)
+                self.right_tabs.blockSignals(False)
+                if self._pdf_window is not None:
+                    self._pdf_window.raise_()
+            else:
+                self._right_stack.setCurrentWidget(self._overview_center)
+            self._refresh_overviews()
+        else:
+            self._right_stack.setCurrentWidget(self._canvas_box)
+            if self.right_tabs.currentWidget() is self.overview:
+                self.right_tabs.blockSignals(True)
+                self.right_tabs.setCurrentWidget(self.pdf_view)
+                self.right_tabs.blockSignals(False)
+        self._set_view_marks(mode)
+        self._update_counter()
+
+    def _update_counter(self) -> None:
+        if not hasattr(self, "view_bar"):
+            return
+        if self._master_mode:
+            text = "Master"
+        else:
+            text = f"Slide {self.current + 1} of {len(self.deck.slides)}"
+        self.view_bar.set_counter(text)
+        for ov in (self.overview, self._overview_center):
+            ov.select(self.current)
 
     # ---------------- objects ----------------
     def _place_stacked(self, obj):
@@ -4009,6 +4182,9 @@ class SlideWindow(QMainWindow):
             QTimer.singleShot(0, self.view.fit_to_window)
         if prev != mode:
             self.statusBar().showMessage(LAYOUT_TEXT[mode][0], 3000)
+        if self._view_mode == VIEW_OVERVIEW:
+            # the overview follows: into the PDF frame or the slide's place
+            self.set_view_mode(VIEW_OVERVIEW)
 
     def _set_pdf_detached(self, detached: bool) -> None:
         """Move the PDF / console panel into its own window (e.g. for a
@@ -4348,7 +4524,7 @@ class SlideWindow(QMainWindow):
     def _schedule_backdrop(self):
         if not self._show_theme or not tectonic_available():
             return
-        tex = serialize_backdrop(self.deck)
+        tex = serialize_backdrop(self.deck, master=not self._master_mode)
         if tex == self._bd_wanted:
             return
         self._bd_wanted = tex
@@ -4395,6 +4571,7 @@ class SlideWindow(QMainWindow):
         self.nav.refresh(self.deck, self.current)
 
     def _on_backdrop_finished(self):
+        self._overview_timer.start()    # the mini pages get the theme
         worker = self._bd_worker
         self._bd_worker = None
         if worker is not None:
@@ -4420,6 +4597,9 @@ class SlideWindow(QMainWindow):
         when there is none (theme display off, no compile yet, or the
         pages are for a different number of slides)."""
         pdf = self._bd_pdf
+        if self._master_mode and not self._bd_done.startswith(
+                NO_MASTER_MARK):
+            return None     # these pages still carry the master: wait
         if (not self._show_theme or pdf is None
                 or pdf.page_count != len(self.deck.slides) + len(PROBE_SIZES)
                 or not 0 <= index < len(self.deck.slides)):

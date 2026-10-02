@@ -2839,6 +2839,20 @@ def test_app_examples_show_bundled_screenshots(tmp_path):
         assert all(Path(p.path).exists() for p in pics)
 
 
+def test_backdrop_without_the_master_for_master_view():
+    from kherveslide.model import Deck, Slide, SlideText
+    from kherveslide.serializer import NO_MASTER_MARK, serialize_backdrop
+    deck = Deck(slides=[Slide(title="One")])
+    deck.master.objects.append(SlideText(text="MASTERLOGO"))
+    with_master = serialize_backdrop(deck)
+    assert "MASTERLOGO" in with_master
+    assert not with_master.startswith(NO_MASTER_MARK)
+    bare = serialize_backdrop(deck, master=False)
+    assert "MASTERLOGO" not in bare and bare.startswith(NO_MASTER_MARK)
+    assert "One" in bare                      # the theme's page stays
+    assert deck.master.objects                # the deck is untouched
+
+
 # --- flowchart builder model (flowchart.py) ---
 
 def test_flowchart_add_chains_and_connects():
@@ -2924,6 +2938,26 @@ def test_flowchart_arrowheads_lines_and_chosen_sides():
         d["edges"][0].pop(k)
     old = Flowchart.from_json(json.dumps(d))
     assert (old.edges[0].head, old.edges[0].src_side) == ("end", "auto")
+
+
+def test_flowchart_curved_links():
+    from kherveslide.flowchart import Flowchart, to_tikz
+    fc = Flowchart()
+    a = fc.add("process", "A")
+    b = fc.add("process", "B", after=a.id)
+    e = fc.edges[0]
+    e.route = "curve"
+    assert f"({a.id}) to[bend left=30] ({b.id});" in to_tikz(fc)
+    e.bend = -45
+    assert f"({a.id}) to[bend right=45] ({b.id});" in to_tikz(fc)
+    e.bend = 0                                 # no bow: a straight line
+    assert f"({a.id}) -- ({b.id});" in to_tikz(fc)
+    e.src_side, e.dst_side = "east", "north"   # follows both sides
+    assert (f"({a.id}.east) to[out=0, in=90] ({b.id}.north);"
+            in to_tikz(fc))
+    e.label = "loop"
+    assert "to[out=0, in=90] node[pos=0.25" in to_tikz(fc)
+    assert Flowchart.from_json(fc.to_json()).edges[0].bend == 0
 
 
 def test_flowchart_auto_layout_ranks_by_path():

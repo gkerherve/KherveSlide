@@ -374,6 +374,20 @@ def test_flowchart_builder_arrow_and_line_tools(qapp, monkeypatch):
         [(a.id, b.id, "none")]
     dlg._tool_click(None)                           # empty space: stop
     assert not dlg.view.connect_mode
+    dlg._tool_buttons["curve"].setChecked(True)     # the Curve tool
+    assert not dlg._tool_buttons["none"].isChecked()
+    items = {i.node.id: i for i in dlg.scene.items()     # rebuilt
+             if isinstance(i, FB.NodeItem)}
+    dlg._tool_click(items[b.id])
+    dlg._tool_click(items[a.id])
+    curve = dlg.fc.edges[-1]
+    assert (curve.src, curve.route, curve.head) == (b.id, "curve", "end")
+    item = next(i for i in dlg.scene.items()
+                if isinstance(i, FB.EdgeItem) and i.edge is curve)
+    assert len(item._pts) > 10                      # drawn as a curve
+    dlg._tool_buttons["curve"].setChecked(False)
+    dlg.fc.edges.remove(curve)
+    dlg._commit()
     # choose the sides and the heads from the edge panel
     edge = next(i for i in dlg.scene.items() if isinstance(i, FB.EdgeItem))
     dlg.scene.clearSelection()
@@ -386,6 +400,56 @@ def test_flowchart_builder_arrow_and_line_tools(qapp, monkeypatch):
     assert len(edge._pts) >= 3                      # stub + elbow
     dlg._reverse_edge()
     dlg.close()
+
+
+def test_bottom_bar_views_overview_and_master(qapp, monkeypatch):
+    from kherveslide.window import SlideWindow
+    from kherveslide.model import SlideText
+    from kherveslide.view_bar import VIEW_MASTER, VIEW_NORMAL, VIEW_OVERVIEW
+    from kherveslide.welcome import LAYOUT_SIDE, LAYOUT_VISUAL
+    for name in ("_start_compile", "_start_backdrop",
+                 "_maybe_autodownload_packages"):
+        monkeypatch.setattr(SlideWindow, name, lambda self, *a: None)
+    w = SlideWindow()
+    w.apply_layout_mode(LAYOUT_SIDE)
+    n = len(w.deck.slides)
+    assert w.view_bar.counter.text() == f"Slide 1 of {n}"
+    # Overview: a tab in the right frame, one mini page per slide
+    w.view_bar.views[VIEW_OVERVIEW].click()
+    assert w.right_tabs.currentWidget() is w.overview
+    w.overview._rebuild()
+    assert w.overview.grid.count() == n
+    w.overview.slideChosen.emit(1)
+    assert w.current == 1 and w.view_bar.counter.text() == f"Slide 2 of {n}"
+    w.overview.slideOpened.emit(0)              # double-click: edit it
+    assert w.current == 0 and w._view_mode == VIEW_NORMAL
+    assert w.right_tabs.currentWidget() is w.pdf_view
+    # Visual only: the overview takes the slide's place
+    w.apply_layout_mode(LAYOUT_VISUAL)
+    w.set_view_mode(VIEW_OVERVIEW)
+    assert w._right_stack.currentWidget() is w._overview_center
+    w.set_view_mode(VIEW_NORMAL)
+    assert w._right_stack.currentWidget() is w._canvas_box
+    # Master: the canvas edits deck.master, undoably
+    w.set_view_mode(VIEW_MASTER)
+    assert w.slide is w.deck.master and w.nav.count() == 1
+    assert w.view_bar.counter.text() == "Master"
+    assert not w.f_frame_title.isEnabled()
+    w._capture_state()
+    w.slide.objects.append(SlideText(text="LOGO"))
+    w._reload_scene()
+    w._touch_current()
+    w._capture_state()
+    assert "LOGO" in w.latex_view.toPlainText() \
+        if hasattr(w.latex_view, "toPlainText") else True
+    assert [o.text for o in w.deck.master.objects][-1] == "LOGO"
+    w._undo()
+    assert not any(getattr(o, "text", "") == "LOGO"
+                   for o in w.deck.master.objects)
+    w.set_view_mode(VIEW_NORMAL)
+    assert w.slide is w.deck.slides[w.current]
+    assert w.nav.count() == n and w.f_frame_title.isEnabled()
+    w.close()
 
 
 def test_windowed_show_and_its_full_screen_toggle(qapp):

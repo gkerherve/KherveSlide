@@ -51,6 +51,24 @@ toolbar.
   compiled result and the LaTeX log.
 - **Frame / Header / Foot** fields — around the slide; see
   *Titles, headers and footers*.
+- **The bar at the bottom**, as in PowerPoint: *Slide 3 of 12*, the
+  **Theme** button (the same menu as View → Slide theme), the three
+  views, the **slideshow** button (from the current slide; its arrow
+  offers the other ways) and the zoom (out, fit, in).
+
+### Normal, Overview and Master
+
+- **Normal** — one slide in the Visual editor.
+- **Overview** — every slide as a mini page, in the *Overview* tab of
+  the right frame (or in the slide's place when you work in Visual
+  only). Click a slide to go to it, double-click to edit it, drag to
+  reorder, right-click for the slide menu; the *Size* slider makes the
+  mini pages bigger or smaller.
+- **Master** — the template behind every slide. What you put on it — a
+  logo, a line, a text, a picture — shows on all the slides, behind
+  their own content. The slides list then holds the master alone; an
+  orange bar says you are in the master, with **Close master view** to
+  go back. All three are also in the **View** menu.
 
 ## Slides
 
@@ -133,6 +151,9 @@ left toolbar) builds a LaTeX (TikZ) flowchart by clicking:
 - **Which sides it joins**: **Leaves from** and **Arrives at** pick the
   top, bottom, left or right of each box (or Automatic) — handy for
   loops and links that go round other boxes.
+- **Curves**: the **Curve** tool, or *Route → Curved*. **Bend** sets how
+  much it bows (positive to the left, negative to the right); when both
+  sides are chosen the curve leaves the one and arrives into the other.
 - **Direction**: top to bottom, or left to right. **Colours**: your
   presentation's own, or a ready-made scheme. **Tidy up** lays the chart
   out by itself. **Start from** offers ready-made charts.
@@ -178,7 +199,8 @@ edit it again. Its TikZ code is saved beside the presentation
 
 ## Themes
 
-Everything about the look is in **View → Slide theme**:
+Everything about the look is in **View → Slide theme** — also the
+**Theme** button in the bar at the bottom of the window:
 
 - **Presentation theme** — the classic beamer themes (Madrid, Berlin,
   Warsaw…). **Preview themes…** shows them side by side.

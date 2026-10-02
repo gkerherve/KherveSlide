@@ -1896,3 +1896,88 @@ def chemfig_structure() -> QIcon:
     return QIcon(px)
 
 
+
+
+# ---- bottom view bar (KherveSlide): Normal / Overview / Master / show ----
+
+def _slide_frame(p, r: QRectF, fill=None) -> None:
+    p.setPen(QPen(_fg(), 1.3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setBrush(QBrush(fill) if fill is not None else Qt.NoBrush)
+    p.drawRoundedRect(r, 1.2, 1.2)
+
+
+def view_normal() -> QIcon:
+    """A small slide list on the left and one big slide — Normal view."""
+    px, p = _new_canvas()
+    _slide_frame(p, QRectF(2.5, 5, 19, 14))
+    p.drawLine(QPointF(8, 5), QPointF(8, 19))
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(_accent()))
+    for y in (7, 11, 15):
+        p.drawRect(QRectF(3.8, y, 3, 2.2))
+    p.setBrush(QBrush(_fg()))
+    p.drawRect(QRectF(10, 7.5, 9.5, 1.8))
+    p.end()
+    return QIcon(px)
+
+
+def view_overview() -> QIcon:
+    """Four little slides in a grid — the overview of all the slides."""
+    px, p = _new_canvas()
+    for x in (2.5, 13):
+        for y in (4, 13.5):
+            _slide_frame(p, QRectF(x, y, 8.5, 6.5))
+            p.setPen(Qt.NoPen)
+            p.setBrush(QBrush(_accent()))
+            p.drawRect(QRectF(x, y, 8.5, 1.8))
+    p.end()
+    return QIcon(px)
+
+
+def view_master() -> QIcon:
+    """A slide with a stacked one behind and a logo mark — the master."""
+    px, p = _new_canvas()
+    _slide_frame(p, QRectF(5.5, 3, 16, 12), QColor(Qt.transparent))
+    page = QColor("#2d2d2d") if _dark else QColor(Qt.white)
+    _slide_frame(p, QRectF(2.5, 8, 16, 12), page)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(_accent()))
+    p.drawRect(QRectF(2.5, 8, 16, 2.6))
+    p.setBrush(QBrush(_accent2()))
+    p.drawEllipse(QRectF(14, 16, 3.2, 3.2))
+    p.end()
+    return QIcon(px)
+
+
+def slideshow() -> QIcon:
+    """A screen on a stand with a play mark — start the slideshow."""
+    px, p = _new_canvas()
+    _slide_frame(p, QRectF(2.5, 3.5, 19, 13))
+    p.drawLine(QPointF(12, 16.5), QPointF(12, 20))
+    p.drawLine(QPointF(8, 20.5), QPointF(16, 20.5))
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(_accent()))
+    p.drawPolygon(QPolygonF([QPointF(10, 6.5), QPointF(10, 13.5),
+                             QPointF(15.5, 10)]))
+    p.end()
+    return QIcon(px)
+
+
+def theme_palette() -> QIcon:
+    """A painter's palette — the slide theme."""
+    px, p = _new_canvas()
+    p.setPen(QPen(_fg(), 1.3))
+    p.setBrush(Qt.NoBrush)
+    path = QPainterPath()
+    path.addEllipse(QRectF(2.5, 3.5, 19, 17))
+    hole = QPainterPath()
+    hole.addEllipse(QRectF(13.5, 13, 4, 4))
+    p.drawPath(path.subtracted(hole))
+    p.setPen(Qt.NoPen)
+    for (x, y), c in (((6, 7.5), _accent()), ((11, 6), _accent2()),
+                      ((6.5, 12.5), QColor("#2a8c4a")),
+                      ((16, 8.5), QColor("#c0392b"))):
+        p.setBrush(QBrush(c))
+        p.drawEllipse(QRectF(x, y, 3.2, 3.2))
+    p.end()
+    return QIcon(px)

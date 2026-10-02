@@ -1329,7 +1329,10 @@ def _probe_frame(size: int) -> list[str]:
     return lines
 
 
-def serialize_backdrop(deck: Deck) -> str:
+NO_MASTER_MARK = "% KherveSlide backdrop without the master\n"
+
+
+def serialize_backdrop(deck: Deck, master: bool = True) -> str:
     """The presentation with every slide's own objects removed — only what
     the beamer theme draws around them is left: the frame title bar,
     headline / footline, slide numbers, navigation symbols, background and
@@ -1339,12 +1342,20 @@ def serialize_backdrop(deck: Deck) -> str:
     empty slide still ships out a page and the page numbers line up.
 
     After the slides come one bullet-probe page per PROBE_SIZES entry
-    ([plain,noframenumbering], so the slide count is unchanged)."""
+    ([plain,noframenumbering], so the slide count is unchanged).
+
+    With *master* False the master slide's objects are left out too (and
+    the source starts with NO_MASTER_MARK): the page under the canvas
+    while the master itself is being edited there."""
     slides = [Slide(objects=[], title=s.title, bg=s.bg, bg_alpha=s.bg_alpha,
                     free=s.free)
               for s in deck.slides]
     bare = replace(deck, slides=slides)
+    if not master:
+        bare = replace(bare, master=Slide())
     tex = serialize_deck(bare)
+    if not master:
+        tex = NO_MASTER_MARK + tex
     tex = tex.replace("\\end{frame}", "  \\mbox{}\n\\end{frame}")
     probes = []
     for size in PROBE_SIZES:

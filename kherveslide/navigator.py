@@ -42,6 +42,9 @@ class SlideNavigator(QListWidget):
         # Optional callable (index, width) -> QPixmap | None giving the
         # themed page to draw under each thumbnail (set by the window).
         self.backdrop_for = None
+        # While the master is edited: the slide whose page shows under it
+        # (the list then holds the master alone), else None.
+        self.master_index: int | None = None
 
     def _backdrop(self, index: int):
         if self.backdrop_for is None:
@@ -64,6 +67,19 @@ class SlideNavigator(QListWidget):
         selected."""
         self._suppress = True
         self.clear()
+        if self.master_index is not None:
+            pm = render_thumbnail(deck.master, deck, THUMB_W,
+                                  self._backdrop(self.master_index))
+            item = QListWidgetItem(QIcon(pm), "  Master")
+            h = round(pm.height() / pm.devicePixelRatio())
+            item.setSizeHint(QSize(THUMB_W + 8, h + 8))
+            item.setToolTip("The master: what you put on it shows on "
+                            "every slide")
+            item.setFlags(item.flags() & ~Qt.ItemIsDragEnabled)
+            self.addItem(item)
+            self.setCurrentRow(0)
+            self._suppress = False
+            return
         for i, slide in enumerate(deck.slides):
             pm = render_thumbnail(slide, deck, THUMB_W, self._backdrop(i))
             item = QListWidgetItem(QIcon(pm), f"  {i + 1}")
@@ -78,6 +94,9 @@ class SlideNavigator(QListWidget):
     def refresh_one(self, deck: Deck, index: int):
         """Re-render just one thumbnail (after editing its slide) without
         disturbing selection or scroll position."""
+        if self.master_index is not None:
+            self.refresh(deck, 0)
+            return
         if 0 <= index < self.count():
             pm = render_thumbnail(deck.slides[index], deck, THUMB_W,
                                   self._backdrop(index))

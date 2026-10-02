@@ -235,8 +235,48 @@ class EdgeItem(QGraphicsItem):
             p1 = self._anchor(self.b, corner)
         return pts + [corner, p1]
 
+    def _curve_points(self) -> list:
+        """Mirror flowchart._curved_route with the same cubic TikZ draws:
+        bowed by *bend* degrees, or leaving / arriving at the chosen
+        sides (control points 0.3915 × the chord away, TikZ's default)."""
+        import math
+        e = self.edge
+        a, b = self.a.pos(), self.b.pos()
+        chord = math.degrees(math.atan2(-(b.y() - a.y()), b.x() - a.x()))
+        sides = {"east": 0, "north": 90, "west": 180, "south": 270}
+        if e.src_side in sides and e.dst_side in sides:
+            out, inn = sides[e.src_side], sides[e.dst_side]
+        else:
+            out, inn = chord + e.bend, chord + 180 - e.bend
+
+        def unit(deg):                       # screen y points down
+            r = math.radians(deg)
+            return QPointF(math.cos(r), -math.sin(r))
+        uo, ui = unit(out), unit(inn)
+        p0 = self._side_point(self.a, e.src_side) if e.src_side in sides \
+            else self._anchor(self.a, a + uo * 100)
+        p1 = self._side_point(self.b, e.dst_side) if e.dst_side in sides \
+            else self._anchor(self.b, b + ui * 100)
+        k = 0.3915 * math.hypot(p1.x() - p0.x(), p1.y() - p0.y())
+        c1, c2 = p0 + uo * k, p1 + ui * k
+        pts = []
+        for i in range(33):
+            t = i / 32
+            m = 1 - t
+            pts.append(p0 * (m * m * m) + c1 * (3 * m * m * t)
+                       + c2 * (3 * m * t * t) + p1 * (t * t * t))
+        return pts
+
     def update_path(self):
         self.prepareGeometryChange()
+        if self.edge.route == "curve":
+            pts = self._curve_points()
+            path = QPainterPath()
+            path.moveTo(pts[0])
+            for q in pts[1:]:
+                path.lineTo(q)
+            self._path, self._pts = path, pts
+            return
         if self.edge.src_side != "auto" or self.edge.dst_side != "auto":
             pts = self._sided_points()
             path = QPainterPath()
@@ -304,9 +344,12 @@ class EdgeItem(QGraphicsItem):
         if head in ("start", "both"):
             self._head(p, self._pts[0], self._pts[1])
         if self.edge.label:
-            a, b = self._pts[0], self._pts[1]
-            mid = QPointF(a.x() + (b.x() - a.x()) * 0.3,
-                          a.y() + (b.y() - a.y()) * 0.3)
+            if self.edge.route == "curve":
+                mid = self._path.pointAtPercent(0.25)
+            else:
+                a, b = self._pts[0], self._pts[1]
+                mid = QPointF(a.x() + (b.x() - a.x()) * 0.3,
+                              a.y() + (b.y() - a.y()) * 0.3)
             f = QFont()
             f.setPixelSize(11)
             p.setFont(f)
@@ -457,6 +500,7 @@ class FlowchartBuilderDialog(QDialog):
         self._last_pdf: tuple[str, bytes] | None = None   # (tex, pdf)
         self._items: dict[str, NodeItem] = {}
         self._selected_edge: EdgeItem | None = None
+        self._syncing = False
 
         root = QVBoxLayout(self)
 
@@ -534,6 +578,8 @@ class FlowchartBuilderDialog(QDialog):
         for head, text, tip in (
                 ("end", "Arrow", "Draw an arrow: click the box it starts "
                  "from, then the box it goes to"),
+                ("curve", "Curve", "Draw a curved arrow: click the box it "
+                 "starts from, then the box it goes to"),
                 ("none", "Line", "Draw a plain line between two boxes: "
                  "click one, then the other")):
             b = QToolButton()
@@ -668,9 +714,21 @@ class FlowchartBuilderDialog(QDialog):
         self.edge_route.addItem("Automatic", "auto")
         self.edge_route.addItem("Straight", "straight")
         self.edge_route.addItem("Elbow", "elbow")
+        self.edge_route.addItem("Curved", "curve")
         self.edge_route.activated.connect(lambda _i: self._set_edge(
             route=self.edge_route.currentData()))
         f.addRow("Route", self.edge_route)
+        self.edge_bend = QSpinBox()
+        self.edge_bend.setRange(-90, 90)
+        self.edge_bend.setSingleStep(10)
+        self.edge_bend.setSuffix("°")
+        self.edge_bend.setToolTip("How much a curved link bows: positive "
+                                  "to the left, negative to the right "
+                                  "(when both sides are chosen, the curve "
+                                  "follows the sides instead)")
+        self.edge_bend.valueChanged.connect(lambda v: None if self._syncing
+                                            else self._set_edge(bend=v))
+        f.addRow("Bend", self.edge_bend)
         self.edge_head = QComboBox()
         for key, (label, _spec) in F.HEADS.items():
             self.edge_head.addItem(label, key)
@@ -806,8 +864,13 @@ class FlowchartBuilderDialog(QDialog):
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(QPen(QColor("#404040"), 2))
-        p.drawLine(QPointF(6, 30), QPointF(34, 10))
-        if head == "end":
+        if head == "curve":
+            path = QPainterPath(QPointF(6, 30))
+            path.cubicTo(QPointF(8, 10), QPointF(22, 6), QPointF(34, 10))
+            p.drawPath(path)
+        else:
+            p.drawLine(QPointF(6, 30), QPointF(34, 10))
+        if head in ("end", "curve"):
             p.setBrush(QColor("#404040"))
             p.setPen(Qt.NoPen)
             p.drawPolygon(QPolygonF([QPointF(36, 8), QPointF(26, 10),
@@ -826,7 +889,7 @@ class FlowchartBuilderDialog(QDialog):
         self._tool_from = None
         self.view.connect_mode = on
         self.view.setCursor(Qt.CrossCursor if on else Qt.ArrowCursor)
-        kind = "an arrow" if head == "end" else "a line"
+        kind = {"end": "an arrow", "curve": "a curve"}.get(head, "a line")
         self.status.setText(f"Click the box {kind} starts from…" if on
                             else "")
 
@@ -842,10 +905,14 @@ class FlowchartBuilderDialog(QDialog):
             return
         e = self.fc.connect(self._tool_from, item.node.id)
         if e is not None:
-            e.head = self._tool_head
+            if self._tool_head == "curve":
+                e.head, e.route = "end", "curve"
+            else:
+                e.head = self._tool_head
             self._commit()
         self._tool_from = None
-        kind = "arrow" if self._tool_head == "end" else "line"
+        kind = {"end": "arrow", "curve": "curve"}.get(self._tool_head,
+                                                      "line")
         self.status.setText(f"Done. Click the box the next {kind} starts "
                             "from, or empty space to stop.")
 
@@ -899,6 +966,10 @@ class FlowchartBuilderDialog(QDialog):
             e = edge.edge
             self.edge_label.setText(e.label)
             self.edge_route.setCurrentIndex(self.edge_route.findData(e.route))
+            self._syncing = True
+            self.edge_bend.setValue(e.bend)
+            self._syncing = False
+            self.edge_bend.setEnabled(e.route == "curve")
             self.edge_head.setCurrentIndex(self.edge_head.findData(e.head))
             self.edge_src_side.setCurrentIndex(
                 self.edge_src_side.findData(e.src_side))
@@ -988,6 +1059,13 @@ class FlowchartBuilderDialog(QDialog):
             self.scene.clearSelection()
             item.setSelected(True)
             menu.addAction("Label…", lambda: self._edit_item(item))
+            routes = menu.addMenu("Route")
+            for key, label in (("auto", "Automatic"), ("straight", "Straight"),
+                               ("elbow", "Elbow"), ("curve", "Curved")):
+                a = routes.addAction(label, lambda k=key: self._set_edge(
+                    route=k))
+                a.setCheckable(True)
+                a.setChecked(item.edge.route == key)
             heads = menu.addMenu("Arrowheads")
             for key, (label, _s) in F.HEADS.items():
                 a = heads.addAction(label, lambda k=key: self._set_edge(

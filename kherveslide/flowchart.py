@@ -72,11 +72,12 @@ class Edge:
     src: str
     dst: str
     label: str = ""
-    route: str = "auto"     # auto | straight | elbow
+    route: str = "auto"     # auto | straight | elbow | curve
     dashed: bool = False
     head: str = "end"       # arrowheads: end | start | both | none (a line)
     src_side: str = "auto"  # where it leaves: auto | north | south | east | west
-    dst_side: str = "auto"  # where it arrives (same choices)
+    dst_side: str = "auto"
+    bend: int = 30          # curve: degrees, + bows to the left, - right  # where it arrives (same choices)
 
 
 #: Arrowhead choices: key -> (label, TikZ arrow spec).
@@ -273,6 +274,8 @@ def _route(fc: Flowchart, e: Edge) -> str:
     elbow otherwise, and around the side for a loop back."""
     a, b = fc.node(e.src), fc.node(e.dst)
     lbl = _label(e)
+    if e.route == "curve":
+        return _curved_route(e, lbl)
     if e.src_side != "auto" or e.dst_side != "auto":
         return _sided_route(fc, e, lbl)
     if e.route == "straight" or abs(a.x - b.x) < 0.01 or abs(a.y - b.y) < 0.01:
@@ -313,6 +316,28 @@ def _sided_route(fc: Flowchart, e: Edge, lbl: str) -> str:
     else:
         turn = "|-" if e.src_side in ("east", "west") else "-|"
     return f"{start} {turn}{lbl} {end}"
+
+
+_OUT_ANGLE = {"east": 0, "north": 90, "west": 180, "south": 270}
+
+
+def _curved_route(e: Edge, lbl: str) -> str:
+    """A curve: bowed by *bend* degrees (left when positive), or — when
+    both sides are chosen — leaving the one side and arriving into the
+    other head on (TikZ's out / in angles)."""
+    start = f"({e.src}.{e.src_side})" if e.src_side in _STUB \
+        else f"({e.src})"
+    end = f"({e.dst}.{e.dst_side})" if e.dst_side in _STUB \
+        else f"({e.dst})"
+    if e.src_side in _STUB and e.dst_side in _STUB:
+        how = (f"out={_OUT_ANGLE[e.src_side]}, "
+               f"in={_OUT_ANGLE[e.dst_side]}")
+    elif e.bend == 0:
+        return f"{start} --{lbl} {end}"
+    else:
+        how = (f"bend left={e.bend}" if e.bend > 0
+               else f"bend right={-e.bend}")
+    return f"{start} to[{how}]{lbl} {end}"
 
 
 def _label(e: Edge) -> str:
