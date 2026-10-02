@@ -47,6 +47,10 @@ def _center_on_main_screen(win) -> None:
 
 
 def main() -> int:
+    if "--mcp-server" in sys.argv:
+        # A frozen build re-executes itself as the MCP stdio server (no Qt).
+        from .mcp_server import main as mcp_main
+        return mcp_main([a for a in sys.argv[1:] if a != "--mcp-server"])
     app = QApplication(sys.argv)
     app.setApplicationName("KherveSlide")
     app.setWindowIcon(icons.app_icon())
@@ -81,6 +85,7 @@ def main() -> int:
         QTimer.singleShot(0, win.show_welcome)
     if win.updater is not None:
         win.updater.schedule()
+    win.start_mcp_if_enabled()
     return app.exec()
 
 

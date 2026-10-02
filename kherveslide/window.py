@@ -855,6 +855,9 @@ class SlideWindow(QMainWindow):
         m_git.addSeparator()
         m_git.addAction(self.act_configure_remotes)
 
+        m_ai = mb.addMenu("&AI")
+        m_ai.addAction("Connect to &Claude…", self._show_mcp_dialog)
+
         m_help = mb.addMenu("&Help")
         m_help.addAction("&Welcome page…", self.show_welcome)
         m_help.addSeparator()
@@ -1643,6 +1646,8 @@ class SlideWindow(QMainWindow):
     def _reset_history(self):
         self._history = [deck_to_json(self.deck)]
         self._hist_index = 0
+        # A fresh / just-opened presentation counts as saved.
+        self._saved_snapshot = self._history[0]
         self._update_undo_actions()
         # A fresh deck (open / new / import / template) — drop any manual LaTeX
         # override and re-sync the source to it.
@@ -1890,6 +1895,8 @@ class SlideWindow(QMainWindow):
         if self._pdf_window is not None:
             self._pdf_window.close_quietly()
             self._pdf_window = None
+        if getattr(self, "_mcp_bridge", None) is not None:
+            self._mcp_bridge.stop()
         self._bd_timer.stop()
         if self._bd_worker is not None:
             self._bd_worker.wait(4000)
@@ -3572,10 +3579,14 @@ class SlideWindow(QMainWindow):
         elif kind == "recent":
             self.open_path(dlg.choice[1])
 
+    def has_unsaved_changes(self) -> bool:
+        return deck_to_json(self.deck) != getattr(self, "_saved_snapshot",
+                                                  None)
+
     def offer_save_before(self, doing: str) -> bool:
         """Ask to save before e.g. restarting into an update. False means
         the user cancelled."""
-        if self._hist_index <= 0 and self.path is None:
+        if not self.has_unsaved_changes():
             return True
         ans = QMessageBox.question(
             self, "KherveSlide",
@@ -3588,6 +3599,33 @@ class SlideWindow(QMainWindow):
             self._save_deck()
             return self.path is not None
         return True
+
+    # ---------------- MCP: let an AI assistant drive this window --------
+    def mcp_bridge(self):
+        """The loopback bridge Claude's MCP server talks to (created on
+        first use; off until the user enables it)."""
+        if getattr(self, "_mcp_bridge", None) is None:
+            from .mcp_bridge import ACCESS_LEVELS, DEFAULT_ACCESS, McpBridge
+            self._mcp_bridge = McpBridge(self)
+            level = QSettings("kherveDOC", "KherveSlide").value(
+                "mcp/access", DEFAULT_ACCESS)
+            self._mcp_bridge.set_access(
+                level if level in ACCESS_LEVELS else DEFAULT_ACCESS)
+            self._mcp_bridge.tool_invoked.connect(
+                lambda name, outcome: self.statusBar().showMessage(
+                    f"Claude: {name} — {outcome}", 4000))
+        return self._mcp_bridge
+
+    def start_mcp_if_enabled(self) -> None:
+        if QSettings("kherveDOC", "KherveSlide").value(
+                "mcp/enabled", False, type=bool):
+            self.mcp_bridge().start()
+
+    def _show_mcp_dialog(self) -> None:
+        from .mcp_dialog import McpServerDialog
+        dlg = McpServerDialog(self.mcp_bridge(), self)
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.show()
 
     def _about(self) -> None:
         from . import __version__
@@ -3923,7 +3961,9 @@ class SlideWindow(QMainWindow):
         ``.tex`` beamer export is written alongside so ``git diff`` shows
         meaningful content changes. Push runs on a background thread so a
         slow / dead remote can't freeze the window on every save."""
-        path.write_text(deck_to_json(self.deck), encoding="utf-8")
+        snapshot = deck_to_json(self.deck)
+        path.write_text(snapshot, encoding="utf-8")
+        self._saved_snapshot = snapshot
         stem = self._deck_stem(path)
         try:
             (path.parent / f"{stem}.tex").write_text(
