@@ -1856,14 +1856,21 @@ class SlideScene(QGraphicsScene):
             painter.drawRect(guide)
 
 
-_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".pdf")
+_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".pdf",
+               ".wmf", ".emf")
+# File-dialog filter for pictures (Windows metafiles are converted).
+IMAGE_FILTER = ("Images (*.png *.jpg *.jpeg *.pdf *.gif *.bmp *.webp "
+                "*.wmf *.emf)")
 
 
 def _dropped_image(mime) -> str | None:
+    """A dropped/pasted image file's path — a WMF/EMF is converted to a
+    PNG first (see metafile.py)."""
     if mime is not None and mime.hasUrls():
         for url in mime.urls():
             if url.isLocalFile() and url.toLocalFile().lower().endswith(_IMAGE_EXTS):
-                return url.toLocalFile()
+                from .metafile import ensure_raster
+                return ensure_raster(url.toLocalFile()) or None
     return None
 
 

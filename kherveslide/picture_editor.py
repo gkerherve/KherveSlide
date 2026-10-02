@@ -393,9 +393,11 @@ class PictureEditDialog(QDialog):
         self._rot.setValue(v)
 
     def _replace(self):
+        from .canvas import IMAGE_FILTER
+        from .metafile import ensure_raster
         path, _ = QFileDialog.getOpenFileName(
-            self, "Choose image", "",
-            "Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.pdf)")
+            self, "Choose image", "", IMAGE_FILTER)
+        path = ensure_raster(path)
         if path:
             self._set_image(path)
 
@@ -429,7 +431,14 @@ class PictureEditDialog(QDialog):
         if path and QPixmap(path).isNull() is False:
             self._set_image(path)
             return
-        # 2) A raw image on the clipboard (screenshot, copied from a browser…).
+        # 2) A Windows metafile (WMF/EMF, e.g. a graph copied from Origin
+        #    or Excel) — converted to PNG.
+        from .metafile import from_mime
+        mf = from_mime(md)
+        if mf:
+            self._set_image(mf)
+            return
+        # 3) A raw image on the clipboard (screenshot, copied from a browser…).
         img = QApplication.clipboard().image()
         if img is not None and not img.isNull():
             d = Path(tempfile.gettempdir()) / "kherveslide_pasted"
@@ -441,7 +450,7 @@ class PictureEditDialog(QDialog):
             img.save(str(p), "PNG")
             self._set_image(str(p))
             return
-        # 3) A copied image *file* (URL on the clipboard).
+        # 4) A copied image *file* (URL on the clipboard).
         from .canvas import _dropped_image
         fp = _dropped_image(md)
         if fp:

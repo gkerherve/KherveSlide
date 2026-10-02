@@ -41,13 +41,21 @@ TEX_IMAGE_EXTS = {"png", "jpg", "jpeg", "pdf", "eps"}
 
 def _save_image(blob: bytes, ext: str, stem: Path) -> str:
     """Write a picture into the media folder in a format XeTeX can include,
-    converting with Pillow when needed. Returns its path, or "" when it
-    cannot be converted (e.g. WMF/EMF off Windows) — the picture then
-    imports as an empty placeholder the user can fill."""
+    converting with Pillow (bitmaps) or metafile.py (WMF/EMF) when
+    needed. Returns its path, or "" when it can't be read — the picture
+    then imports as an empty placeholder the user can fill."""
     ext = (ext or "").lower()
     if ext in TEX_IMAGE_EXTS:
         out = stem.with_suffix(f".{ext}")
         out.write_bytes(blob)
+        return str(out)
+    from . import metafile
+    if metafile.kind(blob):              # WMF / EMF → rendered PNG
+        png = metafile.to_png(blob)
+        if png is None:
+            return ""
+        out = stem.with_suffix(".png")
+        out.write_bytes(png)
         return str(out)
     try:
         import io

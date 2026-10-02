@@ -73,8 +73,21 @@ from .welcome import (
     LAYOUT_SIDE, LAYOUT_TEXT, LAYOUT_VISUAL, LAYOUT_WINDOW, LAYOUTS,
     normalise_layout,
 )
+from .metafile import ensure_raster, from_mime
+from .canvas import IMAGE_FILTER
 
 _COLOURED_BLOCKS = {"block", "alertblock", "exampleblock"}
+
+
+def _has_metafile(md) -> bool:
+    """Does a clipboard/drop carry WMF/EMF bytes (see metafile.from_mime)?"""
+    try:
+        return any(h in f.lower() for f in md.formats()
+                   for h in ("emf", "wmf", "metafile", "enhanced"))
+    except Exception:
+        return False
+
+
 _TEXT_KINDS = {"text", "equation"} | _ALL_BLOCK_ENVS
 
 
@@ -2484,8 +2497,8 @@ class SlideWindow(QMainWindow):
 
     def _pick_image_for(self, item):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Choose image", "",
-            "Images (*.png *.jpg *.jpeg *.pdf *.gif *.bmp)")
+            self, "Choose image", "", IMAGE_FILTER)
+        path = ensure_raster(path)
         if path:
             item.obj.path = path
             item.update()
@@ -2764,9 +2777,8 @@ class SlideWindow(QMainWindow):
 
     def _add_picture(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Choose image", "",
-            "Images (*.png *.jpg *.jpeg *.pdf *.gif *.bmp)")
-        obj = SlidePicture(path=path or "")
+            self, "Choose image", "", IMAGE_FILTER)
+        obj = SlidePicture(path=ensure_raster(path) or "")
         self._place_stacked(obj)
         self.slide.objects.append(obj)
         self._reload_scene()
@@ -3214,11 +3226,12 @@ class SlideWindow(QMainWindow):
     def _can_paste(self):
         md = QApplication.clipboard().mimeData()
         return bool(md and (md.hasFormat(self._OBJ_MIME) or md.hasImage()
-                            or _dropped_image(md)))
+                            or _has_metafile(md) or _dropped_image(md)))
 
     def _clipboard_has_image(self):
         md = QApplication.clipboard().mimeData()
-        return bool(md and (md.hasImage() or _dropped_image(md)))
+        return bool(md and (md.hasImage() or _has_metafile(md)
+                            or _dropped_image(md)))
 
     def _paste(self, scene_pos=None):
         if not isinstance(scene_pos, QPointF):   # menu/shortcut pass a bool
@@ -3239,9 +3252,11 @@ class SlideWindow(QMainWindow):
             self._select_last()
             self._touch_current()
             return
+        # A Windows metafile (a graph copied from Origin / Excel /
+        # PowerPoint) is rendered to PNG — sharper than the bitmap copy.
+        path = from_mime(md)
         img = cb.image()
-        path = None
-        if img is not None and not img.isNull():
+        if path is None and img is not None and not img.isNull():
             path = self._save_clipboard_image(img)
         if path is None:
             path = _dropped_image(md)
@@ -3772,8 +3787,8 @@ class SlideWindow(QMainWindow):
             path = getattr(src, "path", "") or ""
             if not path:
                 path, _ = QFileDialog.getOpenFileName(
-                    self, "Choose image", "",
-                    "Images (*.png *.jpg *.jpeg *.pdf *.gif *.bmp)")
+                    self, "Choose image", "", IMAGE_FILTER)
+                path = ensure_raster(path)
             return SlidePicture(path=path or "", keep_aspect=True, **geo)
         if kind == "table":
             return SlideTable(**geo)
