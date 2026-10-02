@@ -110,3 +110,51 @@ def test_window_presents_the_compiled_pdf(qapp, tmp_path, monkeypatch):
     show.end()
     assert w._slideshow is None and w.current == 0   # lands where it ended
     w.close()
+
+
+# --- drag & drop a presentation onto the window (kept with the other
+# window-level tests that build a real SlideWindow) ---
+
+def _drop(qapp, target, path):
+    from PySide6.QtCore import QMimeData, QPointF, QUrl
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(path))])
+    enter = QDragEnterEvent(target.rect().center(), Qt.CopyAction, mime,
+                            Qt.LeftButton, Qt.NoModifier)
+    QApplication.sendEvent(target, enter)
+    drop = QDropEvent(QPointF(target.rect().center()), Qt.CopyAction, mime,
+                      Qt.LeftButton, Qt.NoModifier)
+    QApplication.sendEvent(target, drop)
+    for _ in range(5):
+        qapp.processEvents()
+    return enter.isAccepted(), drop.isAccepted()
+
+
+def test_dropping_a_kslide_anywhere_opens_it(qapp, tmp_path, monkeypatch):
+    from kherveslide.model import Deck, Slide, deck_to_json
+    from kherveslide.window import SlideWindow
+    for name in ("_start_compile", "_start_backdrop",
+                 "_maybe_autodownload_packages", "_add_recent"):
+        monkeypatch.setattr(SlideWindow, name, lambda self, *a: None)
+    f = tmp_path / "dropped.kslide"
+    f.write_text(deck_to_json(Deck(title="Dropped", slides=[Slide(), Slide(),
+                                                            Slide()])))
+    w = SlideWindow()
+    w.show()
+    # onto the LaTeX editor — a text widget that would otherwise paste
+    # the path — and onto the canvas
+    for target in (w.latex_view, w.view.viewport()):
+        w._new_deck()
+        assert _drop(qapp, target, f) == (True, True)
+        assert w.deck.title == "Dropped" and len(w.deck.slides) == 3
+        assert w.path == f
+    # an image is not a presentation: left to the canvas as before
+    img = tmp_path / "pic.png"
+    img.write_bytes(b"\x89PNG")
+    assert SlideWindow.dropped_presentation(None) is None
+    from PySide6.QtCore import QMimeData, QUrl
+    m = QMimeData()
+    m.setUrls([QUrl.fromLocalFile(str(img))])
+    assert SlideWindow.dropped_presentation(m) is None
+    w.close()

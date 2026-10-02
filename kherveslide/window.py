@@ -560,6 +560,14 @@ class SlideWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._status_state)
         self._reload_all()
         self._reset_history()
+        # Drop a .kslide / .pptx anywhere on the window to open it. Drags
+        # over plain areas reach the window itself; widgets that take drops
+        # (canvas, LaTeX editor, slides list…) are watched so they don't
+        # swallow a presentation file.
+        self.setAcceptDrops(True)
+        for w in self.findChildren(QWidget):
+            if w.acceptDrops():
+                w.installEventFilter(self)
         self._maybe_autodownload_packages()
 
     # ---------------- menus ----------------
@@ -573,7 +581,9 @@ class SlideWindow(QMainWindow):
         m_file.addAction("Import PowerPoint (.pptx)…", self._import_pptx)
         self._recent_menu = m_file.addMenu("Open recent")
         self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
-        m_file.addSeparator()
+        # Templates and examples are filled in below (File > Templates,
+        # File > Example presentations), placed before this separator.
+        self._file_tpl_anchor = m_file.addSeparator()
         m_file.addAction("Save", self._save_deck).setShortcut("Ctrl+S")
         m_file.addAction("Save As…", self._save_deck_as).setShortcut("Ctrl+Shift+S")
         self._act_open_loc = m_file.addAction(
@@ -736,7 +746,8 @@ class SlideWindow(QMainWindow):
         # One Theme menu for everything that shapes the slide's look: the
         # presentation theme (whole look) AND the colour theme (colours
         # only), plus the gallery, the custom builder and decorations.
-        m_theme = mb.addMenu("&Slide Theme")
+        m_view.addSeparator()
+        m_theme = m_view.addMenu("Slide &theme")
         m_ptheme = m_theme.addMenu("Presentation theme (whole look)")
         self._ptheme_group = QActionGroup(self)
         self._ptheme_actions = {}
@@ -771,7 +782,8 @@ class SlideWindow(QMainWindow):
         self.act_deco.toggled.connect(self._toggle_decorations)
         m_theme.addAction(self.act_deco)
 
-        m_pres = mb.addMenu("&Presentation")
+        m_edit.addSeparator()
+        m_pres = m_edit.addMenu("&Presentation")
         m_pres.addAction("Title…", self._set_deck_title)
         m_pres.addAction("Author…", self._set_deck_author)
         self.act_nav = m_pres.addAction("Navigation symbols (prev / next)")
@@ -812,7 +824,6 @@ class SlideWindow(QMainWindow):
         m_insert.addAction("Text box", self._add_text)
         m_insert.addAction("Picture", self._add_picture)
         m_insert.addAction("Video…", self._add_video)
-        m_insert.addAction("Table…", self._insert_table_picker)
         # The same three entries, icons and shortcuts as KherveTeX.
         self.act_equation_builder = QAction(
             icons.equation_builder(), "&Equation builder...", self,
@@ -837,18 +848,19 @@ class SlideWindow(QMainWindow):
         m_insert.addAction(self.act_chemfig)
         m_insert.addAction("Drawing…", self._add_drawing)
 
-        m_shapes = mb.addMenu("S&hapes")
+        m_insert.addSeparator()
+        m_shapes = m_insert.addMenu("S&hapes")
         m_shapes.addAction("Line", self._add_line)
         m_shapes.addAction("Arrow", self._add_arrow)
         m_shapes.addSeparator()
         for group, items in shapes.GROUPS:
-            sub = m_shapes.addMenu(group)
+            sub = m_shapes.addMenu(group.replace("&", "&&"))
             for key, label in items:
                 sub.addAction(
                     label,
                     lambda _checked=False, k=key: self._add_shape(k))
 
-        m_table = mb.addMenu("&Table")
+        m_table = m_insert.addMenu("&Table")
         m_table.addAction("Insert table…", self._insert_table_picker)
         m_table.addAction("Table design…", self._table_design_dialog)
         m_table.addSeparator()
@@ -862,14 +874,18 @@ class SlideWindow(QMainWindow):
         m_table.addSeparator()
         m_table.addAction("Table properties…", self._table_props_dialog)
 
-        m_tpl = mb.addMenu("Te&mplates")
+        m_tpl = QMenu("Te&mplates", self)
+        m_file.insertMenu(self._file_tpl_anchor, m_tpl)
         self._m_tpl_new = m_tpl.addMenu("New presentation from template")
         self._m_tpl_new.aboutToShow.connect(self._populate_templates_menu)
-        m_ex = m_tpl.addMenu("Example presentations")
+        m_ex = QMenu("&Example presentations", self)
+        m_file.insertMenu(self._file_tpl_anchor, m_ex)
         m_ex.setToolTipsVisible(True)
         from .examples import EXAMPLES
         for name, desc, _f in EXAMPLES:
-            a = m_ex.addAction(name, lambda n=name: self.open_example(n))
+            # "&" marks a keyboard accelerator in menus; "&&" is a literal &.
+            a = m_ex.addAction(name.replace("&", "&&"),
+                               lambda n=name: self.open_example(n))
             a.setToolTip(desc)
             a.setStatusTip(desc)
         m_tpl.addSeparator()
@@ -927,6 +943,7 @@ class SlideWindow(QMainWindow):
             if key:
                 a.setShortcut(key)
         m_show.addSeparator()
+        mb.insertMenu(m_git.menuAction(), m_show)
         self._m_show_screen = m_show.addMenu("Show the slides on")
         self._m_show_screen.aboutToShow.connect(self._fill_screen_menu)
         self._show_screen_name = ""        # "" = automatic
@@ -1634,10 +1651,69 @@ class SlideWindow(QMainWindow):
                        lambda f=field, a=apply: (f.clear(), a()))
         menu.exec(field.mapToGlobal(field.rect().bottomLeft()))
 
+    # ---------------- drag & drop a presentation onto the window --------
+    @staticmethod
+    def dropped_presentation(mime) -> Path | None:
+        """The first .kslide (or .pptx) file in a drag, if any."""
+        if mime is None or not mime.hasUrls():
+            return None
+        for url in mime.urls():
+            p = Path(url.toLocalFile())
+            name = p.name.lower()
+            if p.is_file() and (name.endswith((".kslide", ".pptx"))
+                                or name.endswith(".kslide.json")):
+                return p
+        return None
+
+    def open_dropped(self, path: Path) -> None:
+        """Open a dropped .kslide (or import a .pptx), offering to save
+        the current presentation first."""
+        if not self.offer_save_before(f"opening {path.name}"):
+            return
+        if path.suffix.lower() == ".pptx":
+            self._import_pptx(str(path))
+        else:
+            self.open_path(path)
+        self.raise_()
+        self.activateWindow()
+
+    def _drag_event(self, event) -> bool:
+        """Handle a drag over any part of this window when it carries a
+        presentation file; image drops etc. are left to the canvas."""
+        t = event.type()
+        if t not in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop):
+            return False
+        path = self.dropped_presentation(event.mimeData())
+        if path is None:
+            return False
+        event.setDropAction(Qt.CopyAction)
+        event.accept()
+        if t == QEvent.Drop:
+            # After the drop finishes, so no dialog opens mid-drag.
+            QTimer.singleShot(0, lambda p=path: self.open_dropped(p))
+        return True
+
+    def dragEnterEvent(self, event):
+        if not self._drag_event(event):
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if not self._drag_event(event):
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if not self._drag_event(event):
+            super().dropEvent(event)
+
     def eventFilter(self, obj, event):
         if (event.type() == QEvent.MouseButtonDblClick
                 and obj in getattr(self, "_hf_fields", {})):
             self._hf_picker(obj, self._hf_fields[obj])
+            return True
+        # Child widgets (canvas, LaTeX editor, slides list…) would take or
+        # refuse a dropped presentation file themselves; catch it first.
+        if (event.type() in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop)
+                and self._drag_event(event)):
             return True
         return super().eventFilter(obj, event)
 
@@ -4409,7 +4485,7 @@ class SlideWindow(QMainWindow):
         if path:
             self.open_path(path)
 
-    def _import_pptx(self):
+    def _import_pptx(self, path=None):
         from . import pptx_import
         if not pptx_import.available():
             QMessageBox.warning(
@@ -4417,8 +4493,9 @@ class SlideWindow(QMainWindow):
                 "The python-pptx package is needed to import .pptx files.\n"
                 "Install it with:  pip install python-pptx")
             return
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Import PowerPoint", "", "PowerPoint (*.pptx)")
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Import PowerPoint", "", "PowerPoint (*.pptx)")
         if not path:
             return
         src = Path(path)
