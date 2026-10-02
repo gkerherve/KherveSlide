@@ -72,7 +72,36 @@ def _text_of(tf) -> str:
         lines.append(line)
     while lines and not lines[-1].strip():
         lines.pop()
-    return " \\\\\n".join(lines)
+    # One paragraph per line: the serializer turns each newline into a
+    # "\\" itself, so adding our own doubled them ("\\ \\" → "There's no
+    # line here to end"). An empty paragraph keeps its gap as an empty box.
+    return "\n".join(ln if ln.strip() else "\\mbox{}" for ln in lines)
+
+
+# Formats XeTeX's \\includegraphics reads; anything else (gif, bmp,
+# tiff, wmf, emf...) is read as TeX source and fills the log with garbage.
+TEX_IMAGE_EXTS = {"png", "jpg", "jpeg", "pdf", "eps"}
+
+
+def _save_image(blob: bytes, ext: str, stem: Path) -> str:
+    """Write a picture into the media folder in a format XeTeX can include,
+    converting with Pillow when needed. Returns its path, or "" when it
+    cannot be converted (e.g. WMF/EMF off Windows) — the picture then
+    imports as an empty placeholder the user can fill."""
+    ext = (ext or "").lower()
+    if ext in TEX_IMAGE_EXTS:
+        out = stem.with_suffix(f".{ext}")
+        out.write_bytes(blob)
+        return str(out)
+    try:
+        import io
+        from PIL import Image
+        with Image.open(io.BytesIO(blob)) as im:
+            out = stem.with_suffix(".png")
+            im.convert("RGBA").save(out)
+            return str(out)
+    except Exception:
+        return ""
 
 
 def _first_font_pt(tf, default: int) -> int:
@@ -186,10 +215,10 @@ def import_pptx(path, media_dir) -> Deck:
                     img = shape.image
                     img_n += 1
                     media.mkdir(parents=True, exist_ok=True)
-                    fname = media / f"img_{img_n:03d}.{img.ext}"
-                    fname.write_bytes(img.blob)
+                    fname = _save_image(img.blob, img.ext,
+                                        media / f"img_{img_n:03d}")
                     objs.append(SlidePicture(
-                        x=x, y=y, w=w or 0.3, h=h or 0.3, path=str(fname),
+                        x=x, y=y, w=w or 0.3, h=h or 0.3, path=fname,
                         keep_aspect=False, locked=False))
                 elif shape.shape_type == MSO_SHAPE_TYPE.MEDIA:
                     vid_n += 1

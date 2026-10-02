@@ -22,6 +22,7 @@ layout; the user composes the slide entirely from boxes.
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 from . import shapes as _shapes
 from .model import (
@@ -223,8 +224,13 @@ def _picture_placeholder(obj: SlidePicture) -> str:
             f"{box}\n\\end{{textblock}}")
 
 
+_TEX_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".pdf", ".eps"}
+
+
 def _serialize_picture(obj: SlidePicture) -> str:
-    if not obj.path:
+    # A format XeTeX can't include (gif, wmf...) would be read as TeX
+    # source and wreck the compile — show the empty box instead.
+    if not obj.path or Path(obj.path).suffix.lower() not in _TEX_IMAGE_EXTS:
         return _picture_placeholder(obj)
     return (f"\\begin{{textblock}}{{{_fmt(obj.w)}}}({_fmt(obj.x)},{_fmt(obj.y)})\n"
             f"{_frame_wrap(_picture_graphic(obj), obj)}\n"
