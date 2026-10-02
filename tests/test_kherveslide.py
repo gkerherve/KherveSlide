@@ -422,10 +422,14 @@ def test_stacked_locked_boxes_do_not_make_columns():
     assert "\\begin{columns}" not in tex
 
 
-def test_object_defaults_locked():
-    assert SlideText().locked is True
-    assert SlidePicture().locked is True
-    assert SlideTable().locked is True
+def test_object_defaults_unlocked():
+    # New boxes can be dragged at once; locking them is a choice.
+    assert SlideText().locked is False
+    assert SlidePicture().locked is False
+    assert SlideTable().locked is False
+    tex = serialize_deck(Deck(slides=[Slide(objects=[SlideText(text="Hi")])],
+                              nav_symbols=False))
+    assert "\\begin{textblock}" in tex       # placed where it is drawn
 
 
 def test_mixed_lock_flows_and_overlays():
@@ -1229,9 +1233,15 @@ def test_locked_column_picture_fills_column():
 
 
 def test_comparison_layout_serializes_as_columns():
-    deck = Deck(slides=[templates.instantiate_slide_layout("Comparison")])
-    tex = serialize_deck(deck)
+    slide = templates.instantiate_slide_layout("Comparison")
+    for o in slide.objects:                    # locked: beamer lays it out
+        o.locked = True
+    tex = serialize_deck(Deck(slides=[slide]))
     assert "\\begin{columns}" in tex
+    # unlocked (the default): each box sits where it is on the canvas
+    free = serialize_deck(Deck(slides=[
+        templates.instantiate_slide_layout("Comparison")]))
+    assert "\\begin{columns}" not in free and "Option A" in free
 
 
 # --- theme builder: decorative rules ---
@@ -3068,3 +3078,41 @@ def test_slides_list_drag_hide_and_delete(monkeypatch):
                                           Qt.NoModifier))
     assert len(w.deck.slides) == n - 1
     w.close()
+
+
+def test_every_toolbar_icon_has_a_detailed_tooltip(monkeypatch):
+    from PySide6.QtWidgets import QApplication, QToolBar, QToolButton
+    QApplication.instance() or QApplication([])
+    from kherveslide import tooltips
+    from kherveslide.window import SlideWindow
+    for name in ("_start_compile", "_start_backdrop",
+                 "_maybe_autodownload_packages"):
+        monkeypatch.setattr(SlideWindow, name, lambda self, *a: None)
+    w = SlideWindow()
+    for key, (title, what, steps, _tip) in tooltips.TIPS.items():
+        assert title and len(what) > 40 and steps, key
+    seen = 0
+    for tb in w.findChildren(QToolBar):
+        for a in tb.actions():
+            if a.isSeparator() or a.icon().isNull():
+                continue
+            tip = a.toolTip()
+            assert "How to use" in tip and "<ol" in tip, a.text()
+            assert a.statusTip(), a.text()
+            seen += 1
+    assert seen >= 40
+    for b in w.view_bar.findChildren(QToolButton):
+        assert "How to use" in b.toolTip()
+    assert "Ctrl+Shift+F" in w.act_flowchart.toolTip() \
+        or "⇧⌘F" in w.act_flowchart.toolTip()
+    w.close()
+
+
+def test_about_names_the_author_and_khervetools():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide.about import AboutDialog, about_html
+    html = about_html("v0.1")
+    assert "Gwilherm" in html and "Imperial College London" in html
+    assert "https://khervetools.com" in html
+    AboutDialog("v0.1").close()

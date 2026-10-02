@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QButtonGroup, QFrame, QHBoxLayout, QLabel, QToolButton, QWidget,
 )
 
-from . import icons
+from . import icons, tooltips
 
 VIEW_NORMAL, VIEW_OVERVIEW, VIEW_MASTER = "normal", "overview", "master"
 
@@ -60,8 +60,7 @@ class ViewBar(QWidget):
             return b
 
         self.theme = button(icons.theme_palette(), "Theme",
-                            "Slide theme — the look of every slide "
-                            "(also in View ▸ Slide theme)")
+                            tooltips.rich("theme"))
         if theme_menu is not None:
             self.theme.setMenu(theme_menu)
             self.theme.setPopupMode(QToolButton.InstantPopup)
@@ -73,8 +72,9 @@ class ViewBar(QWidget):
         for key, icon in ((VIEW_NORMAL, icons.view_normal),
                           (VIEW_OVERVIEW, icons.view_overview),
                           (VIEW_MASTER, icons.view_master)):
-            text, tip = VIEW_TEXT[key]
-            b = button(icon(), "", tip, checkable=True)
+            text, _tip = VIEW_TEXT[key]
+            b = button(icon(), "", tooltips.rich(f"view_{key}"),
+                       checkable=True)
             b.setAccessibleName(text)
             b.clicked.connect(lambda _c=False, k=key: self.viewChosen.emit(k))
             group.addButton(b)
@@ -82,22 +82,22 @@ class ViewBar(QWidget):
         self.views[VIEW_NORMAL].setChecked(True)
 
         self.show_btn = button(icons.slideshow(), "",
-                               "Slideshow from the current slide (Shift+F5)"
-                               " — the arrow offers the other ways")
+                               tooltips.rich("slideshow", "Shift+F5"))
         self.show_btn.clicked.connect(self.slideshowRequested)
         if show_menu is not None:
             self.show_btn.setMenu(show_menu)
             self.show_btn.setPopupMode(QToolButton.MenuButtonPopup)
         lay.addWidget(_sep())
 
-        for icon, tip, sig in ((icons.zoom_out, "Zoom out",
+        self.zoom_buttons = []
+        for icon, key, sig in ((icons.zoom_out, "zoom_out",
                                 self.zoomOutRequested),
-                               (icons.fit_width, "Fit the slide to the "
-                                "window", self.fitRequested),
-                               (icons.zoom_in, "Zoom in",
+                               (icons.fit_width, "fit", self.fitRequested),
+                               (icons.zoom_in, "zoom_in",
                                 self.zoomInRequested)):
-            b = button(icon(), "", tip)
+            b = button(icon(), "", tooltips.rich(key))
             b.clicked.connect(sig)
+            self.zoom_buttons.append(b)
 
     def set_view(self, key: str) -> None:
         b = self.views.get(key)

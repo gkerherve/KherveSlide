@@ -110,7 +110,14 @@ toolbar.
 Every object is either **free** — you place it exactly where you want
 and it lands there in the PDF — or **locked**, in which case beamer lays
 it out in the normal flow of the slide. Right-click an object and use
-**Lock position** to switch. Objects you add are free.
+**Lock position** (or click its padlock badge) to switch. Every box is
+free to start with — text, titles, pictures, tables, and the boxes of
+every layout and template — so you can drag it straight away; lock it
+only when you want beamer to place it. (Presentations saved earlier keep
+the lock each box had.)
+
+Hover over any toolbar icon for a detailed tooltip: what it does, how to
+use it step by step, and a tip.
 
 ## Pictures, video and drawings
 

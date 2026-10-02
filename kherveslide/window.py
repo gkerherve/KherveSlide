@@ -1025,26 +1025,33 @@ class SlideWindow(QMainWindow):
         tb = QToolBar("Main"); tb.setMovable(False); self.addToolBar(tb)
         tb.setIconSize(QSize(24, 24))
 
-        def act(factory, text, slot):
+        self._tips: list = []      # (action / widget, tooltips key)
+
+        def act(factory, text, slot, key=None):
             a = QAction(factory(), text, self); a.setToolTip(text)
             a.triggered.connect(slot); tb.addAction(a)
             self._themed_icons.append((a, factory))
+            if key:
+                self._tips.append((a, key))
             return a
 
-        act(icons.file_new, "New", self._new_deck)
-        act(icons.file_open, "Open", self._open_deck)
-        act(icons.file_save, "Save", self._save_deck)
+        act(icons.file_new, "New", self._new_deck, "new")
+        act(icons.file_open, "Open", self._open_deck, "open")
+        act(icons.file_save, "Save", self._save_deck, "save")
         tb.addSeparator()
         tb.addAction(self.act_undo)
         tb.addAction(self.act_redo)
         tb.addSeparator()
-        act(icons.templates_icon, "Templates", self._templates_menu)
-        act(icons.export_pdf, "Export PDF", self._export_pdf)
+        act(icons.templates_icon, "Templates", self._templates_menu,
+            "templates")
+        act(icons.export_pdf, "Export PDF", self._export_pdf, "export_pdf")
         tb.addSeparator()
-        act(icons.zoom_out, "Zoom out", lambda: self.view.zoom_by(1 / 1.25))
+        act(icons.zoom_out, "Zoom out", lambda: self.view.zoom_by(1 / 1.25),
+            "zoom_out")
         act(icons.fit_width, "Fit slide to window",
-            lambda: self.view.fit_to_window())
-        act(icons.zoom_in, "Zoom in", lambda: self.view.zoom_by(1.25))
+            lambda: self.view.fit_to_window(), "fit")
+        act(icons.zoom_in, "Zoom in", lambda: self.view.zoom_by(1.25),
+            "zoom_in")
         tb.addSeparator()
         # Per-box beamer placement (the whole theme lives in the Slide Theme
         # menu now). Sets the selected box's locked property.
@@ -1151,6 +1158,7 @@ class SlideWindow(QMainWindow):
                               self._insert_bullets)
         a_num = ftb.addAction(icons.numbered_list(), "Insert numbered list",
                               self._insert_numbered)
+        self._tips += [(a_bul, "bullets"), (a_num, "numbered")]
         self._themed_icons += [(a_bul, icons.bullet_list),
                                (a_num, icons.numbered_list)]
         ftb.addSeparator()
@@ -1203,14 +1211,17 @@ class SlideWindow(QMainWindow):
         tb.setMovable(False)
         self.addToolBar(Qt.LeftToolBarArea, tb)
 
-        def vact(factory, text, slot):
+        def vact(factory, text, slot, key=None):
             a = tb.addAction(factory(), text, slot)
             self._themed_icons.append((a, factory))
+            if key:
+                self._tips.append((a, key))
             return a
 
         # Navigation — jump between slides and show/hide the navigator panel.
-        vact(icons.prev_slide, "Previous slide", self._prev_slide)
-        vact(icons.next_slide, "Next slide", self._next_slide)
+        vact(icons.prev_slide, "Previous slide", self._prev_slide,
+             "prev_slide")
+        vact(icons.next_slide, "Next slide", self._next_slide, "next_slide")
         tb.addAction(self.act_show_nav)
         tb.addSeparator()
 
@@ -1223,31 +1234,71 @@ class SlideWindow(QMainWindow):
         add_btn.setMenu(self._fill_new_slide_menu(QMenu(add_btn)))
         tb.addWidget(add_btn)
         self._themed_icons.append((add_btn, icons.slide_add))
-        vact(icons.slide_remove, "Remove active slide", self._del_slide)
+        self._tips.append((add_btn, "add_slide"))
+        vact(icons.slide_remove, "Remove active slide", self._del_slide,
+             "remove_slide")
         tb.addSeparator()
         # Insert objects (moved here from the horizontal toolbar)
-        vact(icons.text_box, "Add text box", self._add_text)
-        vact(icons.image_box, "Add image", self._add_picture)
-        vact(icons.video_box, "Add video", self._add_video)
-        vact(icons.table, "Add table", self._add_table)
+        vact(icons.text_box, "Add text box", self._add_text, "text_box")
+        vact(icons.image_box, "Add image", self._add_picture, "picture")
+        vact(icons.video_box, "Add video", self._add_video, "video")
+        vact(icons.table, "Add table", self._add_table, "table")
         tb.addAction(self.act_equation_builder)
         tb.addAction(self.act_chemistry)
         tb.addAction(self.act_chemfig)
         tb.addAction(self.act_flowchart)
-        vact(icons.symbol, "Insert symbol…", self._insert_symbol)
-        vact(icons.drawing, "Add drawing", self._add_drawing)
-        vact(icons.line_tool, "Add line", self._add_line)
-        vact(icons.arrow_tool, "Add arrow", self._add_arrow)
-        vact(icons.rect_tool, "Add rectangle", self._add_rect)
-        vact(icons.ellipse_tool, "Add circle / ellipse", self._add_ellipse)
+        vact(icons.symbol, "Insert symbol…", self._insert_symbol, "symbol")
+        vact(icons.drawing, "Add drawing", self._add_drawing, "drawing")
+        vact(icons.line_tool, "Add line", self._add_line, "line")
+        vact(icons.arrow_tool, "Add arrow", self._add_arrow, "arrow")
+        vact(icons.rect_tool, "Add rectangle", self._add_rect, "rect")
+        vact(icons.ellipse_tool, "Add circle / ellipse", self._add_ellipse,
+             "ellipse")
         tb.addSeparator()
         # Z-order
-        vact(icons.raise_box, "Raise object", lambda: self._zorder("raise"))
-        vact(icons.lower_box, "Lower object", lambda: self._zorder("lower"))
-        vact(icons.to_front, "Bring to front", lambda: self._zorder("front"))
-        vact(icons.to_back, "Send to back", lambda: self._zorder("back"))
+        vact(icons.raise_box, "Raise object", lambda: self._zorder("raise"),
+             "raise")
+        vact(icons.lower_box, "Lower object", lambda: self._zorder("lower"),
+             "lower")
+        vact(icons.to_front, "Bring to front", lambda: self._zorder("front"),
+             "front")
+        vact(icons.to_back, "Send to back", lambda: self._zorder("back"),
+             "back")
         tb.addSeparator()
-        vact(icons.delete_box, "Delete object", self._delete_selected)
+        vact(icons.delete_box, "Delete object", self._delete_selected,
+             "delete")
+        self._apply_tooltips()
+
+    def _apply_tooltips(self) -> None:
+        """Every toolbar icon gets a detailed tooltip — what it does, how
+        to use it, a tip — and a one-line status-bar text (tooltips.py)."""
+        from . import tooltips
+        named = [(self.act_undo, "undo"), (self.act_redo, "redo"),
+                 (self.type_combo, "box_type"),
+                 (self.fmt_family, "font_family"),
+                 (self.fmt_font, "font_size"),
+                 (self.act_bold, "bold"), (self.act_italic, "italic"),
+                 (self.act_super, "superscript"),
+                 (self.act_sub, "subscript"),
+                 (self._align_actions["left"], "align_left"),
+                 (self._align_actions["center"], "align_center"),
+                 (self._align_actions["right"], "align_right"),
+                 (self.act_textcolor, "text_colour"),
+                 (self.act_fill, "fill_colour"),
+                 (self.act_pic, "replace_image"),
+                 (self.act_pdf_side, "pdf_side"),
+                 (self.act_skip_img, "skip_images"),
+                 (self.act_force, "compile"),
+                 (self.act_auto, "auto_compile"),
+                 (self.act_show_nav, "slides_list"),
+                 (self.act_equation_builder, "equation"),
+                 (self.act_chemistry, "chemistry"),
+                 (self.act_chemfig, "chemfig"),
+                 (self.act_flowchart, "flowchart")]
+        shortcuts = {"save": "Ctrl+S", "new": "Ctrl+N", "open": "Ctrl+O",
+                     "compile": "Ctrl+R", "pdf_side": "Ctrl+4"}
+        for target, key in named + self._tips:
+            tooltips.apply(target, key, shortcuts.get(key, ""))
 
     def _add_line(self):
         self.slide.objects.append(SlideLine())
@@ -4543,17 +4594,9 @@ class SlideWindow(QMainWindow):
         dlg.activateWindow()
 
     def _about(self) -> None:
-        from . import __version__
-        QMessageBox.about(
-            self, "About KherveSlide",
-            f"<h3>KherveSlide {version_string()}</h3>"
-            "<p>Design slides like in PowerPoint — drag, resize and stack "
-            "text and pictures freely — and get beamer LaTeX compiled to "
-            "PDF with tectonic.</p>"
-            "<p>Press <b>F1</b> for the User Guide.</p>"
-            "<p>© 2026 Gwilherm Kerherve · GPL-3.0<br>"
-            "<a href='https://github.com/gkerherve/KherveSlide'>"
-            "github.com/gkerherve/KherveSlide</a></p>")
+        """The app, its author and khervetools.com (about.py)."""
+        from .about import AboutDialog
+        AboutDialog(version_string(), self).exec()
 
     # ---------------- themed backdrop (canvas looks like the PDF) -------
     def _toggle_canvas_theme(self, on):

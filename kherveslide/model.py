@@ -57,8 +57,10 @@ class SlideText:
     shadow: bool = False          # drop shadow behind the box
     corner_radius: float = 4.0    # pt, used when corner == rounded
     # Locked: beamer places the box in the standard flow (you can't drag it).
-    # Unlocked: free absolute positioning at (x, y) via textpos.
-    locked: bool = True
+    # Unlocked: free absolute positioning at (x, y) via textpos — the
+    # default, so every new box can be dragged at once; lock it from its
+    # padlock badge or right-click menu to let beamer place it.
+    locked: bool = False
     # Optional beamer block wrapper: "" | block | alertblock | exampleblock.
     block: str = ""
     block_title: str = ""
@@ -113,7 +115,7 @@ class SlidePicture:
     glow_size: float = 0.0      # fraction of the shorter side
     reflection: float = 0.0     # reflection height, fraction of the picture
     mask: str = ""              # picture shape: "" (rectangle) | ellipse | rounded
-    locked: bool = True         # see SlideText.locked
+    locked: bool = False        # see SlideText.locked
     group: int = 0
     type: str = "SlidePicture"
 
@@ -164,7 +166,7 @@ class SlideTable:
     fill_opacity: float = 1.0
     shadow: bool = False
     corner_radius: float = 4.0
-    locked: bool = True        # see SlideText.locked
+    locked: bool = False       # see SlideText.locked
     group: int = 0
     type: str = "SlideTable"
 
