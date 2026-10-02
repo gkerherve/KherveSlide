@@ -167,7 +167,12 @@ def _frame_wrap(inner: str, obj, text_width: str | None = None) -> str:
     fc = _hex_to_rgb_arg(getattr(obj, "fill", ""))
     if not bc and not fc:
         return inner
-    pre, opts = [], [f"inner sep={_fmt(_FRAME_PAD_PT)}pt"]
+    # Only text is inset from its frame; a picture or table fills the box
+    # right up to the border line, as the canvas draws it.
+    pad = _FRAME_PAD_PT if text_width else 0
+    # outer sep=0 puts the node's anchors on the outline itself, which the
+    # bounding-box reset below relies on.
+    pre, opts = [], [f"inner sep={_fmt(pad)}pt", "outer sep=0pt"]
     if bc:
         pre.append(f"\\definecolor{{ksBorder}}{{HTML}}{{{bc}}}")
         w = _fmt(max(0.2, getattr(obj, "border_width", 1.0)))
@@ -200,8 +205,15 @@ def _frame_wrap(inner: str, obj, text_width: str | None = None) -> str:
         # padding comes out of the text width instead of being added on
         # top of it (which pushed the frame 6pt past the box's right edge).
         opts.append(f"text width={text_width}-{_fmt(2 * _FRAME_PAD_PT)}pt")
+    # TikZ counts half the stroke in the picture's size, which nudged the
+    # frame right/down by half the border width. Resetting the bounding
+    # box to the outline's centre line puts the stroke astride the box
+    # edge, exactly like the canvas pen.
     return ("".join(pre) + "\\begin{tikzpicture}\n"
-            f"\\node[{','.join(opts)}]{{{inner}}};\n\\end{{tikzpicture}}")
+            f"\\node[{','.join(opts)}] (ksframe) {{{inner}}};\n"
+            "\\pgfresetboundingbox\n"
+            "\\path[use as bounding box] (ksframe.south west)"
+            " rectangle (ksframe.north east);\n\\end{tikzpicture}")
 
 
 def _picture_graphic(obj: SlidePicture, rel: str = "\\paperwidth",

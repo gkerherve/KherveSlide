@@ -675,10 +675,19 @@ def test_framed_text_keeps_alignment_inside_node(align, cmd):
                   border_color="#003E74", corner="rounded", locked=False)])],
         nav_symbols=False)
     tex = serialize_deck(deck)
-    node = tex[tex.index("\\node["):tex.index("\\end{tikzpicture}")]
-    body = node[node.index("]{") + 2:node.rindex("};")]
+    _opts, body = _frame_node(tex)
     assert body.startswith(cmd)
     assert body.endswith("\\par")
+
+
+def _frame_node(tex):
+    """(option list, node text) of the first box-frame node in *tex*."""
+    start = tex.index("\\node[") + 6
+    opts = tex[start:tex.index("]", start)].split(",")
+    head = "] (ksframe) {"
+    body_start = tex.index(head, start) + len(head)
+    body = tex[body_start:tex.index("};\n\\pgfresetboundingbox", body_start)]
+    return opts, body
 
 
 def test_framed_text_padding_comes_out_of_the_box_width():
@@ -687,10 +696,38 @@ def test_framed_text_padding_comes_out_of_the_box_width():
     deck = Deck(slides=[Slide(objects=[
         SlideText(text="x", fill="#E6EEF6", border_color="#003E74",
                   locked=False)])], nav_symbols=False)
+    opts, _body = _frame_node(serialize_deck(deck))
+    assert "inner sep=3pt" in opts
+    assert "text width=\\linewidth-6pt" in opts
+
+
+def test_framed_picture_and_table_hug_their_content(tmp_path):
+    # On the canvas a picture / table fills its box up to the border line,
+    # so the PDF frame must not pad it.
+    img = tmp_path / "a.png"
+    img.write_bytes(b"")
+    for obj in (SlidePicture(path=str(img), border_color="#003E74",
+                             locked=False),
+                SlideTable(border_color="#003E74", locked=False)):
+        tex = serialize_deck(Deck(slides=[Slide(objects=[obj])],
+                                  nav_symbols=False))
+        opts, _body = _frame_node(tex)
+        assert "inner sep=0pt" in opts, type(obj).__name__
+        assert not any(o.startswith("text width") for o in opts)
+
+
+def test_box_frame_bounding_box_is_the_outline():
+    # TikZ counts half the stroke in the picture's size; the frame resets
+    # its bounding box to the outline so the border straddles the box edge
+    # (as the canvas pen does) instead of shifting by half its width.
+    deck = Deck(slides=[Slide(objects=[
+        SlideText(text="x", border_color="#003E74", border_width=4.0,
+                  locked=False)])], nav_symbols=False)
     tex = serialize_deck(deck)
-    opts = tex[tex.index("\\node[") + 6:tex.index("]{", tex.index("\\node["))]
-    assert "inner sep=3pt" in opts.split(",")
-    assert "text width=\\linewidth-6pt" in opts.split(",")
+    opts, _body = _frame_node(tex)
+    assert "outer sep=0pt" in opts
+    assert ("\\pgfresetboundingbox\n\\path[use as bounding box] "
+            "(ksframe.south west) rectangle (ksframe.north east);") in tex
 
 
 def test_no_box_frame_without_border_or_fill():
