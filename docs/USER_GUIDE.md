@@ -228,6 +228,7 @@ Present the compiled PDF full screen from the **Slideshow** menu:
 | **From the current slide** | Full screen from the slide you are on. | `Shift+F5` |
 | **Presenter view** | The slides on the other screen; on yours, the current and next slide, the slide count, a timer and the clock. | `Alt+F5` |
 | **Current + next slide** | Two screens: the current slide on one, the next on the other. | |
+| **In a window** | A normal, resizable window — beside other work or shared in a video call. `F` switches it to full screen and back. | |
 
 **Show the slides on** chooses the screen (normally the other one).
 
@@ -239,8 +240,8 @@ for a kiosk, a poster session or a looping display. Choose:
 - **Each slide shows for** — the number of seconds per slide.
 - **Repeat** — *once through, then end*; *loop continuously* (until
   `Esc`); or *loop for a set time* (in minutes).
-- **Show as** — full screen or presenter view, and whether to start from
-  the current slide.
+- **Show as** — full screen, in a window, or presenter view, and
+  whether to start from the current slide.
 
 During an automatic show, `S` pauses and resumes it; the arrow keys
 still move by hand (each slide then gets its full time again); a blank

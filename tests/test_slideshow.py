@@ -353,3 +353,30 @@ def test_flowchart_inserted_as_picture_and_reopened(qapp, tmp_path,
     assert seen["chart"].to_json() == F.template_simple().to_json()
     assert len(w.slide.objects) == n + 1        # replaced, not added
     w.close()
+
+
+def test_windowed_show_and_its_full_screen_toggle(qapp):
+    from PySide6.QtWidgets import QWidget
+    host = QWidget()
+    show = slideshow.start(slideshow.PdfPages(_pdf(3)), "window", 0, host)
+    view = show.views[0]
+    assert view.windowed and not view.isFullScreen()
+    assert "slide 1 of 3" in view.windowTitle()
+    show.next()
+    assert "slide 2 of 3" in view.windowTitle()
+    view.keyPressEvent(_key(Qt.Key_F, "f"))       # F: full screen…
+    view.keyPressEvent(_key(Qt.Key_F, "f"))       # …and back
+    show.end()
+
+
+def test_windowed_automatic_show(qapp):
+    from PySide6.QtWidgets import QWidget
+    host = QWidget()            # the parent must outlive the show
+    show = slideshow.start(slideshow.PdfPages(_pdf(2)), "window", 0,
+                           host, auto=slideshow.AutoPlay(5, "loop"))
+    assert show.auto_remaining() is not None
+    show._auto_next(); show._auto_next()
+    assert show.index == 0                       # loops in the window too
+    show.end()
+    dlg = slideshow.AutoSlideshowDialog(slideshow.AutoPlay(), "window")
+    assert dlg.mode.currentData() == "window"

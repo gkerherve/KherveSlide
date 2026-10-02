@@ -941,7 +941,8 @@ class SlideWindow(QMainWindow):
                 ("From the &beginning", "full", False, "F5"),
                 ("From the &current slide", "full", True, "Shift+F5"),
                 ("&Presenter view", "presenter", True, "Alt+F5"),
-                ("Current + &next slide (two screens)", "next", True, "")):
+                ("Current + &next slide (two screens)", "next", True, ""),
+                ("In a &window", "window", True, "")):
             a = m_show.addAction(
                 label, lambda m=mode, c=cur: self.start_slideshow(m, c))
             if key:

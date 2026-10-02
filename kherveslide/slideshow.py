@@ -1,9 +1,10 @@
 """Slideshow — present the compiled PDF, full screen.
 
 What the audience sees is the real beamer PDF (not the Visual canvas),
-one page per slide. Three ways to present, like PowerPoint:
+one page per slide. Four ways to present, like PowerPoint:
 
 * **Full screen** — the slides on this screen.
+* **In a window** — a normal, resizable window (F toggles full screen).
 * **Presenter view** — the slides full screen on the other screen; this
   screen shows the current slide, the next one, the slide count, an
   elapsed timer and the clock.
@@ -244,12 +245,19 @@ class SlideScreen(QWidget):
     """One full-screen slide: the current page (or, with offset=1, the
     next one), letterboxed on black."""
 
-    def __init__(self, show: Slideshow, offset: int = 0, parent=None):
+    def __init__(self, show: Slideshow, offset: int = 0, parent=None,
+                 windowed: bool = False):
         super().__init__(parent, Qt.Window)
         self.show_ = show
         self.offset = offset
+        self.windowed = windowed
         self.setWindowTitle("Slideshow")
-        self.setCursor(Qt.BlankCursor)
+        if not windowed:
+            self.setCursor(Qt.BlankCursor)
+        else:
+            self.setMinimumSize(320, 180)
+            show.changed.connect(self._title)
+            self._title()
         self.setFocusPolicy(Qt.StrongFocus)
         show.changed.connect(self.update)
 
@@ -273,7 +281,22 @@ class SlideScreen(QWidget):
         p.drawPixmap(int((self.width() - w) / 2),
                      int((self.height() - h) / 2), pm)
 
+    def _title(self):
+        s = self.show_
+        self.setWindowTitle(f"Slideshow — slide {s.index + 1} of "
+                            f"{len(s.pages)}  (F: full screen · Esc: end)")
+
     def keyPressEvent(self, event):
+        if self.windowed and event.key() == Qt.Key_F:
+            if self.isFullScreen():
+                self.showNormal()
+            else:
+                self.showFullScreen()
+            return
+        if (self.windowed and event.key() == Qt.Key_Escape
+                and self.isFullScreen()):
+            self.showNormal()          # Esc leaves full screen first
+            return
         if not self.show_.handle_key(event):
             super().keyPressEvent(event)
 
@@ -452,6 +475,7 @@ class PresenterConsole(QWidget):
 # ------------------------------------------------------------------ launch
 MODES = {
     "full": "Full screen",
+    "window": "In a window",
     "presenter": "Presenter view",
     "next": "Current + next slide",
 }
@@ -512,6 +536,22 @@ def start(pages: PdfPages, mode: str, start_index: int, window,
             following.resize(640, int(640 / pages.aspect()))
             following.show()
         current.setFocus()
+    elif mode == "window":
+        # A normal, resizable window (e.g. beside other work, or shared
+        # in a video call); F switches it to full screen and back.
+        slides = SlideScreen(show, windowed=True)
+        show.views.append(slides)
+        screen = audience_screen or here
+        avail = screen.availableGeometry() if screen else None
+        w = int(min(1280, (avail.width() if avail else 1280) * 0.7))
+        slides.resize(w, int(w / pages.aspect()))
+        if avail is not None:
+            slides.move(avail.center().x() - slides.width() // 2,
+                        avail.center().y() - slides.height() // 2)
+        slides.show()
+        slides.raise_()
+        slides.activateWindow()
+        slides.setFocus()
     else:
         slides = SlideScreen(show)
         show.views.append(slides)
@@ -560,6 +600,7 @@ class AutoSlideshowDialog(QDialog):
         form.addRow("Repeat", box)
         self.mode = QComboBox()
         self.mode.addItem("Full screen", "full")
+        self.mode.addItem("In a window", "window")
         self.mode.addItem("Presenter view", "presenter")
         self.mode.setCurrentIndex(max(0, self.mode.findData(mode)))
         form.addRow("Show as", self.mode)
