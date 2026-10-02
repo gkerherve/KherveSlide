@@ -918,169 +918,244 @@ def materials_talk(assets: Path) -> Deck:
     return _themed(deck, _kit("Imperial-style navy", footer_style="bar"))
 
 
+# ============================================== app screenshots (bundled)
+_MEDIA = Path(__file__).resolve().parent / "example_media"
+
+
+def _shot(key, x, y, w, h, border="#BBBBBB", shadow=True) -> SlidePicture:
+    """A bundled screenshot (example_media/<key>.jpg) or icon (.png)."""
+    f = _MEDIA / f"{key}.jpg"
+    if not f.exists():
+        f = _MEDIA / f"{key}.png"
+    return SlidePicture(path=str(f), x=x, y=y, w=w, h=h, keep_aspect=True,
+                        locked=False, border_color=border,
+                        border_width=0.8 if border else 0, shadow=shadow)
+
+
+def _icon(app, x, y, size):
+    return _shot(f"icon_{app}", x, y, size, size * 16 / 9, border="",
+                 shadow=False)
+
+
+def _caption(text, x, y, w, pt=11):
+    return _t(text, x, y, w, 0.05, pt, align="center", italic=True,
+              color="#555555")
+
+
+def _app_title(app, name, tagline, colour, pt=36):
+    """An app's title slide: big icon, name, tagline."""
+    return Slide(objects=[
+        _shape("rect", 0.0, 0.0, 0.38, 1.0, colour),
+        _icon(app, 0.09, 0.3, 0.2),
+        _t(name, 0.43, 0.3, 0.54, 0.14, pt, bold=True, color=colour),
+        SlideLine(x=0.43, y=0.48, w=0.2, h=0.0, color=colour,
+                  width_pt=2.5),
+        _t(tagline, 0.43, 0.53, 0.52, 0.2, 18, color="#444444"),
+    ])
+
+
+def _feature(title, shot, bullets, colour, caption=""):
+    """Screenshot left, bullets right."""
+    objs = [_shot(shot, 0.03, 0.19, 0.6, 0.62),
+            _t(_items(*bullets), 0.65, 0.22, 0.33, 0.62, 13)]
+    if caption:
+        objs.append(_caption(caption, 0.03, 0.87, 0.6))
+    return Slide(title=title, objects=objs)
+
+
+def _gallery(title, shots, captions):
+    """Four screenshots in a 2 × 2 grid, each with a caption."""
+    objs = []
+    for i, (k, c) in enumerate(zip(shots, captions)):
+        x, y = 0.06 + (i % 2) * 0.46, 0.18 + (i // 2) * 0.39
+        objs += [_shot(k, x, y, 0.42, 0.28), _caption(c, x, y + 0.335, 0.42)]
+    return Slide(title=title, objects=objs)
+
+
 # ===================================================== 9. Kherve suite
 _SUITE = [
-    ("KherveTeX", "LaTeX, visually", "#003E74"),
-    ("KherveFitting", "XPS peak fitting", "#C8102E"),
-    ("KherveCAD", "3D parts, drawings", "#2E6B30"),
-    ("KherveMol", "Molecules in 3D", "#00787A"),
-    ("KherveSlide", "Beamer slides", "#5B2C83"),
+    ("khervetex", "KherveTeX", "LaTeX documents, visually", "#003E74"),
+    ("khervefitting", "KherveFitting", "XPS peak fitting", "#C8102E"),
+    ("khervecad", "KherveCAD", "Vibe design in 3D", "#2E6B30"),
+    ("khervemol", "KherveMol", "Molecules and crystals", "#00787A"),
+    ("kherveslide", "KherveSlide", "Slides that compile", "#5B2C83"),
 ]
 
 
 def kherve_suite(assets: Path) -> Deck:
-    charts = _science_charts(assets)
-    ink = "#1A1A1A"
-    s = [_title_slide("The Kherve suite",
-                      "Open-source tools for writing, analysing, "
-                      "designing and presenting science",
-                      "github.com/gkerherve", "#003E74")]
-    hub = [_shape("ellipse", 0.4, 0.42, 0.2, 0.2, "#F2C14E"),
-           _label("your\\\\research", 0.4, 0.42, 0.2, 0.2, 14, color=ink)]
-    spots = [(0.06, 0.2), (0.7, 0.2), (0.06, 0.66), (0.7, 0.66),
-             (0.38, 0.75)]
-    for (name, what, col), (x, y) in zip(_SUITE, spots):
-        hub += [_shape("rounded_rect", x, y, 0.24, 0.14, col),
-                _label(name, x, y + 0.005, 0.24, 0.08, 15),
-                _label(what, x, y + 0.065, 0.24, 0.06, 10, bold=False)]
-        cx, cy = x + 0.12, y + 0.07
-        dy = 0.07 if cy < 0.5 else -0.07
-        hub.insert(0, SlideLine(x=cx, y=cy + dy, w=0.5 - cx,
-                                h=0.52 - cy - dy, color="#BBBBBB",
-                                width_pt=1.5))
-    s.append(Slide(title="One family of tools", objects=hub))
-    for name, what, col in _SUITE[:4]:
-        body = {
-            "KherveTeX": (
-                _items("Visual and source editing side by side",
-                       "Equation, chemistry and drawing builders",
-                       "Compiles with tectonic — no TeX install"),
-                "\\[\\int_0^\\infty e^{-x^2}\\,dx = "
-                "\\frac{\\sqrt{\\pi}}{2}\\]"),
-            "KherveFitting": (
-                _items("Shirley, Tougaard and linear backgrounds",
-                       "Pseudo-Voigt and doublet components",
-                       "Constraints, quantification, report tables"),
-                None),
-            "KherveCAD": (
-                _items("Parametric parts from sketches",
-                       "Assemblies and 2D drawings",
-                       "Export for 3D printing and figures"),
-                None),
-            "KherveMol": (
-                _items("Draw or import molecules",
-                       "3D view, geometry optimisation",
-                       "Figures straight into papers and slides"),
-                "\\chemfig{*6(-=-(-OH)=-=)}"),
-        }[name]
-        objs = [_shape("rect", 0.0, 0.17, 0.012, 0.7, col),
-                _t(what, 0.05, 0.2, 0.9, 0.07, 18, italic=True, color=col),
-                _t(body[0], 0.05, 0.32, 0.5, 0.45, 16)]
-        if name == "KherveFitting":
-            objs.append(SlidePicture(path=charts["xps"], x=0.56, y=0.28,
-                                     w=0.4, h=0.56, keep_aspect=True,
-                                     locked=False))
-        elif name == "KherveCAD":
-            objs += [_shape("rect", 0.62, 0.4, 0.2, 0.3, "#E3EDE3",
-                            border=col),
-                     _shape("ellipse", 0.68, 0.48, 0.08, 0.14, "#FFFFFF",
-                            border=col),
-                     SlideLine(x=0.62, y=0.76, w=0.2, h=0.0, color=col,
-                               width_pt=1.0, arrow_start=True,
-                               arrow_end=True),
-                     _t("40.0", 0.68, 0.77, 0.08, 0.05, 11, align="center",
-                        color=col)]
-        else:
-            objs.append(_t(body[1], 0.58, 0.36, 0.38, 0.3, 22,
-                           align="center"))
-        s.append(Slide(title=name, objects=objs))
-    s.append(Slide(title="A typical workflow", objects=[
-        *[o for i, (name, _w, col) in enumerate(
+    s = [Slide(objects=[
+        _t("The Kherve tools", 0.06, 0.12, 0.88, 0.14, 38, align="center",
+           bold=True, color="#003E74"),
+        _t("Free, open-source desktop apps for writing, analysing, "
+           "designing and presenting science", 0.1, 0.3, 0.8, 0.1, 17,
+           align="center", color="#555555"),
+        *[o for i, (app, name, what, col) in enumerate(_SUITE)
+          for o in (_icon(app, 0.085 + i * 0.175, 0.5, 0.11),
+                    _label(name, 0.055 + i * 0.175, 0.72, 0.17, 0.06, 12,
+                           color=col),
+                    _label(what, 0.055 + i * 0.175, 0.78, 0.17, 0.05, 9,
+                           color="#666666", bold=False))],
+    ])]
+    # KherveTeX
+    s.append(_app_title("khervetex", "KherveTeX",
+                        "WYSIWYG document editing that produces beautiful "
+                        "LaTeX PDFs.", "#003E74"))
+    s.append(_feature("KherveTeX — write on the page", "tex_main", [
+        "Word-style page card at real A4 / Letter size",
+        "Live tabs: Formatted, LaTeX source, PDF preview",
+        "Figures, tables, citations, cross-references",
+        "Import .tex and .docx; every save is a Git commit"],
+        "#003E74"))
+    s.append(Slide(title="KherveTeX — equations and drawings", objects=[
+        _shot("tex_equation", 0.03, 0.2, 0.46, 0.48),
+        _shot("tex_drawing", 0.51, 0.2, 0.46, 0.48),
+        _caption("Equation editor: typed as LaTeX, rendered live",
+                 0.03, 0.74, 0.46),
+        _caption("Drawing builder for figures", 0.51, 0.74, 0.46),
+    ]))
+    # KherveFitting
+    s.append(_app_title("khervefitting", "KherveFitting",
+                        "Open-source XPS peak fitting, elegant and simple "
+                        "to use.", "#C8102E"))
+    s.append(_feature("KherveFitting — the workspace", "fit_main", [
+        "Reads VAMAS, Kratos, PHI, Thermo, Scienta…",
+        "Shirley, Tougaard and linear backgrounds",
+        "Multi-peak fits with constraints",
+        "Excel-native: spectra, fits and notes together"], "#C8102E"))
+    s.append(_gallery("KherveFitting — beyond a single spectrum",
+                      ["fit_ti2p", "fit_map", "fit_profile", "fit_pca"],
+                      ["Ti 2p doublet, Voigt components",
+                       "XPS map of TiN", "Depth profile TiN / SiO$_2$",
+                       "PCA of a spectrum series"]))
+    # KherveCAD
+    s.append(_app_title("khervecad", "KherveCAD",
+                        "Vibe design in 3D — describe it, and Claude "
+                        "builds it.", "#2E6B30"))
+    s.append(_feature("KherveCAD — vibe designing", "cad_vibe", [
+        "Claude builds real, editable OpenSCAD nodes",
+        "Object tree and live code never disagree",
+        "Assemblies with mates, fillets, lofts, sweeps",
+        "Measure, section and print-check the part"], "#2E6B30"))
+    s.append(_gallery("KherveCAD — from part to drawing",
+                      ["cad_blueprint", "cad_exploded", "cad_gears",
+                       "cad_bench"],
+                      ["Automatic engineering drawing",
+                       "Exploded vacuum stack", "Gear pair with mates",
+                       "Chemistry bench and glassware"]))
+    # KherveMol
+    s.append(_app_title("khervemol", "KherveMol",
+                        "Draw chemical compounds and crystal structures in "
+                        "2D and 3D.", "#00787A"))
+    s.append(_feature("KherveMol — 3D and 2D, one structure", "mol_viewer", [
+        "OpenGL ball-and-stick + 2D skeletal sketcher",
+        "Builder respects each element's valence",
+        "~700 molecules, 122 crystals, 60 surfaces",
+        "Export STL / 3MF, CIF, PDB, SVG for KhervePaint"], "#00787A"))
+    s.append(_gallery("KherveMol — structures in one click",
+                      ["mol_tbg", "mol_srtio3", "mol_c60", "mol_mos2"],
+                      ["Twisted bilayer graphene", "Perovskite SrTiO$_3$",
+                       "Fullerene C$_{60}$", "MoS$_2$ surface"]))
+    # KherveSlide
+    s.append(_feature("KherveSlide — this presentation", "slide_editor", [
+        "Drag, resize and stack boxes freely",
+        "Produces beamer LaTeX, compiled by tectonic",
+        "Equations, chemistry, tables, shapes",
+        "Slideshow with presenter view"], "#5B2C83"))
+    s.append(Slide(title="One workflow", objects=[
+        *[o for i, (app, name, _w, col) in enumerate(
             (_SUITE[3], _SUITE[1], _SUITE[0], _SUITE[4]))
-          for o in (_shape("chevron", 0.04 + i * 0.23, 0.3, 0.24, 0.18,
-                           col),
-                    _label(name, 0.075 + i * 0.23, 0.3, 0.17, 0.18, 10))],
-        _t(_items("Build the molecule, export a figure",
+          for o in (_icon(app, 0.09 + i * 0.23, 0.22, 0.09),
+                    _label(name, 0.04 + i * 0.23, 0.4, 0.19, 0.06, 14,
+                           color=col),
+                    *([_arrow(0.21 + i * 0.23, 0.3, 0.28 + i * 0.23, 0.3,
+                              "#999999")] if i < 3 else []))],
+        _t(_items("Build the structure, export a figure",
                   "Fit the spectra, export the table",
                   "Write the paper around both",
                   "Present it — same figures, same fonts", enum=True),
-           0.12, 0.56, 0.76, 0.32, 15),
+           0.18, 0.54, 0.64, 0.32, 15),
     ]))
     s.append(Slide(objects=[
         _t("Free and open source", 0.1, 0.34, 0.8, 0.12, 32,
            align="center", bold=True, color="#003E74"),
-        _t("github.com/gkerherve", 0.1, 0.52, 0.8, 0.08, 18,
-           align="center", color="#0091D4"),
+        _t("github.com/gkerherve  ·  github.com/KherveFitting", 0.1, 0.52,
+           0.8, 0.08, 16, align="center", color="#0091D4"),
     ]))
-    deck = Deck(title="The Kherve suite", author="G. Kerherve",
+    deck = Deck(title="The Kherve tools", author="G. Kerherve",
                 aspect="169", slides=s, page_number="number")
     return _themed(deck, _kit("Clean blue", footer_style="line"))
 
 
 # ================================================= 10. KherveFitting tutorial
 def fitting_tutorial(assets: Path) -> Deck:
-    charts = _science_charts(assets)
     red, light = "#C8102E", "#FBE9EC"
-    s = [_title_slide("Fitting XPS spectra with KherveFitting",
-                      "From raw counts to a quantified table in five steps",
-                      "Training session  ·  Surface Analysis Lab", red)]
+    s = [_app_title("khervefitting", "Fitting XPS with KherveFitting",
+                    "From raw counts to a quantified table — a hands-on "
+                    "training session.", red, pt=24)]
     steps = ["Import", "Calibrate", "Background", "Components", "Report"]
     flow = []
     for i, name in enumerate(steps):
         x = 0.04 + i * 0.185
-        flow += [_shape("chevron", x, 0.3, 0.2, 0.16,
-                        red if i == 0 else "#E07A8A"),
-                 _label(name, x + 0.03, 0.3, 0.14, 0.16, 12)]
-    flow.append(_t(_items(".vms, .xlsx or Avantage exports",
-                          "Charge-correct to adventitious C 1s = "
-                          "284.8\\,eV", "Then fit region by region"),
-                   0.1, 0.56, 0.8, 0.3, 16))
+        flow += [_shape("chevron", x, 0.2, 0.2, 0.13,
+                        red if i % 2 == 0 else "#8E0B20"),
+                 _label(name, x + 0.025, 0.2, 0.15, 0.13, 9)]
+    flow += [_shot("fit_main", 0.04, 0.38, 0.5, 0.5),
+             _t(_items("Open .vms, Kratos, PHI or Thermo files",
+                       "Charge-correct to C 1s = 284.8\\,eV",
+                       "Then fit region by region"),
+                0.57, 0.42, 0.4, 0.4, 14)]
     s.append(Slide(title="The workflow", objects=flow))
-    s.append(Slide(title="Backgrounds", objects=[
-        _t("\\textbf{Shirley} — the background at $E$ grows with the "
-           "peak area above it:", 0.05, 0.22, 0.9, 0.08, 15),
+    s.append(Slide(title="1. Calibrate on C 1s", objects=[
+        _shot("fit_c1s", 0.03, 0.19, 0.6, 0.62),
+        _t(_items("Fit adventitious carbon first",
+                  "C–C / C–H set to 284.8\\,eV",
+                  "The shift applies to every region"),
+           0.65, 0.24, 0.33, 0.5, 14),
+    ]))
+    s.append(Slide(title="2. Choose the background", objects=[
+        _shot("fit_shirley", 0.03, 0.19, 0.4, 0.64),
         _eq("B(E) = I_2 + (I_1 - I_2)\\,\\frac{\\int_E^{E_2} "
-            "[I(E')-B(E')]\\,dE'}{\\int_{E_1}^{E_2}[I(E')-B(E')]\\,dE'}",
-            0.05, 0.32, 0.9, 0.16, 20),
+            "[I-B]\\,dE'}{\\int_{E_1}^{E_2}[I-B]\\,dE'}",
+            0.45, 0.2, 0.5, 0.16, 13),
         _table([["Background", "Use for"],
-                ["Linear", "Insulators, narrow windows"],
+                ["Linear", "Narrow windows"],
                 ["Shirley", "Most core levels"],
-                ["Tougaard", "Quantitative depth info"]],
-               0.2, 0.55, 0.6, 0.3, red, 13, striped=True,
+                ["Tougaard", "Depth information"]],
+               0.5, 0.45, 0.44, 0.32, red, 12, striped=True,
                stripe_color=light),
     ]))
-    s.append(Slide(title="Line shapes", objects=[
-        _t("Pseudo-Voigt: a Gaussian–Lorentzian mix", 0.05, 0.22, 0.9,
-           0.06, 16),
-        _eq("PV(x) = \\eta\\,L(x) + (1-\\eta)\\,G(x)", 0.05, 0.3, 0.9,
-            0.12, 22),
-        _t("Doublets", 0.06, 0.5, 0.4, 0.06, 16, bold=True, color=red),
-        _t(_items("Fix the splitting (Ti 2p: 5.7\\,eV)",
-                  "Fix the area ratio (p 1:2, d 2:3, f 3:4)",
-                  "Link the widths"), 0.06, 0.57, 0.42, 0.3, 14),
+    s.append(Slide(title="3. Add components: Ti 2p", objects=[
+        _shot("fit_ti2p", 0.03, 0.19, 0.6, 0.62),
+        _eq("PV = \\eta L + (1-\\eta) G", 0.64, 0.2, 0.34, 0.1, 16),
+        _t(_items("Fix the splitting (5.7\\,eV)",
+                  "Area ratio 2:1 for p levels",
+                  "Link the widths"), 0.65, 0.34, 0.33, 0.3, 13),
         _t("Never fit more components than the chemistry allows.",
-           0.54, 0.56, 0.4, 0.2, 14, block="alertblock",
+           0.65, 0.66, 0.32, 0.16, 11, block="alertblock",
            block_title="Rule of thumb"),
     ]))
-    s.append(Slide(title="Result", objects=[
-        SlidePicture(path=charts["xps"], x=0.03, y=0.18, w=0.56, h=0.66,
-                     keep_aspect=True, locked=False),
-        _table([["Peak", "BE (eV)", "FWHM", "At.\\,\\%"],
-                ["Ti$^{4+}$ 2p$_{3/2}$", "458.6", "1.1", "29.4"],
-                ["Ti$^{3+}$ 2p$_{3/2}$", "457.1", "1.3", "3.6"],
-                ["O 1s lattice", "529.9", "1.2", "61.0"],
-                ["C 1s", "284.8", "1.4", "6.0"]],
-               0.6, 0.24, 0.37, 0.4, red, 11),
-        _t("$\\chi^2_\\nu = 1.04$  ·  residuals flat", 0.6, 0.7, 0.37,
-           0.06, 12, align="center", italic=True, color="#555555"),
+    s.append(Slide(title="4. Report", objects=[
+        _shot("fit_results", 0.04, 0.2, 0.92, 0.17),
+        _caption("The results grid: position, FWHM, area and atomic \\%",
+                 0.04, 0.43, 0.92),
+        _t(_items("Export to Excel or KherveSheet",
+                  "Copy the plot straight into KherveTeX or KherveSlide",
+                  "Monte Carlo uncertainties per parameter"),
+           0.15, 0.53, 0.7, 0.3, 15),
     ]))
+    s.append(_gallery("Going further", ["fit_profile", "fit_map",
+                                        "fit_pca", "fit_thickogram"],
+                      ["Depth profiles", "XPS maps",
+                       "PCA of a series", "Thickogram: overlayer "
+                       "thickness"]))
     s.append(Slide(title="Checklist", objects=[
         _t(_items("Energy scale calibrated?", "Background end points "
                   "on flat regions?", "Doublet constraints set?",
                   "FWHM physically sensible?", "Residuals without "
-                  "structure?"), 0.1, 0.24, 0.8, 0.55, 18),
+                  "structure?"), 0.1, 0.24, 0.55, 0.55, 18),
+        _icon("khervefitting", 0.72, 0.3, 0.18),
     ]))
-    deck = Deck(title="Fitting XPS spectra with KherveFitting",
+    deck = Deck(title="Fitting XPS with KherveFitting",
                 author="Surface Analysis Lab", aspect="169", slides=s,
                 page_number="of_total")
     return _themed(deck, _kit("Crimson", footer_style="line"))
@@ -1090,62 +1165,47 @@ def fitting_tutorial(assets: Path) -> Deck:
 def mol_and_cad(assets: Path) -> Deck:
     charts = _science_charts(assets)
     teal, green = "#00787A", "#2E6B30"
-    s = [_title_slide("From molecule to model",
-                      "Designing with KherveMol and KherveCAD",
-                      "Lab meeting  ·  \\today", teal)]
-    s.append(Slide(title="Draw it: KherveMol", objects=[
-        _t("\\chemfig{*6(-=-(-COOH)=-(-OH)=)}", 0.04, 0.24, 0.4, 0.4,
-           12, align="center"),
-        _t("Salicylic acid", 0.04, 0.68, 0.44, 0.06, 13, align="center",
-           italic=True, color="#555555"),
-        _t(_items("Sketch in 2D, view in 3D",
-                  "SMILES / MOL import",
-                  "Bond lengths and angles on click"),
-           0.56, 0.26, 0.4, 0.4, 16),
-        _t("$\\ce{C7H6O3}$  ·  $M = 138.12$\\,g\\,mol$^{-1}$", 0.52,
-           0.7, 0.44, 0.06, 14, color=teal),
-    ]))
+    s = [Slide(objects=[
+        _icon("khervemol", 0.2, 0.14, 0.14),
+        _icon("khervecad", 0.66, 0.14, 0.14),
+        _arrow(0.38, 0.27, 0.62, 0.27, "#999999", 3),
+        _t("From molecule to model", 0.06, 0.52, 0.88, 0.14, 34,
+           align="center", bold=True, color=teal),
+        _t("Designing with KherveMol and KherveCAD", 0.1, 0.68, 0.8,
+           0.08, 17, align="center", color="#555555"),
+    ])]
+    s.append(_feature("Draw it: KherveMol", "mol_caffeine", [
+        "Sketch in 2D, see it in 3D",
+        "SMILES and .mol / .sdf / .pdb import (RDKit)",
+        "Formula, mass, LogP, TPSA, InChI"], teal, "Caffeine in the 3D viewer"))
     s.append(Slide(title="Relax it: geometry optimisation", objects=[
         SlidePicture(path=charts["energy"], x=0.04, y=0.2, w=0.5, h=0.62,
                      keep_aspect=True, locked=False),
         _eq("\\mathbf{x}_{k+1} = \\mathbf{x}_k - \\mathbf{H}_k^{-1}"
             "\\nabla E(\\mathbf{x}_k)", 0.55, 0.26, 0.42, 0.12, 18),
-        _t("Converged in 20 steps; the O–H$\\cdots$O hydrogen bond "
-           "locks the conformer.", 0.57, 0.48, 0.38, 0.24, 13,
+        _t("Converged in 20 steps.", 0.57, 0.48, 0.38, 0.2, 13,
            block="exampleblock", block_title="Result"),
     ]))
-    s.append(Slide(title="Build the hardware: KherveCAD", objects=[
-        _shape("rect", 0.08, 0.3, 0.36, 0.36, "#E3EDE3", border=green),
-        *[_shape("ellipse", 0.12 + c * 0.1, 0.38 + r * 0.14, 0.06, 0.1,
-                 "#FFFFFF", border=green)
-          for r in range(2) for c in range(3)],
-        SlideLine(x=0.08, y=0.72, w=0.36, h=0.0, color=green,
-                  width_pt=1.0, arrow_start=True, arrow_end=True),
-        _t("60.0 mm", 0.18, 0.73, 0.16, 0.05, 11, align="center",
-           color=green),
-        _t("A six-well sample holder for the XPS stage", 0.08, 0.2, 0.4,
-           0.06, 13, italic=True, color="#555555"),
-        _t(_items("Sketch → extrude → pocket",
-                  "Parameters: well size, pitch, depth",
-                  "STL for printing, PDF drawing for the workshop"),
-           0.52, 0.28, 0.44, 0.4, 16),
+    s.append(_gallery("Crystals, surfaces, nanostructures",
+                      ["mol_srtio3", "mol_mos2", "mol_tbg", "mol_c60"],
+                      ["SrTiO$_3$ perovskite", "MoS$_2$ (001) slab",
+                       "Twisted bilayer graphene", "C$_{60}$"]))
+    s.append(_feature("Build the hardware: KherveCAD", "cad_vibe", [
+        "Describe the part; Claude builds it",
+        "Real OpenSCAD nodes you keep editing",
+        "Parametric vacuum-hardware library",
+        "Print-check before you print"], green))
+    s.append(Slide(title="Assemble and document", objects=[
+        _shot("cad_exploded", 0.03, 0.2, 0.46, 0.48),
+        _shot("cad_blueprint", 0.51, 0.2, 0.46, 0.48),
+        _caption("Exploded view of a vacuum stack", 0.03, 0.74, 0.46),
+        _caption("Automatic third-angle drawing", 0.51, 0.74, 0.46),
     ]))
-    s.append(Slide(title="Parameters drive the design", objects=[
-        _table([["Parameter", "Value", "Driven by"],
-                ["Well diameter", "8.0 mm", "sample size"],
-                ["Pitch", "12.0 mm", "diameter + 4"],
-                ["Depth", "1.5 mm", "sample thickness"],
-                ["Plate", "60 × 30 mm", "pitch × wells"]],
-               0.12, 0.24, 0.76, 0.4, green, 14, striped=True,
-               stripe_color="#E3EDE3"),
-        _t("Change one number — the whole part follows.", 0.15, 0.72,
-           0.7, 0.08, 16, align="center", bold=True, color=green),
-    ]))
-    s.append(Slide(objects=[
-        _t("Molecule → measurement → model", 0.06, 0.36, 0.88, 0.14, 30,
-           align="center", bold=True, color=teal),
-        _t("KherveMol  ·  KherveFitting  ·  KherveCAD  ·  KherveSlide",
-           0.1, 0.56, 0.8, 0.08, 15, align="center", color="#555555"),
+    s.append(Slide(title="Into the lab", objects=[
+        _shot("cad_bench", 0.03, 0.19, 0.6, 0.66),
+        _t("Glassware, benches and molecules share one scene — "
+           "plan an experiment before you set it up.", 0.66, 0.3, 0.31,
+           0.3, 14, block="block", block_title="Idea"),
     ]))
     deck = Deck(title="From molecule to model", author="Lab meeting",
                 aspect="169", slides=s, page_number="number")
@@ -1170,12 +1230,12 @@ EXAMPLES = [
      "governance tree and decisions", project_kickoff),
     ("Materials science talk", "TiO2 films: workflow, XRD, XPS fit, "
      "Tauc plot, Scherrer equation and conclusions", materials_talk),
-    ("The Kherve suite", "KherveTeX, KherveFitting, KherveCAD, KherveMol "
-     "and KherveSlide — one slide each and a workflow", kherve_suite),
-    ("XPS fitting tutorial", "KherveFitting training: backgrounds, line "
-     "shapes, doublets and a quantified result", fitting_tutorial),
-    ("Molecule to model", "KherveMol and KherveCAD: chemfig structure, "
-     "geometry optimisation, a parametric part", mol_and_cad),
+    ("The Kherve tools", "KherveTeX, KherveFitting, KherveCAD, KherveMol "
+     "and KherveSlide — screenshots, features and a workflow", kherve_suite),
+    ("XPS fitting tutorial", "KherveFitting training with screenshots: "
+     "calibration, backgrounds, doublets, results, maps and PCA", fitting_tutorial),
+    ("Molecule to model", "KherveMol and KherveCAD: molecules, crystals, "
+     "vibe-designed parts, assemblies and drawings", mol_and_cad),
 ]
 
 

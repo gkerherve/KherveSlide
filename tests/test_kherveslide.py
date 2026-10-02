@@ -2754,6 +2754,10 @@ def test_slide_numbers_dont_replace_the_theme_footer_bar():
 
 # --- example presentations ---
 
+_EXAMPLE_MEDIA = (Path(__file__).resolve().parent.parent / "kherveslide"
+                  / "example_media")
+
+
 def test_every_example_builds_and_serializes(tmp_path):
     from kherveslide.examples import EXAMPLES, build_example, example_names
     assert len(example_names()) == len(EXAMPLES) >= 5
@@ -2774,7 +2778,7 @@ def test_every_example_builds_and_serializes(tmp_path):
             for o in s.objects:
                 if isinstance(o, SlidePicture):
                     assert Path(o.path).exists() and \
-                        Path(o.path).parent == tmp_path
+                        Path(o.path).parent in (tmp_path, _EXAMPLE_MEDIA)
         assert deck_from_json(deck_to_json(deck)) == deck
     with pytest.raises(KeyError):
         build_example("Nope", tmp_path)
@@ -2810,3 +2814,14 @@ def test_editor_text_keeps_escapes_so_they_survive_a_commit():
         doc = QTextDocument()
         doc.setHtml(latex_to_html(src))
         assert document_to_latex(doc) == src
+
+
+def test_app_examples_show_bundled_screenshots(tmp_path):
+    from kherveslide.examples import build_example
+    for name in ("The Kherve tools", "XPS fitting tutorial",
+                 "Molecule to model"):
+        pics = [o for s in build_example(name, tmp_path).slides
+                for o in s.objects if isinstance(o, SlidePicture)
+                and Path(o.path).parent == _EXAMPLE_MEDIA]
+        assert len(pics) >= 6, name
+        assert all(Path(p.path).exists() for p in pics)
