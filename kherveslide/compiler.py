@@ -34,7 +34,12 @@ _INCLUDEGRAPHICS_RE = re.compile(
 # up front, by _rewrite_includegraphics, so they never reach here).
 _MISSING_RESOURCE_RE = re.compile(
     r"File `[^']+\.(?:sty|cls|clo|def|fd|cfg|tex|ldf|enc|map|tfm|pfb|otf|ttf)'"
-    r" not found|not found in the bundle|unable to open main file")
+    r" not found|not found in the bundle|unable to open main file"
+    # KherveSlide divergence: a font the PDF stage (xdvipdfmx) can't find
+    # in the cache — e.g. lmss12 for 11-14 pt sans — is fetchable too.
+    r"|Could not locate a virtual/physical font|unable to generate PK font"
+    r"|Cannot proceed without \.vf or \"physical\" font"
+    r"|Font [^\n]* not loadable: Metric \(TFM\) file")
 
 
 # Files an imported beamer theme may ship beside its .sty (see compile_tex).

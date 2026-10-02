@@ -47,11 +47,11 @@ class WelcomeDialog(QDialog):
     """Returns, via `choice` and `layout_mode`, what the user picked.
 
     choice is one of ("continue",), ("new",), ("open",), ("pptx",),
-    ("template", name) or ("recent", Path)."""
+    ("template", name), ("example", name) or ("recent", Path)."""
 
     def __init__(self, recent: list, templates: list[str],
                  layout: str = LAYOUT_SIDE, show_at_start: bool = True,
-                 parent=None):
+                 parent=None, examples: list | None = None):
         super().__init__(parent)
         self.setWindowTitle("Welcome to KherveSlide")
         self.setMinimumSize(QSize(860, 560))
@@ -110,11 +110,22 @@ class WelcomeDialog(QDialog):
         self._templates = QListWidget()
         for name in templates:
             item = QListWidgetItem(name)
-            item.setData(Qt.UserRole, name)
+            item.setData(Qt.UserRole, ("template", name))
             self._templates.addItem(item)
         self._templates.itemActivated.connect(
-            lambda it: self._finish(("template", it.data(Qt.UserRole))))
+            lambda it: self._finish(it.data(Qt.UserRole)))
         tpl_col.addWidget(self._templates, 1)
+        if examples:
+            tpl_col.addWidget(self._heading("Examples"))
+            self._examples = QListWidget()
+            for name, desc in examples:
+                item = QListWidgetItem(f"★  {name}")
+                item.setToolTip(desc)
+                item.setData(Qt.UserRole, ("example", name))
+                self._examples.addItem(item)
+            self._examples.itemActivated.connect(
+                lambda it: self._finish(it.data(Qt.UserRole)))
+            tpl_col.addWidget(self._examples, 1)
         cols.addLayout(tpl_col, 3)
 
         rec_col = QVBoxLayout()

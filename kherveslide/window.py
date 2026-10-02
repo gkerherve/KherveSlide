@@ -865,6 +865,13 @@ class SlideWindow(QMainWindow):
         m_tpl = mb.addMenu("Te&mplates")
         self._m_tpl_new = m_tpl.addMenu("New presentation from template")
         self._m_tpl_new.aboutToShow.connect(self._populate_templates_menu)
+        m_ex = m_tpl.addMenu("Example presentations")
+        m_ex.setToolTipsVisible(True)
+        from .examples import EXAMPLES
+        for name, desc, _f in EXAMPLES:
+            a = m_ex.addAction(name, lambda n=name: self.open_example(n))
+            a.setToolTip(desc)
+            a.setStatusTip(desc)
         m_tpl.addSeparator()
         m_tpl.addAction("Save current presentation as template…", self._save_as_template)
         m_tpl.addAction("Rename template…", self._rename_template)
@@ -2068,7 +2075,7 @@ class SlideWindow(QMainWindow):
                              " border: none; }")
         doc = editor.document()
         font_px, _items = style_box_document(doc, obj, obj.text,
-                                             self._font_scale)
+                                             self._font_scale, editing=True)
         from .canvas import themed_bullets
         if themed_bullets():
             editor.bullet_style = (obj.font_pt, font_px)
@@ -3650,6 +3657,34 @@ class SlideWindow(QMainWindow):
         for name in self.store.all_names():
             m.addAction(name, lambda n=name: self._new_from_template(n))
 
+    @staticmethod
+    def examples_dir() -> Path:
+        """Where the example presentations' charts are drawn (kept, so a
+        saved copy of an example keeps its pictures)."""
+        d = (Path(QSettings("kherveDOC", "KherveSlide").fileName()).parent
+             / "kherveslide_examples")
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def open_example(self, name: str, *, ask: bool = True) -> None:
+        """Open one of the example presentations as a new, untitled one."""
+        from .examples import build_example
+        if ask and not self.offer_save_before("opening an example"):
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.deck = build_example(name, self.examples_dir())
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.current = 0
+        self.path = None
+        self._update_title()
+        self._sync_theme_menus()
+        self._reload_all()
+        self._reset_history()
+        self.statusBar().showMessage(
+            f"Example “{name}” — edit freely, then Save As to keep it", 5000)
+
     def _new_from_template(self, name):
         self.deck = self.store.instantiate(name)
         self.current = 0
@@ -3807,11 +3842,13 @@ class SlideWindow(QMainWindow):
             win.close_quietly()
 
     def show_welcome(self) -> None:
+        from .examples import EXAMPLES
         from .welcome import WelcomeDialog
         settings = QSettings("kherveDOC", "KherveSlide")
         dlg = WelcomeDialog(
             recent=self._recent_files(),
             templates=self.store.all_names(),
+            examples=[(n, d) for n, d, _f in EXAMPLES],
             layout=self._layout_mode,
             show_at_start=settings.value("show_welcome", True, type=bool),
             parent=self)
@@ -3828,6 +3865,8 @@ class SlideWindow(QMainWindow):
             self._import_pptx()
         elif kind == "template":
             self._new_from_template(dlg.choice[1])
+        elif kind == "example":
+            self.open_example(dlg.choice[1], ask=False)
         elif kind == "recent":
             self.open_path(dlg.choice[1])
 

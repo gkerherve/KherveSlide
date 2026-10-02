@@ -227,10 +227,12 @@ TOOLS: list[dict] = [
      "input_schema": _obj({"path": _STR, "discard_unsaved_changes": _BOOL},
                           ["path"])},
     {"name": "new_presentation",
-     "description": "Start a new presentation from a template (see "
-                    "list_themes → templates). Refuses to drop unsaved "
+     "description": "Start a new presentation from a template, or open "
+                    "one of the example presentations (see list_themes → "
+                    "templates / examples) — good models of what a "
+                    "finished deck looks like. Refuses to drop unsaved "
                     "work unless discard_unsaved_changes is true.",
-     "input_schema": _obj({"template": _STR,
+     "input_schema": _obj({"template": _STR, "example": _STR,
                            "discard_unsaved_changes": _BOOL})},
     {"name": "export_pdf", "description": "Compile and save the PDF.",
      "input_schema": _obj({"path": _STR}, ["path"])},
@@ -619,6 +621,7 @@ class ToolExecutor:
     # ------------------------------------------------------------ themes
     def _t_list_themes(self):
         from . import custom_themes, templates
+        from .examples import EXAMPLES
         from .serializer import (BEAMER_COLOR_THEMES, BEAMER_THEMES,
                                  FONT_FAMILIES)
         from .theme_kit import (BULLET_STYLES, FOOTER_STYLES, LOGO_CORNERS,
@@ -630,6 +633,7 @@ class ToolExecutor:
             "presets": [k.to_dict() for k in presets()],
             "my_themes": sorted(custom_themes.load_themes()),
             "templates": self._w.store.all_names(),
+            "examples": {n: d for n, d, _f in EXAMPLES},
             "typefaces": {"": "Latin Modern Sans (default)",
                           **{k: v[0] for k, v in FONT_FAMILIES.items()}},
             "title_styles": TITLE_STYLES, "footer_styles": FOOTER_STYLES,
@@ -788,10 +792,16 @@ class ToolExecutor:
         self._w.open_path(p)
         return {"ok": True, "slides": len(self.deck.slides)}
 
-    def _t_new_presentation(self, template: str = "",
+    def _t_new_presentation(self, template: str = "", example: str = "",
                             discard_unsaved_changes: bool = False):
         self._guard_unsaved(discard_unsaved_changes)
-        if template:
+        if example:
+            from .examples import example_names
+            if example not in example_names():
+                raise ToolError(f"No example {example!r}; one of "
+                                f"{example_names()}.")
+            self._w.open_example(example, ask=False)
+        elif template:
             if template not in self._w.store.all_names():
                 raise ToolError(f"No template {template!r}.")
             self._w._new_from_template(template)

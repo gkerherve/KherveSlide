@@ -46,11 +46,201 @@ def _inline_html(s: str) -> str:
     # Keep inline-maths delimiters ($…$) visible: stripping them meant that
     # editing a box (and committing) silently dropped the $ and turned maths
     # into plain text. Showing the source lets it round-trip intact.
-    s = s.replace("\\textbar{}", "|").replace("\\textbar", "|")
+    # Escapes (\\% \\& \\_ …) stay as source here: the in-place editor
+    # shows this, and whatever it shows is turned back into LaTeX on
+    # commit — a bare % would comment out the rest of the line. Painting
+    # resolves them (_pretty_inline_html).
     s = s.replace("\\\\", "<br>")
-    s = s.replace("\\&", "&amp;").replace("\\%", "%").replace("\\_", "_")
-    s = s.replace("\\#", "#").replace("\\{", "{").replace("\\}", "}")
     return s
+
+
+# ---- painting-only rendering of inline LaTeX (see latex_to_html) ----
+
+_MATH_EXTRA = {
+    "Rightarrow": "⇒", "Leftarrow": "⇐", "Leftrightarrow": "⇔",
+    "rightarrow": "→", "to": "→", "leftarrow": "←", "mapsto": "↦",
+    "times": "×", "cdot": "·", "approx": "≈", "sim": "∼", "infty": "∞",
+    "pm": "±", "mp": "∓", "le": "≤", "ge": "≥", "leq": "≤", "geq": "≥",
+    "neq": "≠", "ne": "≠", "equiv": "≡", "propto": "∝", "partial": "∂",
+    "nabla": "∇", "hbar": "ℏ", "int": "∫", "iint": "∬", "oint": "∮",
+    "sum": "∑", "prod": "∏", "in": "∈", "notin": "∉", "subset": "⊂",
+    "cup": "∪", "cap": "∩", "forall": "∀", "exists": "∃", "degree": "°",
+    "ldots": "…", "dots": "…", "cdots": "⋯", "circ": "∘", "ell": "ℓ",
+    "langle": "⟨", "rangle": "⟩", "|": "‖", "prime": "′",
+}
+_MATH_FUNCS = {"sin", "cos", "tan", "ln", "log", "exp", "max", "min",
+               "lim", "det", "sinh", "cosh", "tanh", "arg", "dim"}
+_BLACKBOARD = {"R": "ℝ", "N": "ℕ", "Z": "ℤ", "Q": "ℚ", "C": "ℂ", "P": "ℙ"}
+_SPACES = {",": "\u2009", ";": " ", ":": " ", " ": " ", "!": "",
+           "quad": "\u2003", "qquad": "\u2003\u2003"}
+_NAMED = {"red": "#FF0000", "green": "#00A000", "blue": "#0000FF",
+          "orange": "#FF8000", "black": "#000000", "white": "#FFFFFF",
+          "gray": "#808080", "purple": "#BF0040", "teal": "#008080",
+          "cyan": "#00FFFF", "magenta": "#FF00FF", "brown": "#BF8040",
+          "violet": "#800080", "olive": "#808000", "darkgray": "#404040"}
+_symbol_glyphs: dict | None = None
+
+
+def _math_glyphs() -> dict:
+    global _symbol_glyphs
+    if _symbol_glyphs is None:
+        from . import symbols
+        _symbol_glyphs = {latex[1:]: glyph
+                          for latex, glyph in symbols.all_symbols()
+                          if latex.startswith("\\") and len(glyph) <= 2}
+        _symbol_glyphs.update(_MATH_EXTRA)
+    return _symbol_glyphs
+
+
+def _group(src: str, j: int) -> tuple[str, int]:
+    """The {…} group (or single token) starting at *j*."""
+    while j < len(src) and src[j] == " ":
+        j += 1
+    if j >= len(src):
+        return "", j
+    if src[j] == "{":
+        depth = 0
+        for k in range(j, len(src)):
+            depth += {"{": 1, "}": -1}.get(src[k], 0)
+            if depth == 0:
+                return src[j + 1:k], k + 1
+        return src[j + 1:], len(src)
+    if src[j] == "\\":
+        m = re.match(r"\\([A-Za-z]+|.)", src[j:])
+        return m.group(0), j + len(m.group(0))
+    return src[j], j + 1
+
+
+_BINARY = {"=": " = ", "+": " + ", "-": " − ", "<": " &lt; ",
+           ">": " &gt; "}
+# Commands TeX spaces like binary operators / relations.
+_SPACED_CMDS = {"times", "cdot", "approx", "pm", "mp", "le", "ge", "leq",
+                "geq", "neq", "ne", "equiv", "sim", "propto", "to",
+                "rightarrow", "Rightarrow", "leftarrow", "Leftarrow",
+                "Leftrightarrow", "in", "notin", "subset"}
+
+
+def math_to_html(src: str, top: bool = True) -> str:
+    """Inline maths as readable HTML: italic variables, upright numbers
+    and functions, Unicode symbols, sub/superscripts, a/b fractions, √.
+    Relations and +/− get spaces at the top level, as TeX sets them."""
+    glyphs = _math_glyphs()
+    out: list[str] = []
+    i = 0
+    while i < len(src):
+        c = src[i]
+        if c == "\\":
+            m = re.match(r"\\([A-Za-z]+|.)", src[i:])
+            name = m.group(1)
+            i += len(m.group(0))
+            if name in ("frac", "dfrac", "tfrac"):
+                a, i = _group(src, i)
+                b, i = _group(src, i)
+                # Brackets where a / b would be ambiguous: (a − b)/(c + d).
+                fa, fb = math_to_html(a, False), math_to_html(b, False)
+                fa = f"({fa})" if re.search(r"[-+]", a.strip()[1:]) else fa
+                fb = f"({fb})" if re.search(r"[-+]", b.strip()[1:]) else fb
+                out.append(f"{fa}/{fb}")
+            elif name == "sqrt":
+                a, i = _group(src, i)
+                inner = math_to_html(a, False)
+                out.append("√" + (inner if len(a) <= 1 else f"({inner})"))
+            elif name == "mathbb":
+                a, i = _group(src, i)
+                out.append("".join(_BLACKBOARD.get(ch, ch) for ch in a))
+            elif name in ("mathrm", "text", "textrm", "operatorname",
+                          "mathsf", "textup"):
+                a, i = _group(src, i)
+                out.append(_html.escape(a))
+            elif name in ("mathbf", "boldsymbol", "textbf"):
+                a, i = _group(src, i)
+                out.append(f"<b>{math_to_html(a, False)}</b>")
+            elif name in ("left", "right", "displaystyle", "big", "Big",
+                          "bigl", "bigr", "limits", "nolimits"):
+                pass
+            elif name in _MATH_FUNCS:
+                nxt = src[i:].lstrip()[:1]
+                out.append(name if nxt in ("(", "", "^", "_")
+                           else name + "\u2009")
+            elif name in _SPACES:
+                out.append(_SPACES[name])
+            elif name in glyphs:
+                g = _html.escape(glyphs[name])
+                out.append(f" {g} " if top and name in _SPACED_CMDS and out
+                           else g)
+            elif len(name) == 1:                 # \{ \% \& …
+                out.append(_html.escape(name))
+            else:
+                out.append(_html.escape(name))
+        elif c in "^_":
+            a, i = _group(src, i + 1)
+            tag = "sup" if c == "^" else "sub"
+            out.append(f"<{tag}>{math_to_html(a, False)}</{tag}>")
+        elif c.isalpha():
+            out.append(f"<i>{c}</i>")
+            i += 1
+        elif c in "{} ":
+            i += 1
+        elif c == "'":
+            out.append("′")
+            i += 1
+        elif top and c in _BINARY and out:      # not a leading sign
+            out.append(_BINARY[c])
+            i += 1
+        elif c == "-":
+            out.append("−")
+            i += 1
+        else:
+            out.append(_html.escape(c))
+            i += 1
+    return "".join(out)
+
+
+def _textcolor(s: str) -> str:
+    """\\textcolor{name}{x} / \\textcolor[HTML]{RRGGBB}{x} → coloured span
+    (on already-converted text)."""
+    pat = re.compile(r"\\textcolor(?:\[HTML\])?\{([^}]*)\}\{")
+    while True:
+        m = pat.search(s)
+        if not m:
+            return s
+        body, end = _group(s, m.end() - 1)
+        spec = m.group(1)
+        if re.fullmatch(r"[0-9A-Fa-f]{6}", spec):
+            colour = "#" + spec
+        else:
+            colour = _NAMED.get(spec.split("!")[0], "#000000")
+        s = (s[:m.start()] + f'<span style="color:{colour}">{body}</span>'
+             + s[end:])
+
+
+def _pretty_inline_html(s: str) -> str:
+    """Text as it prints: maths rendered, escapes and dashes resolved."""
+    parts = re.split(r"(?<!\\)\$(.+?)(?<!\\)\$|\\\((.+?)\\\)", s)
+    out: list[str] = []
+    for k, part in enumerate(parts):
+        if part is None:
+            continue
+        if k % 3 == 0:                            # plain text
+            t = _inline_html(part)
+            t = t.replace("\\textbar{}", "|").replace("\\textbar", "|")
+            t = t.replace("\\&amp;", "&amp;").replace("\\%", "%")
+            t = t.replace("\\_", "_").replace("\\#", "#")
+            t = t.replace("\\{", "{").replace("\\}", "}")
+            t = t.replace("\\,", "\u2009").replace("\\;", " ")
+            t = t.replace("\\ ", " ").replace("~", "\u00a0")
+            t = t.replace("\\$", "$").replace("---", "—").replace("--", "–")
+            t = t.replace("\\today", _today())
+            out.append(t)
+        else:                                     # $…$ or \(…\)
+            out.append(math_to_html(part))
+    return _textcolor("".join(out))
+
+
+def _today() -> str:
+    from datetime import date
+    d = date.today()
+    return f"{d:%B} {d.day}, {d.year}"
 
 
 def _math_only(text: str) -> str | None:
@@ -78,10 +268,15 @@ def rewrap_math(original: str, latex: str) -> str:
     return f"${latex}$"
 
 
-def latex_to_html(text: str) -> str:
+def latex_to_html(text: str, pretty: bool = False) -> str:
     """Render a text box's LaTeX-ish content as HTML so itemize/enumerate
     look like real bullet / numbered lists on the canvas — including nested
-    sub-levels (an itemize/enumerate opened inside an \\item)."""
+    sub-levels (an itemize/enumerate opened inside an \\item).
+
+    *pretty* is for painting only: inline maths, escapes, dashes and
+    colours are shown as they print. The in-place editor keeps it False,
+    because what it shows is converted back to LaTeX on commit."""
+    inline = _pretty_inline_html if pretty else _inline_html
     out: list[str] = []
     tags: list[str] = []        # open list tags, outermost first
     li_open: list[bool] = []    # is there an unclosed <li> at each level
@@ -114,11 +309,11 @@ def latex_to_html(text: str) -> str:
             continue
         if s.startswith("\\item") and tags:
             close_li()
-            out.append(f"<li>{_inline_html(s[len('\\item'):].strip())}")
+            out.append(f"<li>{inline(s[len('\\item'):].strip())}")
             li_open[-1] = True
             continue
         close_all()
-        out.append(f"<div>{_inline_html(s)}</div>" if s else "<br>")
+        out.append(f"<div>{inline(s)}</div>" if s else "<br>")
     close_all()
     return "".join(out) or "&nbsp;"
 
@@ -290,7 +485,8 @@ def themed_bullets() -> bool:
 
 
 def style_box_document(doc: QTextDocument, obj, text: str,
-                       font_scale: float) -> tuple[float, list]:
+                       font_scale: float, editing: bool = False
+                       ) -> tuple[float, list]:
     """Lay a text box's content into *doc* exactly as the canvas draws it
     — font, weight, colour, alignment, TeX spacing and the theme's
     bullets. Shared by the canvas painter and the in-place editor, so
@@ -307,7 +503,8 @@ def style_box_document(doc: QTextDocument, obj, text: str,
     opt.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
     doc.setDefaultTextOption(opt)
     colour = obj.color or "#000000"
-    doc.setHtml(f'<div style="color:{colour}">{latex_to_html(text)}</div>')
+    doc.setHtml(f'<div style="color:{colour}">'
+                f'{latex_to_html(text, pretty=not editing)}</div>')
     font_px = obj.font_pt * font_scale
     bullets = _prepare_bullets(doc, obj.font_pt, font_px)
     # Same leading as the serializer's \fontsize{pt}{lead}.
@@ -1187,11 +1384,34 @@ class TableBoxItem(BoxItem):
                 text = rows[r][c] if c < len(rows[r]) else ""
                 cell = QRectF(self._rect.x() + c * cw, self._rect.y() + r * ch,
                               cw, ch)
-                painter.drawText(cell.adjusted(5, 1, -5, -1),
-                                 int(Qt.AlignVCenter | align | Qt.TextWordWrap),
-                                 text)
+                if "$" in text or "\\" in text:
+                    _draw_rich_cell(painter, cell.adjusted(5, 1, -5, -1),
+                                    text, font, painter.pen().color(), align)
+                else:
+                    painter.drawText(
+                        cell.adjusted(5, 1, -5, -1),
+                        int(Qt.AlignVCenter | align | Qt.TextWordWrap), text)
         self._paint_decoration(painter, border_only=True)
         self._paint_selection(painter)
+
+
+def _draw_rich_cell(painter, rect: QRectF, text: str, font: QFont,
+                    colour: QColor, align) -> None:
+    """A table cell with LaTeX in it (maths, \\%, \\textcolor…), drawn as
+    it prints and centred vertically like a plain cell."""
+    doc = QTextDocument()
+    doc.setDocumentMargin(0)
+    doc.setDefaultFont(font)
+    h_align = {Qt.AlignHCenter: "center", Qt.AlignRight: "right"}.get(
+        align, "left")
+    doc.setHtml(f'<div align="{h_align}" style="color:{colour.name()}">'
+                f'{_pretty_inline_html(text)}</div>')
+    doc.setTextWidth(rect.width())
+    dy = max(0.0, (rect.height() - doc.size().height()) / 2)
+    painter.save()
+    painter.translate(rect.x(), rect.y() + dy)
+    doc.drawContents(painter, QRectF(0, 0, rect.width(), rect.height()))
+    painter.restore()
 
 
 class LineBoxItem(BoxItem):

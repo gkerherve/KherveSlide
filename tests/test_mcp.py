@@ -310,3 +310,17 @@ def test_edit_access_refuses_client_chosen_paths(live, qapp):
                        ("apply_theme_kit", {"logo": "/tmp/logo.png"})):
         res = _call(qapp, ep, "call_tool", {"name": name, "input": args})
         assert "Full" in res["error"], name
+
+
+def test_new_presentation_can_open_an_example(window, tmp_path, monkeypatch):
+    from kherveslide.window import SlideWindow
+    monkeypatch.setattr(SlideWindow, "examples_dir",
+                        staticmethod(lambda: tmp_path))
+    names = _run(window, "list_themes")["examples"]
+    assert "Research talk" in names
+    r = _run(window, "new_presentation", example="Diagrams & workflows",
+             discard_unsaved_changes=True)
+    assert r["ok"] and r["slides"] >= 5
+    assert window.path is None and window.deck.title == "Diagrams with shapes"
+    assert "error" in _run(window, "new_presentation", example="Nope",
+                           discard_unsaved_changes=True)

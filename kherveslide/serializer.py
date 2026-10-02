@@ -1073,6 +1073,10 @@ def _header_footer_lines(deck) -> list[str]:
     # plain decks the footline is hidden, so leave it out here (an overlay
     # carries it instead) to avoid emitting the number where it won't show.
     num = _page_number_macro(getattr(deck, "page_number", "none"))
+    spec = getattr(deck, "theme_spec", None)
+    if spec is not None and spec.enabled and getattr(spec, "footer_bar",
+                                                     False):
+        num = ""        # the theme's footer bar already shows n / N
     if num and not getattr(deck, "plain_frames", False):
         fr = f"{fr}\\quad {num}" if fr else num
     if header:

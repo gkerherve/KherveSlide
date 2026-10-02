@@ -2177,6 +2177,14 @@ def test_missing_resource_triggers_network_but_syntax_error_does_not():
     missing_cls = "! LaTeX Error: File `revtex4-2.cls' not found."
     assert _log_wants_network(missing_sty)
     assert _log_wants_network(missing_cls)
+    # Fonts the cache lacks (the PDF stage or a size not yet fetched).
+    assert _log_wants_network(
+        'warning: Could not locate a virtual/physical font for TFM "rm-lmss12".')
+    assert _log_wants_network(
+        'caused by: Cannot proceed without .vf or "physical" font for PDF output...')
+    assert _log_wants_network(
+        "! Font OT1/lmss/m/n/11=rm-lmss12 at 11.0pt not loadable: Metric (TFM) "
+        "file or installed font not found.")
     # Source-level errors: no network retry.
     assert not _log_wants_network("! Undefined control sequence.")
     assert not _log_wants_network("! Missing $ inserted.")
@@ -2723,3 +2731,79 @@ def test_canvas_loads_pdf_pictures(tmp_path):
     assert pm is not None and pm.width() == 400 and pm.height() == 200
     assert load_picture(str(tmp_path / "missing.pdf")) is None
     assert load_picture("") is None
+
+
+def test_slide_numbers_dont_replace_the_theme_footer_bar():
+    from kherveslide.model import ThemeSpec
+    d = _sample_deck()
+    d.plain_frames = False
+    d.page_number = "of_total"
+    d.theme_spec = ThemeSpec(enabled=True, footer_bar=True,
+                             title_bg="#003E74")
+    tex = serialize_deck(d)
+    # only the bar's footline, which carries the number itself
+    assert tex.count("\\setbeamertemplate{footline}") == 1
+    assert "{ks footer bar}" in tex and "\\inserttotalframenumber" in tex
+    d.foot_left = "My talk"          # explicit slots still win
+    assert tex.count("\\setbeamertemplate{footline}") < serialize_deck(
+        d).count("\\setbeamertemplate{footline}")
+
+
+# --- example presentations ---
+
+def test_every_example_builds_and_serializes(tmp_path):
+    from kherveslide.examples import EXAMPLES, build_example, example_names
+    assert len(example_names()) == len(EXAMPLES) >= 5
+    for name in example_names():
+        deck = build_example(name, tmp_path)
+        assert len(deck.slides) >= 5, name
+        tex = serialize_deck(deck)
+        assert tex.count("\\begin{frame}") == len(deck.slides), name
+        # nothing unescaped that LaTeX would read as a comment / tab
+        for s in deck.slides:
+            for o in s.objects:
+                for text in [getattr(o, "text", "")] + [
+                        c for row in getattr(o, "rows", []) for c in row]:
+                    assert " %" not in text.replace("\\%", ""), (name, text)
+                    assert "&" not in text.replace("\\&", ""), (name, text)
+        # pictures point at charts drawn into the assets folder
+        for s in deck.slides:
+            for o in s.objects:
+                if isinstance(o, SlidePicture):
+                    assert Path(o.path).exists() and \
+                        Path(o.path).parent == tmp_path
+        assert deck_from_json(deck_to_json(deck)) == deck
+    with pytest.raises(KeyError):
+        build_example("Nope", tmp_path)
+
+
+# --- canvas shows inline LaTeX as it prints; the editor keeps the source ---
+
+def test_painted_text_renders_inline_maths_and_escapes():
+    from kherveslide.canvas import latex_to_html, math_to_html
+    html = latex_to_html("Smaller $\\Rightarrow$ bluer, 20\\,\\% -- done",
+                         pretty=True)
+    assert "⇒" in html and "\\Rightarrow" not in html
+    assert "20\u2009%" in html and "–" in html and "\\%" not in html
+    assert math_to_html("\\Delta U = Q - W") == \
+        "Δ<i>U</i> = <i>Q</i> − <i>W</i>"
+    assert math_to_html("V_2^{n}") == "<i>V</i><sub>2</sub><sup><i>n</i></sup>"
+    assert math_to_html("\\frac{a}{b}") == "<i>a</i>/<i>b</i>"
+    assert "ℝ" in math_to_html("\\mathbb{R}")
+    coloured = latex_to_html("\\textcolor{orange}{Medium}", pretty=True)
+    assert 'color:#FF8000">Medium</span>' in coloured
+
+
+def test_editor_text_keeps_escapes_so_they_survive_a_commit():
+    """The in-place editor shows latex_to_html(pretty=False) and converts
+    it back with document_to_latex: \\% must come back as \\%, not a bare
+    % (a LaTeX comment that swallows the rest of the line)."""
+    from PySide6.QtWidgets import QApplication
+    from PySide6.QtGui import QTextDocument
+    from kherveslide.canvas import document_to_latex, latex_to_html
+    QApplication.instance() or QApplication([])
+    for src in ("Up 20\\,\\% this year", "R\\&D and $x^2$",
+                "\\begin{itemize}\n  \\item 5\\% off\n\\end{itemize}"):
+        doc = QTextDocument()
+        doc.setHtml(latex_to_html(src))
+        assert document_to_latex(doc) == src
