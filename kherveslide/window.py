@@ -43,7 +43,7 @@ from .canvas import (
     SlideScene, SlideView, TextBoxItem, PictureBoxItem, TableBoxItem,
     VideoBoxItem, make_item, page_size_px, FONT_SCALE, latex_to_html,
     document_to_latex, canvas_font, rewrap_math, _dropped_image, _math_only,
-    set_body_family,
+    set_body_family, set_bullet_glyphs,
 )
 from .compiler import compile_tex, tectonic_available
 from .drawing_dialog import DrawingDialog
@@ -61,7 +61,8 @@ from .object_props import (
 )
 from .preview import PdfPreview
 from .serializer import (
-    serialize_deck, serialize_backdrop, deck_body_family, _ALL_BLOCK_ENVS,
+    serialize_deck, serialize_backdrop, deck_body_family, PROBE_SIZES,
+    _ALL_BLOCK_ENVS,
     BEAMER_THEMES, BEAMER_COLOR_THEMES,
 )
 from .welcome import (
@@ -138,22 +139,31 @@ class _BackdropWorker(QThread):
     serializer.serialize_backdrop) off the UI thread and hands back the
     PDF bytes, so the canvas can lay each themed page under its boxes."""
 
-    done = Signal(object, str)   # pdf bytes (None on failure), source tex
+    # pdf bytes (None on failure), source tex, {level: [BulletGlyph]}
+    done = Signal(object, str, object)
 
-    def __init__(self, tex, workdir):
+    def __init__(self, tex, workdir, gap):
         super().__init__()
         self._tex = tex
         self._workdir = workdir
+        self._gap = gap
 
     def run(self):
-        data = None
+        data, glyphs = None, {}
         try:
             result = compile_tex(self._tex, self._workdir, "backdrop")
             if result.ok and result.pdf_path:
                 data = Path(result.pdf_path).read_bytes()
+                # Cut the theme's bullets out of the probe pages here, off
+                # the UI thread.
+                import pymupdf
+                from types import SimpleNamespace
+                from .bullets import glyphs_from_pdf
+                pdf = pymupdf.open(stream=data, filetype="pdf")
+                glyphs = glyphs_from_pdf(pdf, SimpleNamespace(gap=self._gap))
         except Exception:
-            data = None
-        self.done.emit(data, self._tex)
+            data = data if data else None
+        self.done.emit(data, self._tex, glyphs)
 
 
 class _DownloadWorker(QThread):
@@ -754,6 +764,14 @@ class SlideWindow(QMainWindow):
         m_slide.addAction("Add blank slide", self._add_slide)
         self._fill_new_slide_menu(m_slide.addMenu("Add slide with layout"))
         m_slide.addAction("Delete slide", self._del_slide)
+        m_slide.addSeparator()
+        m_slide.addAction("Move slide up",
+                          lambda: self._move_slide(-1)).setShortcut(
+                              "Ctrl+Shift+Up")
+        m_slide.addAction("Move slide down",
+                          lambda: self._move_slide(1)).setShortcut(
+                              "Ctrl+Shift+Down")
+        m_slide.addSeparator()
         m_slide.addAction("Frame title…", self._set_frame_title)
         m_slide.addAction("Background colour…", self._pick_slide_bg)
         m_slide.addAction("Clear background", self._clear_slide_bg)
@@ -1049,8 +1067,6 @@ class SlideWindow(QMainWindow):
         tb.addWidget(add_btn)
         self._themed_icons.append((add_btn, icons.slide_add))
         vact(icons.slide_remove, "Remove active slide", self._del_slide)
-        vact(icons.move_up, "Move slide up", lambda: self._move_slide(-1))
-        vact(icons.move_down, "Move slide down", lambda: self._move_slide(1))
         tb.addSeparator()
         # Insert objects (moved here from the horizontal toolbar)
         vact(icons.text_box, "Add text box", self._add_text)
@@ -2128,6 +2144,11 @@ class SlideWindow(QMainWindow):
             self.current = j
             self._reload_all()
 
+    def _move_slide_at(self, row, delta):
+        """Move the right-clicked slide (it becomes the current one)."""
+        self.current = row
+        self._move_slide(delta)
+
     def _slide_context_menu(self, row, global_pos):
         if not (0 <= row < len(self.deck.slides)):
             return
@@ -2138,6 +2159,13 @@ class SlideWindow(QMainWindow):
         menu.addSeparator()
         self._fill_new_slide_menu(menu.addMenu("New slide after"), row)
         menu.addAction("Duplicate slide", lambda: self._duplicate_slide(row))
+        menu.addSeparator()
+        up = menu.addAction("Move up", lambda: self._move_slide_at(row, -1))
+        up.setEnabled(row > 0)
+        down = menu.addAction("Move down",
+                              lambda: self._move_slide_at(row, 1))
+        down.setEnabled(row < len(self.deck.slides) - 1)
+        menu.addSeparator()
         menu.addAction("Delete slide", lambda: self._delete_slide_at(row))
         menu.exec(global_pos)
 
@@ -3388,19 +3416,29 @@ class SlideWindow(QMainWindow):
             win.setWindowIcon(self.windowIcon())
             win.layout().addWidget(self.right_tabs)
             self.right_tabs.show()
-            geo = settings.value("pdf_window_geometry")
-            if geo is not None:
-                win.restoreGeometry(geo)
+            # Keep the size it had last time, but always open it in the
+            # top-right corner of this window's screen and in front, so it
+            # is seen rather than lost behind the main window.
+            size = settings.value("pdf_window_size")
+            if size is not None:
+                win.resize(size)
             else:
-                win.resize(760, max(600, self.height()))
-                win.move(self.x() + self.width() - 760 + 40, self.y() + 40)
+                win.resize(760, 640)
+            screen = self.screen() or QApplication.primaryScreen()
+            if screen is not None:
+                avail = screen.availableGeometry()
+                win.resize(min(win.width(), avail.width() // 2),
+                           min(win.height(), avail.height()))
+                win.move(avail.right() - win.width() + 1, avail.top())
             self._docked_sizes = sizes
             self._pdf_window = win
             win.show()
+            win.raise_()
+            win.activateWindow()
         else:
             win = self._pdf_window
             self._pdf_window = None
-            settings.setValue("pdf_window_geometry", win.saveGeometry())
+            settings.setValue("pdf_window_size", win.size())
             self._main_split.addWidget(self.right_tabs)
             sizes = getattr(self, "_docked_sizes", None)
             if sizes and len(sizes) == 2 and sizes[1] > 50:
@@ -3467,6 +3505,7 @@ class SlideWindow(QMainWindow):
     # ---------------- themed backdrop (canvas looks like the PDF) -------
     def _toggle_canvas_theme(self, on):
         self._show_theme = on
+        set_bullet_glyphs(getattr(self, "_bullet_glyphs", {}) if on else {})
         QSettings("kherveDOC", "KherveSlide").setValue("canvas_theme", on)
         if on:
             self._schedule_backdrop()
@@ -3488,13 +3527,13 @@ class SlideWindow(QMainWindow):
         if not self._bd_wanted or self._bd_wanted == self._bd_done:
             return
         workdir = Path(tempfile.gettempdir()) / "kherveslide_backdrop"
-        worker = _BackdropWorker(self._bd_wanted, workdir)
+        worker = _BackdropWorker(self._bd_wanted, workdir, self.deck.gap)
         worker.done.connect(self._on_backdrop)
         worker.finished.connect(self._on_backdrop_finished)
         self._bd_worker = worker
         worker.start()
 
-    def _on_backdrop(self, data, tex):
+    def _on_backdrop(self, data, tex, glyphs=None):
         if data is None:
             # A failed compile (e.g. a package not cached yet while
             # offline): keep the last good backdrop rather than flashing.
@@ -3507,6 +3546,7 @@ class SlideWindow(QMainWindow):
         self._bd_pdf = pdf
         self._bd_done = tex
         self._bd_cache.clear()
+        self._set_bullets(glyphs or {})
         # The compile also filled tectonic's cache: pick up Latin Modern
         # for the canvas text if it wasn't there at start-up.
         if not latex_fonts.available() and latex_fonts.ensure_loaded():
@@ -3522,14 +3562,27 @@ class SlideWindow(QMainWindow):
         if self._bd_wanted != self._bd_done:
             self._bd_timer.start()
 
+    def _set_bullets(self, glyphs: dict) -> None:
+        """Hand the theme's bullets (from the probe pages) to the canvas."""
+        from PySide6.QtGui import QImage
+        out = {}
+        for level, items in glyphs.items():
+            for g in items:
+                img = QImage(g.rgba, g.w_px, g.h_px, g.w_px * 4,
+                             QImage.Format_RGBA8888).copy()
+                out.setdefault(level, []).append((g, img))
+        set_bullet_glyphs(out if self._show_theme else {})
+        self._bullet_glyphs = out
+        self.scene.update()
+
     def backdrop_pixmap(self, index: int, width: int):
         """The themed page for slide *index*, *width* px wide — or None
         when there is none (theme display off, no compile yet, or the
         pages are for a different number of slides)."""
         pdf = self._bd_pdf
         if (not self._show_theme or pdf is None
-                or pdf.page_count != len(self.deck.slides)
-                or not 0 <= index < pdf.page_count):
+                or pdf.page_count != len(self.deck.slides) + len(PROBE_SIZES)
+                or not 0 <= index < len(self.deck.slides)):
             return None
         key = (index, width)
         pm = self._bd_cache.get(key)

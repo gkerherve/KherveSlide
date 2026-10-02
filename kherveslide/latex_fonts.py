@@ -20,11 +20,15 @@ SANS = "Latin Modern Sans"
 ROMAN = "Latin Modern Roman"
 MONO = "Latin Modern Mono"
 
-# (file stem, styles) — the 10pt design size, beamer's default body cut.
+# (file stem, style) pairs. All design sizes share one family name, so only
+# one cut per style can be loaded. Slide text is mostly 17 pt and up, where
+# lmodern switches to the narrower 17 pt sans design (lmss17); bold sans
+# only exists as the 10 pt cut (lmssbx10), which is what the PDF uses too.
 _FILES = (
-    ("lmsans10", ("regular", "bold", "oblique", "boldoblique")),
-    ("lmroman10", ("regular", "bold", "italic", "bolditalic")),
-    ("lmmono10", ("regular", "italic")),
+    ("lmsans17", "regular"), ("lmsans17", "oblique"), ("lmsans10", "bold"),
+    ("lmroman10", "regular"), ("lmroman10", "bold"),
+    ("lmroman10", "italic"), ("lmroman10", "bolditalic"),
+    ("lmmono10", "regular"), ("lmmono10", "italic"),
 )
 
 _loaded = False
@@ -78,11 +82,10 @@ def ensure_loaded() -> bool:
         return False
     from PySide6.QtGui import QFontDatabase
     ok = False
-    for stem, styles in _FILES:
-        for style in styles:
-            f = _font_dir / f"{stem}-{style}.otf"
-            if f.exists() and QFontDatabase.addApplicationFont(str(f)) >= 0:
-                ok = True
+    for stem, style in _FILES:
+        f = _font_dir / f"{stem}-{style}.otf"
+        if f.exists() and QFontDatabase.addApplicationFont(str(f)) >= 0:
+            ok = True
     _loaded = ok
     return ok
 

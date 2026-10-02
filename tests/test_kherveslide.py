@@ -2248,9 +2248,12 @@ def test_backdrop_keeps_theme_furniture_but_drops_objects():
     assert "Hello" not in tex                    # the boxes are gone
     assert "img/a.png" not in tex
     assert "\\inserttotalframenumber" in tex     # numbers still line up
-    # one page per slide, even for slides that end up empty
-    assert tex.count("\\begin{frame}") == len(d.slides)
+    # one page per slide, even for slides that end up empty, then the
+    # bullet probes — unnumbered, so the slide numbers stay right
+    from kherveslide.serializer import PROBE_SIZES
+    assert tex.count("\\begin{frame}[t]") == len(d.slides)
     assert tex.count("\\mbox{}\n\\end{frame}") == len(d.slides)
+    assert tex.count("[plain,noframenumbering]") == len(PROBE_SIZES)
 
 
 def test_backdrop_leaves_the_deck_untouched():
@@ -2381,3 +2384,96 @@ def test_updater_against_a_local_remote(tmp_path):
     assert st.available and not st.can_fast_forward
     with pytest.raises(updater.UpdateError):
         updater.fast_forward(clone, st)
+
+
+# --- the theme's own bullets on the canvas ---
+
+def test_backdrop_probes_real_itemize_at_every_size_and_level():
+    from kherveslide.serializer import (
+        serialize_backdrop, PROBE_SIZES, PROBE_LEVELS)
+    tex = serialize_backdrop(_sample_deck())
+    probes = tex[tex.index("bullet probe"):]
+    for size in PROBE_SIZES:
+        assert f"\\fontsize{{{size}}}" in probes
+    # level 3 = two empty-label outer items around the probed one
+    assert probes.count("\\item[] \\begin{itemize}\\item[] ") == len(PROBE_SIZES)
+    assert probes.count("\\item x") == len(PROBE_SIZES) * PROBE_LEVELS
+    # white page, no nav symbols: only the bullet and the "x" ink
+    assert "bg=white" in probes
+    assert "\\setbeamertemplate{navigation symbols}{}" in probes
+    assert probes.rstrip().endswith("\\end{document}")
+
+
+def test_probe_cells_follow_the_deck_gap():
+    from kherveslide.serializer import probe_cell, probe_list_left
+    d = _sample_deck()
+    for level in (1, 2, 3):
+        x0, y0, x1, y1 = probe_cell(d, level)
+        assert 0 <= x0 < probe_list_left(d) < x1 <= 1
+        assert 0 <= y0 < y1 <= 1
+    assert probe_cell(d, 2)[1] > probe_cell(d, 1)[3] - 0.01   # rows apart
+    d.gap = 0.1
+    assert probe_list_left(d) > 0.1
+
+
+def _probe_row(w=60, h=30):
+    """White RGB row: a 4x4 blue bullet at x 10..14, y 12..16, then an
+    "x" (black block) at x 20..26 sitting on baseline y=18."""
+    buf = bytearray(b"\xff" * (w * h * 3))
+    def put(x, y, rgb):
+        i = (y * w + x) * 3
+        buf[i:i + 3] = bytes(rgb)
+    for y in range(12, 16):
+        for x in range(10, 14):
+            put(x, y, (0, 0, 200))
+    for y in range(13, 18):
+        for x in range(20, 26):
+            put(x, y, (0, 0, 0))
+    return bytes(buf), w, h, w * 3
+
+
+def test_bullet_analysis_finds_bullet_gap_and_baseline():
+    from kherveslide.bullets import analyse_cell
+    rgb, w, h, stride = _probe_row()
+    # 2 px per pt, 10 pt probe => 20 px per em
+    g = analyse_cell(rgb, w, h, stride, 2.0, 10.0, 1, text_origin_px=4)
+    assert g is not None and g.level == 1
+    assert (g.w_px, g.h_px) == (6, 6)            # 4x4 ink + 1px margin
+    assert g.top_em == (18 - 11) / 20            # baseline below crop top
+    assert g.gap_em == (20 - 15) / 20
+    assert g.indent_em == (20 - 4) / 20
+    # the crop keeps the bullet's colour, fully opaque in its middle
+    px = g.rgba[(1 * g.w_px + 1) * 4:(1 * g.w_px + 2) * 4]
+    assert tuple(px) == (0, 0, 200, 255)
+    # and is transparent round the edge
+    assert g.rgba[3] == 0
+
+
+def test_bullet_analysis_gives_up_without_text():
+    from kherveslide.bullets import analyse_cell, nearest
+    w, h = 40, 20
+    blank = b"\xff" * (w * h * 3)
+    assert analyse_cell(blank, w, h, w * 3, 1.0, 10.0, 1) is None
+    assert nearest([], 12) is None
+
+
+def test_nested_list_items_keep_the_box_size():
+    tex = serialize_deck(_sample_deck())
+    assert "\\setbeamerfont{itemize/enumerate subbody}{size=\\relax}" in tex
+    assert "\\setbeamerfont{itemize/enumerate subsubbody}{size=\\relax}" in tex
+
+
+def test_canvas_page_height_matches_beamer_paper():
+    """px-per-pt follows beamer's real paper height per aspect ratio:
+    a 16:9 slide is 9 cm high, a 4:3 one 9.6 cm."""
+    from kherveslide.canvas import page_size_px, SCENE_H, FONT_SCALE
+    cm = 72.27 / 2.54
+    _, h, fs169 = page_size_px("169")
+    assert h == SCENE_H and abs(fs169 - SCENE_H / (9.0 * cm)) < 1e-9
+    assert fs169 == FONT_SCALE
+    _, _, fs43 = page_size_px("43")
+    assert abs(fs43 - SCENE_H / (9.6 * cm)) < 1e-9
+    _, _, fs1610 = page_size_px("1610")
+    assert abs(fs1610 - SCENE_H / (10.0 * cm)) < 1e-9
+    _, _, custom = page_size_px("169", 20.0, 10.0)
+    assert abs(custom - SCENE_H / (10.0 * cm)) < 1e-9

@@ -386,36 +386,34 @@ def file_save() -> QIcon:
     return QIcon(px)
 
 
-def undo() -> QIcon:
+def _turn_arrow(mirror: bool) -> QIcon:
+    """The classic undo arrow, ↶: an arc over the top that comes down on
+    the left into an arrowhead (mirrored for redo, ↷). KherveSlide draws
+    it arching upward; KherveTeX's hooks downward (intentional
+    divergence)."""
     px, p = _new_canvas()
     p.setRenderHint(QPainter.Antialiasing, True)
+    if mirror:
+        p.translate(24, 0)
+        p.scale(-1, 1)
     p.setPen(QPen(_fg(), 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
     p.setBrush(Qt.NoBrush)
     path = QPainterPath()
-    path.moveTo(5, 13)
-    path.lineTo(14, 13)
-    path.cubicTo(20, 13, 20, 5, 14, 5)
+    path.moveTo(19, 18)
+    path.cubicTo(20, 9, 13, 5.5, 7.5, 9.5)
     p.drawPath(path)
     p.setBrush(QBrush(_fg())); p.setPen(Qt.NoPen)
-    p.drawPolygon([QPointF(2, 13), QPointF(8, 9), QPointF(8, 17)])
+    p.drawPolygon([QPointF(3.5, 14.5), QPointF(4.5, 6.5), QPointF(11, 11.5)])
     p.end()
     return QIcon(px)
+
+
+def undo() -> QIcon:
+    return _turn_arrow(False)
 
 
 def redo() -> QIcon:
-    px, p = _new_canvas()
-    p.setRenderHint(QPainter.Antialiasing, True)
-    p.setPen(QPen(_fg(), 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-    p.setBrush(Qt.NoBrush)
-    path = QPainterPath()
-    path.moveTo(19, 13)
-    path.lineTo(10, 13)
-    path.cubicTo(4, 13, 4, 5, 10, 5)
-    p.drawPath(path)
-    p.setBrush(QBrush(_fg())); p.setPen(Qt.NoPen)
-    p.drawPolygon([QPointF(22, 13), QPointF(16, 9), QPointF(16, 17)])
-    p.end()
-    return QIcon(px)
+    return _turn_arrow(True)
 
 
 def export_pdf() -> QIcon:
@@ -1151,7 +1149,7 @@ def move_down() -> QIcon:
 def prev_slide() -> QIcon:
     """Filled up-triangle — go to the previous slide."""
     px, p = _new_canvas()
-    p.setBrush(QBrush(_fg())); p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(_accent())); p.setPen(Qt.NoPen)
     p.drawPolygon(QPolygonF([QPointF(12, 6), QPointF(19, 17), QPointF(5, 17)]))
     p.end()
     return QIcon(px)
@@ -1160,7 +1158,7 @@ def prev_slide() -> QIcon:
 def next_slide() -> QIcon:
     """Filled down-triangle — go to the next slide."""
     px, p = _new_canvas()
-    p.setBrush(QBrush(_fg())); p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(_accent())); p.setPen(Qt.NoPen)
     p.drawPolygon(QPolygonF([QPointF(5, 7), QPointF(19, 7), QPointF(12, 18)]))
     p.end()
     return QIcon(px)

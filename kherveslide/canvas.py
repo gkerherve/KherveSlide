@@ -13,9 +13,9 @@ import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, QPixmap,
-    QPolygonF, QTextCharFormat, QTextCursor, QTextDocument, QTextListFormat,
-    QTextOption,
+    QBrush, QColor, QFont, QFontMetricsF, QLinearGradient, QPainter, QPen,
+    QPixmap, QPolygonF, QTextBlockFormat, QTextCharFormat, QTextCursor,
+    QTextDocument, QTextListFormat, QTextOption,
 )
 from PySide6.QtWidgets import (
     QGraphicsItem, QGraphicsObject, QGraphicsScene, QGraphicsView,
@@ -187,9 +187,9 @@ def document_to_latex(doc: QTextDocument) -> str:
 
 
 SCENE_H = 720.0                 # slide height in scene units (px)
-# beamer's slide height is ~96 mm ≈ 272.8 pt for every aspect ratio, so
-# this turns a font's pt size into canvas pixels for WYSIWYG sizing.
-FONT_SCALE = SCENE_H / 272.8
+# Turns a font's pt size into canvas pixels: px per pt on a default 16:9 slide (beamer's 9 cm high page); decks with
+# another aspect get theirs from page_size_px.
+FONT_SCALE = SCENE_H / (9.0 * 72.27 / 2.54)
 HANDLE = 9.0                    # half-size of a resize handle, in px
 MIN_PX = 24.0                   # smallest box dimension
 
@@ -211,6 +211,130 @@ _body_family = "sf"
 def set_body_family(family: str) -> None:
     global _body_family
     _body_family = "rm" if family == "rm" else "sf"
+
+
+# The theme's own itemize bullets, cut from the backdrop's probe pages
+# (see bullets.py): {level: [(BulletGlyph, QImage), ...]}. Empty until a
+# backdrop compile has run — the canvas then keeps Qt's plain discs.
+_BULLETS: dict = {}
+
+
+def set_bullet_glyphs(glyphs: dict) -> None:
+    global _BULLETS
+    _BULLETS = dict(glyphs or {})
+
+
+def _bullet_for(level: int, size_pt: float):
+    if not _BULLETS:
+        return None
+    entries = _BULLETS.get(level) or _BULLETS.get(max(_BULLETS))
+    if not entries:
+        return None
+    return min(entries, key=lambda e: abs(e[0].size_pt - size_pt))
+
+
+def _prepare_bullets(doc: QTextDocument, size_pt: float,
+                     font_px: float) -> list:
+    """Swap Qt's list markers for the theme's bullets: hide the markers
+    (their colour comes from the block's char format), indent like beamer,
+    and return the (block, level) pairs _draw_bullets paints next to."""
+    if not _BULLETS:
+        return []
+    first = _bullet_for(1, size_pt)
+    if first is not None and first[0].indent_em > 0:
+        doc.setIndentWidth(first[0].indent_em * font_px)
+    items = []
+    block = doc.begin()
+    while block.isValid():
+        lst = block.textList()
+        if lst is not None and lst.format().style() in (
+                QTextListFormat.ListDisc, QTextListFormat.ListCircle,
+                QTextListFormat.ListSquare):
+            fmt = block.charFormat()
+            fmt.setForeground(QBrush(Qt.transparent))
+            QTextCursor(block).setBlockCharFormat(fmt)
+            items.append((block, max(1, lst.format().indent())))
+        block = block.next()
+    return items
+
+
+# beamer's list spacing (beamerbaselocalstructure.sty), in pt: the gap
+# before a list (\topsep) and between its items (\itemsep), per level.
+_TOPSEP_PT = {1: 3.0}
+_ITEMSEP_PT = {1: 3.0}
+_NESTED_TOPSEP_PT = 2.0
+
+
+def _list_level(block) -> int:
+    lst = block.textList()
+    return max(1, lst.format().indent()) if lst is not None else 0
+
+
+def _apply_tex_spacing(doc: QTextDocument, lead_px: float,
+                       pt_px: float) -> None:
+    """Lay the text out with TeX's spacing instead of Qt's: lines exactly
+    one baselineskip apart (the lead of the box's fontsize), and beamer's
+    topsep / itemsep around and between list items."""
+    prev = 0
+    block = doc.begin()
+    while block.isValid():
+        level = _list_level(block)
+        top = 0.0
+        if level and level > prev:          # a list (or sub-list) opens
+            top = _TOPSEP_PT.get(level, _NESTED_TOPSEP_PT)
+        elif level and level == prev:       # next item, same level
+            top = _ITEMSEP_PT.get(level, 0.0)
+        elif level and level < prev:        # back out of a sub-list
+            top = max(_NESTED_TOPSEP_PT, _ITEMSEP_PT.get(level, 0.0))
+        elif prev and not level:            # text after a list
+            top = _TOPSEP_PT.get(prev, _NESTED_TOPSEP_PT)
+        fmt = block.blockFormat()
+        fmt.setTopMargin(top * pt_px)
+        fmt.setBottomMargin(0)
+        fmt.setLineHeight(lead_px,
+                          QTextBlockFormat.LineHeightTypes.FixedHeight.value)
+        QTextCursor(block).setBlockFormat(fmt)
+        prev = level
+        block = block.next()
+
+
+def _first_baseline_shift(doc: QTextDocument) -> float:
+    """How far to move the laid-out text so its first baseline sits where
+    TeX puts it: the tallest glyph of the first line touching the top of
+    the box (plus any list topsep), not Qt's full font ascent below it."""
+    doc.documentLayout().documentSize()     # Qt lays out lazily
+    block = doc.begin()
+    layout = block.layout() if block.isValid() else None
+    if layout is None or layout.lineCount() == 0:
+        return 0.0
+    line = layout.lineAt(0)
+    text = block.text()[line.textStart():line.textStart() + line.textLength()]
+    it = block.begin()
+    font = doc.defaultFont()
+    if not it.atEnd():
+        font = it.fragment().charFormat().font()
+    tall = -QFontMetricsF(font).tightBoundingRect(text or "x").top()
+    actual = layout.position().y() + line.y() + line.ascent()
+    want = block.blockFormat().topMargin() + tall
+    return want - actual
+
+
+def _draw_bullets(painter, items: list, size_pt: float,
+                  font_px: float) -> None:
+    for block, level in items:
+        hit = _bullet_for(level, size_pt)
+        layout = block.layout()
+        if hit is None or layout is None or layout.lineCount() == 0:
+            continue
+        g, img = hit
+        line = layout.lineAt(0)
+        pos = layout.position()
+        text_x = pos.x() + line.x()
+        baseline = pos.y() + line.y() + line.ascent()
+        w, h = g.width_em * font_px, g.height_em * font_px
+        painter.drawImage(
+            QRectF(text_x - g.gap_em * font_px - w,
+                   baseline - g.top_em * font_px, w, h), img)
 
 
 def canvas_font(pixel_size: int = 0, *, stretch: int = 0) -> QFont:
@@ -255,7 +379,12 @@ def scene_width(aspect: str) -> float:
 
 
 _CM_TO_PT = 72.27 / 2.54
-_BEAMER_H_PT = 272.8        # beamer slide height (~96 mm) for the presets
+# beamer's paper height per aspectratio preset, in cm (beamer.cls). The
+# canvas page is SCENE_H px high whatever the aspect, so px-per-pt — and
+# with it every font size on the canvas — depends on the real height: a
+# 16:9 slide is 9 cm, not the 9.6 cm of 4:3.
+_BEAMER_H_CM = {"169": 9.0, "1610": 10.0, "43": 9.6, "32": 9.0,
+                "54": 10.0, "141": 10.5}
 
 
 def page_size_px(aspect: str, w_cm: float = 0.0, h_cm: float = 0.0):
@@ -267,7 +396,7 @@ def page_size_px(aspect: str, w_cm: float = 0.0, h_cm: float = 0.0):
         h_pt = h_cm * _CM_TO_PT
     else:
         ratio = _ASPECT_RATIO.get(aspect, 16 / 9)
-        h_pt = _BEAMER_H_PT
+        h_pt = _BEAMER_H_CM.get(aspect, 9.0) * _CM_TO_PT
     return SCENE_H * ratio, SCENE_H, SCENE_H / h_pt
 
 
@@ -667,17 +796,31 @@ class TextBoxItem(BoxItem):
         colour = obj.color or "#000000"
         doc.setHtml(f'<div style="color:{colour}">{latex_to_html(obj.text)}</div>')
         self._underline_misspelled(doc)
-        inner = QRectF(self._rect.x() + 6, body_top + 2,
-                       self._rect.width() - 12,
-                       self._rect.bottom() - body_top - 2)
+        font_px = obj.font_pt * self._font_scale
+        bullets = _prepare_bullets(doc, obj.font_pt, font_px)
+        # Same leading as the serializer's \fontsize{pt}{lead}.
+        _apply_tex_spacing(doc, round(obj.font_pt * 1.2) * self._font_scale,
+                           self._font_scale)
+        doc.setDocumentMargin(0)
+        # textpos puts the text flush with the box; a framed box is a tikz
+        # node with "inner sep=3pt" (serializer._frame_wrap).
+        from .serializer import _has_frame
+        pad = 3 * self._font_scale if _has_frame(obj) else 0.0
+        if getattr(obj, "block", ""):
+            pad = max(pad, 4.0)
+        inner = QRectF(self._rect.x() + pad, body_top + pad,
+                       self._rect.width() - 2 * pad,
+                       self._rect.bottom() - body_top - 2 * pad)
         doc.setTextWidth(inner.width())
+        shift = _first_baseline_shift(doc)
 
         painter.save()
-        painter.translate(inner.topLeft())
+        painter.translate(inner.topLeft() + QPointF(0, shift))
         # Clip generously below so glyphs/descenders and overflow aren't cut.
-        painter.setClipRect(QRectF(0, -2, inner.width(),
+        painter.setClipRect(QRectF(-font_px, -2, inner.width() + font_px,
                                    max(inner.height(), doc.size().height()) + 6))
         doc.drawContents(painter)
+        _draw_bullets(painter, bullets, obj.font_pt, font_px)
         painter.restore()
         self._paint_selection(painter)
 

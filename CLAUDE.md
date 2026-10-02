@@ -87,7 +87,12 @@ The canvas is drawn to look like the PDF: text uses beamer's Latin
 Modern faces from tectonic's cache (`latex_fonts.py`), and the theme's
 own furniture (title bar, head/foot lines, numbers, background, master)
 is a compiled backdrop — `serializer.serialize_backdrop` is the deck
-with the objects removed, page *i* under slide *i*.
+with the objects removed, page *i* under slide *i*, followed by
+"bullet probe" pages (a real itemize per size and level) from which
+`bullets.py` cuts the theme's actual bullets for the canvas. Canvas text
+follows TeX's spacing (first baseline = tallest glyph, fixed
+baselineskip, beamer's topsep/itemsep), and px-per-pt uses beamer's real
+paper height per aspect ratio (16:9 is 9 cm, not 9.6).
 
 Editing is in-place, PowerPoint-style — there is **no properties side
 panel**. Double-click a text box to type into it (a floating editor

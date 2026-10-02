@@ -1114,6 +1114,11 @@ def serialize_deck(deck: Deck) -> str:
     # re-insert the symbols per frame via textpos) for plain frames, where
     # beamer drops them along with the footline; or clear it outright to hide
     # them when the user turned them off.
+    # beamer shrinks nested list items to a fixed \small / \footnotesize
+    # (10 / 8 pt) whatever the box's \fontsize, so a sub-item in a 24 pt box
+    # came out tiny. Keep the box's size, as the canvas shows it.
+    lines += ["\\setbeamerfont{itemize/enumerate subbody}{size=\\relax}",
+              "\\setbeamerfont{itemize/enumerate subsubbody}{size=\\relax}"]
     if not (deck.nav_symbols and not deck.plain_frames):
         lines.append("\\setbeamertemplate{navigation symbols}{}")
     lines += _header_footer_lines(deck)
@@ -1133,20 +1138,80 @@ def serialize_deck(deck: Deck) -> str:
     return "\n".join(lines) + "\n"
 
 
+# Bullet probes: extra pages at the end of the backdrop PDF, each holding a
+# real itemize at one font size — level 1, 2 and 3 on rows at the fractions
+# below — so the canvas can copy the theme's actual bullets (shape, colour,
+# size and offset from the text) instead of guessing them.
+PROBE_SIZES = (11, 18, 28, 40)         # pt; the canvas scales the nearest
+PROBE_LEVELS = 3
+_PROBE_X, _PROBE_W = 0.04, 0.6         # textblock column (module units)
+_PROBE_ROWS = (0.04, 0.36, 0.68)       # textblock tops (module units)
+_PROBE_ROW_H = 0.3
+
+
+def probe_cell(deck: Deck, level: int) -> tuple[float, float, float, float]:
+    """Where bullet probe *level* (1-based) sits on its page, as fractions
+    of the page: (x0, y0, x1, y1). Mirrors the textpos grid of
+    serialize_deck (the deck's gap insets the modules)."""
+    g = max(0.0, min(0.45, deck.gap))
+    span = 1 - 2 * g
+    y = _PROBE_ROWS[level - 1]
+    return (g + (_PROBE_X - 0.02) * span, g + y * span,
+            g + (_PROBE_X + _PROBE_W) * span, g + (y + _PROBE_ROW_H) * span)
+
+
+def probe_list_left(deck: Deck) -> float:
+    """x of the probe lists' left edge, as a fraction of the page."""
+    g = max(0.0, min(0.45, deck.gap))
+    return g + _PROBE_X * (1 - 2 * g)
+
+
+def _probe_frame(size: int) -> list[str]:
+    lead = int(round(size * 1.2))
+    lines = ["{%  bullet probe (KherveSlide canvas) — not a slide",
+             "\\setbeamercolor{background canvas}{bg=white}",
+             "\\setbeamertemplate{background canvas}[default]",
+             "\\setbeamertemplate{background}{}",
+             "\\setbeamertemplate{navigation symbols}{}",
+             "\\begin{frame}[plain,noframenumbering]"]
+    for level in range(1, PROBE_LEVELS + 1):
+        y = _PROBE_ROWS[level - 1]
+        # Outer levels get an empty label so only the probed bullet inks.
+        body = "\\item x"
+        for _ in range(level - 1):
+            body = f"\\item[] \\begin{{itemize}}{body}\\end{{itemize}}"
+        lines += [
+            f"\\begin{{textblock}}{{{_fmt(_PROBE_W)}}}"
+            f"({_fmt(_PROBE_X)},{_fmt(y)})",
+            f"{{\\raggedright\\fontsize{{{size}}}{{{lead}}}\\selectfont "
+            f"\\begin{{itemize}}{body}\\end{{itemize}}\\par}}",
+            "\\end{textblock}"]
+    lines += ["\\end{frame}", "}"]
+    return lines
+
+
 def serialize_backdrop(deck: Deck) -> str:
     """The presentation with every slide's own objects removed — only what
     the beamer theme draws around them is left: the frame title bar,
     headline / footline, slide numbers, navigation symbols, background and
     the master slide. Page *i* of its PDF is the "empty" themed slide *i*;
-    the canvas lays it under the editable boxes so the WYSIWYG page looks
+    the canvas lays it under the editable boxes so the Visual page looks
     like the LaTeX one. Each frame keeps an invisible ``\\mbox{}`` so an
-    empty slide still ships out a page and the page numbers line up."""
+    empty slide still ships out a page and the page numbers line up.
+
+    After the slides come one bullet-probe page per PROBE_SIZES entry
+    ([plain,noframenumbering], so the slide count is unchanged)."""
     slides = [Slide(objects=[], title=s.title, bg=s.bg, bg_alpha=s.bg_alpha,
                     free=s.free)
               for s in deck.slides]
     bare = replace(deck, slides=slides)
     tex = serialize_deck(bare)
-    return tex.replace("\\end{frame}", "  \\mbox{}\n\\end{frame}")
+    tex = tex.replace("\\end{frame}", "  \\mbox{}\n\\end{frame}")
+    probes = []
+    for size in PROBE_SIZES:
+        probes += [""] + _probe_frame(size)
+    return tex.replace("\n\\end{document}",
+                       "\n" + "\n".join(probes) + "\n\n\\end{document}")
 
 
 def deck_body_family(deck: Deck) -> str:
