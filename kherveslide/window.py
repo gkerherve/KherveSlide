@@ -1225,14 +1225,17 @@ class SlideWindow(QMainWindow):
         self.f_foot_r.editingFinished.connect(self._apply_headfoot)
         # The head/foot slots accept LaTeX, so common dynamic bits work.
         # Right-click any of them (incl. the frame title) for an Insert menu.
-        _hf_tip = ("Accepts LaTeX — right-click to insert the date, slide "
-                   "number, title, author… (or type \\today etc.).")
+        _hf_tip = ("Double-click to insert the slide number, date, title, "
+                   "author… (accepts LaTeX too, e.g. \\today).")
+        self._hf_fields: dict = {}
         for _f, _apply in ((self.f_frame_title, self._apply_frame_title),
                            (self.f_header, self._apply_headfoot),
                            (self.f_foot_l, self._apply_headfoot),
                            (self.f_foot_c, self._apply_headfoot),
                            (self.f_foot_r, self._apply_headfoot)):
             _f.setToolTip(_hf_tip)
+            self._hf_fields[_f] = _apply
+            _f.installEventFilter(self)
             _f.setContextMenuPolicy(Qt.CustomContextMenu)
             _f.customContextMenuRequested.connect(
                 lambda pos, field=_f, apply=_apply:
@@ -1490,14 +1493,18 @@ class SlideWindow(QMainWindow):
 
     # Dynamic bits you can drop into a header / footer / frame-title slot.
     _HF_INSERTS = [
-        ("Date (today)", "\\today"),
         ("Slide number", "\\insertframenumber"),
-        ("Total slides", "\\inserttotalframenumber"),
         ("Slide n / N",
          "\\insertframenumber\\,/\\,\\inserttotalframenumber"),
+        ("Total slides", "\\inserttotalframenumber"),
+        (None, None),
+        ("Date (today)", "\\today"),
+        ("Date (numbers)", "\\the\\day/\\the\\month/\\the\\year"),
+        ("Year", "\\the\\year"),
         (None, None),
         ("Presentation title", "\\inserttitle"),
         ("Short title", "\\insertshorttitle"),
+        ("This slide's frame title", "\\insertframetitle"),
         ("Author", "\\insertauthor"),
         ("Short author", "\\insertshortauthor"),
         ("Institute", "\\insertinstitute"),
@@ -1505,6 +1512,55 @@ class SlideWindow(QMainWindow):
         ("Section", "\\insertsectionhead"),
         ("Subsection", "\\insertsubsectionhead"),
     ]
+
+    def _hf_example(self, token: str) -> str:
+        """What a token will show, for the double-click picker."""
+        today = datetime.now()
+        n, total = self.current + 1, len(self.deck.slides)
+        return {
+            "\\insertframenumber": str(n),
+            "\\insertframenumber\\,/\\,\\inserttotalframenumber":
+                f"{n} / {total}",
+            "\\inserttotalframenumber": str(total),
+            "\\today": f"{today.day} {today:%B %Y}",
+            "\\the\\day/\\the\\month/\\the\\year":
+                f"{today.day}/{today.month}/{today.year}",
+            "\\the\\year": str(today.year),
+            "\\inserttitle": self.deck.title,
+            "\\insertshorttitle": self.deck.title,
+            "\\insertframetitle": self.slide.title or "(none on this slide)",
+            "\\insertauthor": self.deck.author or "(no author set)",
+            "\\insertshortauthor": self.deck.author or "(no author set)",
+        }.get(token, "")
+
+    def _hf_picker(self, field, apply):
+        """Double-click on a header / footer / frame-title slot: pick what
+        goes in it, each entry showing what it will look like."""
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        head = menu.addAction("Insert into this field:")
+        head.setEnabled(False)
+        for label, token in self._HF_INSERTS:
+            if label is None:
+                menu.addSeparator()
+                continue
+            example = self._hf_example(token)
+            text = f"{label}    —  {example}" if example else label
+            act = menu.addAction(
+                text, lambda f=field, t=token, a=apply:
+                self._hf_insert(f, t, a))
+            act.setToolTip(token)
+        menu.addSeparator()
+        menu.addAction("Clear field",
+                       lambda f=field, a=apply: (f.clear(), a()))
+        menu.exec(field.mapToGlobal(field.rect().bottomLeft()))
+
+    def eventFilter(self, obj, event):
+        if (event.type() == QEvent.MouseButtonDblClick
+                and obj in getattr(self, "_hf_fields", {})):
+            self._hf_picker(obj, self._hf_fields[obj])
+            return True
+        return super().eventFilter(obj, event)
 
     def _hf_context_menu(self, field, apply, pos):
         menu = field.createStandardContextMenu()
