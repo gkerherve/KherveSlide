@@ -1816,3 +1816,57 @@ def pen_preview(width: float = 2.0, dash: str = "solid", head: str = "",
             tip(2.0, -1)
     p.end()
     return QIcon(px)
+
+
+def chemistry() -> QIcon:
+    """Erlenmeyer flask with an accent-coloured liquid."""
+    px, p = _new_canvas()
+    p.setRenderHint(QPainter.Antialiasing, True)
+
+    body = QPainterPath()
+    body.moveTo(9.5, 4)
+    body.lineTo(9.5, 9.5)
+    body.lineTo(4, 19.5)
+    body.lineTo(20, 19.5)
+    body.lineTo(14.5, 9.5)
+    body.lineTo(14.5, 4)
+
+    liquid = QPainterPath()
+    liquid.moveTo(6.9, 14.5)
+    liquid.lineTo(4, 19.5)
+    liquid.lineTo(20, 19.5)
+    liquid.lineTo(17.1, 14.5)
+    liquid.closeSubpath()
+    p.setPen(Qt.NoPen)
+    p.setBrush(_accent())
+    p.drawPath(liquid)
+
+    p.setBrush(Qt.NoBrush)
+    p.setPen(QPen(_fg(), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.drawPath(body)
+    p.drawLine(8, 4, 16, 4)  # lip
+    p.end()
+    return QIcon(px)
+
+
+def chemfig_structure() -> QIcon:
+    """A benzene hexagon with the accent-coloured aromatic ring inside —
+    the chemical-structure editor."""
+    import math as _math
+    px, p = _new_canvas()
+    p.setRenderHint(QPainter.Antialiasing, True)
+    cx, cy, r = 12.0, 12.0, 8.0
+    pts = [QPointF(cx + r * _math.cos(_math.radians(60 * i - 90)),
+                   cy + r * _math.sin(_math.radians(60 * i - 90)))
+           for i in range(6)]
+    hexagon = QPolygonF(pts)
+    p.setPen(QPen(_fg(), 1.7, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setBrush(Qt.NoBrush)
+    p.drawPolygon(hexagon)
+    # inner aromatic ring
+    p.setPen(QPen(_accent(), 1.4))
+    p.drawEllipse(QPointF(cx, cy), r * 0.5, r * 0.5)
+    p.end()
+    return QIcon(px)
+
+

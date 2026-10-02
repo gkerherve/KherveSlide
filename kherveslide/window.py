@@ -813,9 +813,28 @@ class SlideWindow(QMainWindow):
         m_insert.addAction("Picture", self._add_picture)
         m_insert.addAction("Video…", self._add_video)
         m_insert.addAction("Table…", self._insert_table_picker)
-        m_insert.addAction("Equation…", self._add_equation)
-        m_insert.addAction("Chemical equation…", self._add_chemistry)
-        m_insert.addAction("Chemical structure…", self._add_chem_structure)
+        # The same three entries, icons and shortcuts as KherveTeX.
+        self.act_equation_builder = QAction(
+            icons.equation_builder(), "&Equation builder...", self,
+            shortcut="Ctrl+Shift+E", triggered=self._add_equation)
+        self.act_chemistry = QAction(
+            icons.chemistry(), "C&hemical reaction...", self,
+            shortcut="Ctrl+Shift+R", triggered=self._add_chemistry)
+        self.act_chemfig = QAction(
+            icons.chemfig_structure(), "Chemical &structure...", self,
+            shortcut="Ctrl+Shift+T",
+            triggered=lambda: self._add_chem_structure())
+        for a in (self.act_equation_builder, self.act_chemistry,
+                  self.act_chemfig):
+            a.setToolTip(a.text().replace("&", "").rstrip(".") + " ("
+                         + a.shortcut().toString() + ")")
+        self._themed_icons += [
+            (self.act_equation_builder, icons.equation_builder),
+            (self.act_chemistry, icons.chemistry),
+            (self.act_chemfig, icons.chemfig_structure)]
+        m_insert.addAction(self.act_equation_builder)
+        m_insert.addAction(self.act_chemistry)
+        m_insert.addAction(self.act_chemfig)
         m_insert.addAction("Drawing…", self._add_drawing)
 
         m_shapes = mb.addMenu("S&hapes")
@@ -1110,10 +1129,9 @@ class SlideWindow(QMainWindow):
         vact(icons.image_box, "Add image", self._add_picture)
         vact(icons.video_box, "Add video", self._add_video)
         vact(icons.table, "Add table", self._add_table)
-        vact(icons.math_block, "Add equation", self._add_equation)
-        vact(lambda: icons.paint_tool("chemistry"),
-             "Add chemical equation / structure",
-             self._add_chemistry_menu)
+        tb.addAction(self.act_equation_builder)
+        tb.addAction(self.act_chemistry)
+        tb.addAction(self.act_chemfig)
         vact(icons.symbol, "Insert symbol…", self._insert_symbol)
         vact(icons.drawing, "Add drawing", self._add_drawing)
         vact(icons.line_tool, "Add line", self._add_line)
@@ -2492,8 +2510,11 @@ class SlideWindow(QMainWindow):
                 self._touch_current()
 
     def _add_equation(self):
+        """KherveTeX's equation builder. Its inline / display / numbered
+        choice doesn't apply on a slide (the box is the layout), so it's
+        hidden."""
         from .equation_editor import EquationEditorDialog
-        dlg = EquationEditorDialog(self)
+        dlg = EquationEditorDialog(self, show_layout=False)
         if dlg.exec() and dlg.latex():
             # Wide, so the maths stays on one line in the PDF as on the
             # canvas (inline maths would otherwise break at + or =).
@@ -2514,14 +2535,6 @@ class SlideWindow(QMainWindow):
              else Path(tempfile.gettempdir()) / "kherveslide_drawings")
         d.mkdir(parents=True, exist_ok=True)
         return d
-
-    def _add_chemistry_menu(self):
-        menu = QMenu(self)
-        menu.addAction("Chemical equation (mhchem)…", self._add_chemistry)
-        menu.addAction("Chemical structure (chemfig)…",
-                       self._add_chem_structure)
-        from PySide6.QtGui import QCursor
-        menu.exec(QCursor.pos())
 
     def _add_chemistry(self):
         """A reaction / formula typeset by mhchem, e.g. 2H2 + O2 -> 2H2O."""
@@ -2901,10 +2914,9 @@ class SlideWindow(QMainWindow):
             menu.addAction("Add text box", self._add_text)
             menu.addAction("Add image…", self._add_picture)
             menu.addAction("Add table", self._add_table)
-            menu.addAction("Add equation…", self._add_equation)
-            menu.addAction("Add chemical equation…", self._add_chemistry)
-            menu.addAction("Add chemical structure…",
-                           self._add_chem_structure)
+            menu.addAction(self.act_equation_builder)
+            menu.addAction(self.act_chemistry)
+            menu.addAction(self.act_chemfig)
             menu.addAction("Add drawing…", self._add_drawing)
             menu.addSeparator()
             paste = menu.addAction("Paste", lambda: self._paste(scene_pos))
