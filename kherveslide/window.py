@@ -2301,19 +2301,30 @@ class SlideWindow(QMainWindow):
             self._layout_pixmaps[key] = pm
         return pm
 
-    def _fill_new_slide_menu(self, menu, row=None):
-        """Populate *menu* with one entry per slide layout, each showing a
-        small preview of the layout."""
+    def _fill_layout_menu(self, menu, on_pick):
+        """Populate *menu* with one picture row per slide layout — a small
+        preview of the arrangement beside its name; picking one closes the
+        whole menu chain and calls on_pick(name)."""
         from PySide6.QtWidgets import QWidgetAction
+
+        def pick(name):
+            m = menu
+            while isinstance(m, QMenu):        # close every open level
+                m.hide()
+                m = m.parentWidget()
+            on_pick(name)
         for name in templates.slide_layout_names():
             act = QWidgetAction(menu)
             row_w = _LayoutMenuRow(self._layout_pixmap(name), name)
-            row_w.activated.connect(
-                lambda n=name, r=row, m=menu:
-                (m.hide(), self._add_slide_with_layout(n, r)))
+            row_w.activated.connect(lambda n=name: pick(n))
             act.setDefaultWidget(row_w)
             menu.addAction(act)
         return menu
+
+    def _fill_new_slide_menu(self, menu, row=None):
+        """The picture layout menu, adding a new slide (after *row*)."""
+        return self._fill_layout_menu(
+            menu, lambda n: self._add_slide_with_layout(n, row))
 
     def _del_slide(self):
         if len(self.deck.slides) <= 1:
@@ -2339,9 +2350,8 @@ class SlideWindow(QMainWindow):
         if not (0 <= row < len(self.deck.slides)):
             return
         menu = QMenu(self)
-        lay = menu.addMenu("Apply layout to this slide")
-        for name in templates.slide_layout_names():
-            lay.addAction(name, lambda n=name, r=row: self._apply_layout(r, n))
+        self._fill_layout_menu(menu.addMenu("Apply layout to this slide"),
+                               lambda n: self._apply_layout(row, n))
         menu.addSeparator()
         self._fill_new_slide_menu(menu.addMenu("New slide after"), row)
         menu.addAction("Duplicate slide", lambda: self._duplicate_slide(row))
