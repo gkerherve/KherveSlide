@@ -73,9 +73,8 @@ def _text_of(tf) -> str:
     while lines and not lines[-1].strip():
         lines.pop()
     # One paragraph per line: the serializer turns each newline into a
-    # "\\" itself, so adding our own doubled them ("\\ \\" → "There's no
-    # line here to end"). An empty paragraph keeps its gap as an empty box.
-    return "\n".join(ln if ln.strip() else "\\mbox{}" for ln in lines)
+    # "\\" (and an empty line into a visible blank line) itself.
+    return "\n".join(lines)
 
 
 # Formats XeTeX's \\includegraphics reads; anything else (gif, bmp,

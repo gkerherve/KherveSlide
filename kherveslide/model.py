@@ -365,6 +365,16 @@ def _picture_effects_from(d: dict) -> dict:
     return {k: type(v)(d.get(k, v)) for k, v in _PICTURE_EFFECTS.items()}
 
 
+def _plain_blank_lines(text: str) -> str:
+    """Files imported from PowerPoint by v0.141–0.143 stored empty lines as
+    a literal ``\\mbox{}``, which the canvas shows as text. An empty line
+    is now plain (the serializer makes it a visible blank line)."""
+    if "\\mbox{}" not in text:
+        return text
+    return "\n".join("" if ln.strip() == "\\mbox{}" else ln
+                     for ln in text.split("\n"))
+
+
 def deck_from_json(s: str) -> Deck:
     return _build_deck(json.loads(s))
 
@@ -375,7 +385,7 @@ def _build_object(d: dict) -> SlideObject:
         return SlideText(
             x=float(d.get("x", 0.1)), y=float(d.get("y", 0.1)),
             w=float(d.get("w", 0.4)), h=float(d.get("h", 0.15)),
-            text=str(d.get("text", "")),
+            text=_plain_blank_lines(str(d.get("text", ""))),
             font_pt=int(d.get("font_pt", 20)),
             font_family=str(d.get("font_family", "")),
             color=str(d.get("color", "#000000")),

@@ -86,7 +86,25 @@ def main() -> int:
     if win.updater is not None:
         win.updater.schedule()
     win.start_mcp_if_enabled()
+    app.aboutToQuit.connect(_release_clipboard)
     return app.exec()
+
+
+def _release_clipboard():
+    """Hand our clipboard contents back to Qt before shutdown. A QMimeData
+    we set from Python is otherwise destroyed after QApplication, during
+    interpreter exit, and segfaults ("Python quit unexpectedly"). Plain
+    text survives for other apps; slide/picture data is only useful
+    inside KherveSlide anyway."""
+    cb = QApplication.clipboard()
+    try:
+        if cb.ownsClipboard():
+            text = cb.text()
+            cb.clear()
+            if text:
+                cb.setText(text)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

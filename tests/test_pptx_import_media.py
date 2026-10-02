@@ -42,4 +42,19 @@ class _TF:
 
 def test_empty_paragraphs_never_make_bare_linebreaks():
     body = pptx_import._text_of(_TF(["a", "", "", "b"]))
-    assert body == "a\n\\mbox{}\n\\mbox{}\nb"
+    assert body == "a\n\n\nb"
+    tex = serializer._apply_linebreaks(body)
+    assert tex == "a \\\\\n\\mbox{} \\\\\n\\mbox{} \\\\\nb"
+
+
+def test_trailing_and_list_blank_lines_left_alone():
+    assert serializer._apply_linebreaks("a\n\n") == "a\n\n"
+    body = "\\begin{itemize}\n\\item x\n\n\\end{itemize}"
+    assert serializer._apply_linebreaks(body) == body
+
+
+def test_legacy_mbox_lines_load_as_empty_lines():
+    from kherveslide.model import deck_from_json, deck_to_json, Deck, Slide, SlideText
+    deck = Deck(slides=[Slide(objects=[SlideText(text="a\n\\mbox{}\nb")])])
+    back = deck_from_json(deck_to_json(deck))
+    assert back.slides[0].objects[0].text == "a\n\nb"

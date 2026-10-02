@@ -67,16 +67,29 @@ def _is_struct_line(line: str) -> bool:
 
 def _apply_linebreaks(body: str) -> str:
     """Turn a user line break (Enter → newline between two plain text lines)
-    into a LaTeX ``\\\\`` so it shows on a new line. itemize/enumerate
-    structure lines and blank-line paragraph breaks are left untouched."""
+    into a LaTeX ``\\\\`` so it shows on a new line. An empty line between
+    text lines becomes a visible blank line (``\\mbox{}``), as the canvas
+    draws it — a bare blank line would only be a paragraph break with no
+    gap. itemize/enumerate structure lines are left untouched."""
     lines = body.split("\n")
     if len(lines) <= 1:
         return body
-    out = [lines[0]]
-    for prev, cur in zip(lines, lines[1:]):
-        both_plain = (prev.strip() and cur.strip()
-                      and not _is_struct_line(prev) and not _is_struct_line(cur))
-        out.append((" \\\\\n" if both_plain else "\n") + cur)
+
+    def plain(ln):
+        return bool(ln.strip()) and not _is_struct_line(ln)
+
+    # Empty lines inside a run of plain text are real (blank) lines.
+    filled = list(lines)
+    for i, ln in enumerate(lines):
+        if ln.strip():
+            continue
+        before = next((x for x in reversed(lines[:i]) if x.strip()), "")
+        after = next((x for x in lines[i + 1:] if x.strip()), "")
+        if plain(before) and plain(after):
+            filled[i] = "\\mbox{}"
+    out = [filled[0]]
+    for prev, cur in zip(filled, filled[1:]):
+        out.append((" \\\\\n" if plain(prev) and plain(cur) else "\n") + cur)
     return "".join(out)
 
 
