@@ -681,6 +681,18 @@ def test_framed_text_keeps_alignment_inside_node(align, cmd):
     assert body.endswith("\\par")
 
 
+def test_framed_text_padding_comes_out_of_the_box_width():
+    # The node's text width + 2 x inner sep must equal the box width, so
+    # the frame spans the box instead of overflowing it by the padding.
+    deck = Deck(slides=[Slide(objects=[
+        SlideText(text="x", fill="#E6EEF6", border_color="#003E74",
+                  locked=False)])], nav_symbols=False)
+    tex = serialize_deck(deck)
+    opts = tex[tex.index("\\node[") + 6:tex.index("]{", tex.index("\\node["))]
+    assert "inner sep=3pt" in opts.split(",")
+    assert "text width=\\linewidth-6pt" in opts.split(",")
+
+
 def test_no_box_frame_without_border_or_fill():
     deck = Deck(slides=[Slide(objects=[SlideText(text="plain", locked=False)])],
                 nav_symbols=False)

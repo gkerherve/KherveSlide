@@ -155,6 +155,11 @@ def _has_frame(obj) -> bool:
                 or _hex_to_rgb_arg(getattr(obj, "fill", "")))
 
 
+# Padding between a box frame and its content (the canvas insets text by
+# the same 3pt — see TextBoxItem._text_rect).
+_FRAME_PAD_PT = 3
+
+
 def _frame_wrap(inner: str, obj, text_width: str | None = None) -> str:
     """Wrap *inner* in a tikz node giving the box a fill and/or a border
     rectangle (sharp or rounded). Returns *inner* unchanged if neither set."""
@@ -162,7 +167,7 @@ def _frame_wrap(inner: str, obj, text_width: str | None = None) -> str:
     fc = _hex_to_rgb_arg(getattr(obj, "fill", ""))
     if not bc and not fc:
         return inner
-    pre, opts = [], ["inner sep=3pt"]
+    pre, opts = [], [f"inner sep={_fmt(_FRAME_PAD_PT)}pt"]
     if bc:
         pre.append(f"\\definecolor{{ksBorder}}{{HTML}}{{{bc}}}")
         w = _fmt(max(0.2, getattr(obj, "border_width", 1.0)))
@@ -191,7 +196,10 @@ def _frame_wrap(inner: str, obj, text_width: str | None = None) -> str:
     if getattr(obj, "shadow", False):
         opts.append("drop shadow")
     if text_width:
-        opts.append(f"text width={text_width}")
+        # The frame spans the box, as on the canvas: the 2 x inner sep
+        # padding comes out of the text width instead of being added on
+        # top of it (which pushed the frame 6pt past the box's right edge).
+        opts.append(f"text width={text_width}-{_fmt(2 * _FRAME_PAD_PT)}pt")
     return ("".join(pre) + "\\begin{tikzpicture}\n"
             f"\\node[{','.join(opts)}]{{{inner}}};\n\\end{{tikzpicture}}")
 
