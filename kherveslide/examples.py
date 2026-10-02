@@ -607,6 +607,551 @@ def lightning_talk(assets: Path) -> Deck:
     return _themed(deck, _kit("Dark", accent=gold, footer_style="none"))
 
 
+# ---------------------------------------------------------- science charts
+def _science_charts(assets: Path) -> dict[str, str]:
+    """XPS fit, XRD pattern, Tauc plot, budget split, convergence — drawn
+    once with matplotlib, like :func:`_charts`."""
+    assets.mkdir(parents=True, exist_ok=True)
+    keys = ("xps", "xrd", "tauc", "budget", "energy")
+    paths = {k: assets / f"example_{k}.png" for k in keys}
+    if all(p.exists() for p in paths.values()):
+        return {k: str(p) for k, p in paths.items()}
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.figure import Figure
+    import numpy as np
+
+    def tidy(ax):
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+
+    def save(fig, key):
+        fig.savefig(paths[key], dpi=200, bbox_inches="tight",
+                    transparent=True)
+
+    def pv(x, mu, fwhm, eta=0.3):
+        g = np.exp(-4 * np.log(2) * ((x - mu) / fwhm) ** 2)
+        lo = 1 / (1 + 4 * ((x - mu) / fwhm) ** 2)
+        return eta * lo + (1 - eta) * g
+
+    # 1) XPS Ti 2p: a spin-orbit doublet over a Shirley-like background
+    be = np.linspace(470, 452, 500)
+    comps = [(458.6, 1.1, 1.0, "#0091D4", "Ti$^{4+}$ 2p$_{3/2}$"),
+             (464.3, 2.0, 0.5, "#0091D4", "Ti$^{4+}$ 2p$_{1/2}$"),
+             (457.1, 1.3, 0.12, "#C8102E", "Ti$^{3+}$ 2p$_{3/2}$"),
+             (462.8, 2.2, 0.06, "#C8102E", "Ti$^{3+}$ 2p$_{1/2}$")]
+    peaks = sum(a * pv(be, mu, w) for mu, w, a, _c, _l in comps)
+    bg = 0.08 + 0.25 * np.cumsum(peaks[::-1])[::-1] / peaks.sum()
+    rng = np.random.default_rng(3)
+    data = bg + peaks + rng.normal(0, 0.012, be.size)
+    fig = Figure(figsize=(5.2, 3.4))
+    ax = fig.add_subplot()
+    ax.plot(be, data, "o", ms=2, color="#555555", label="data")
+    for mu, w, a, col, lab in comps:
+        ax.fill_between(be, bg, bg + a * pv(be, mu, w), color=col,
+                        alpha=0.35, lw=0)
+    ax.plot(be, bg, color="#888888", lw=1, ls="--", label="Shirley")
+    ax.plot(be, bg + peaks, color="#1A1A1A", lw=1.6, label="envelope")
+    ax.set_xlim(470, 452)
+    ax.set_xlabel("Binding energy (eV)")
+    ax.set_ylabel("Intensity (a.u.)")
+    ax.set_yticks([])
+    ax.legend(frameon=False, fontsize=9)
+    tidy(ax)
+    save(fig, "xps")
+
+    # 2) XRD of anatase TiO2
+    tt = np.linspace(20, 70, 1500)
+    refl = [(25.3, 1.0, "(101)"), (37.8, 0.2, "(004)"),
+            (48.0, 0.35, "(200)"), (53.9, 0.2, "(105)"),
+            (55.1, 0.18, "(211)"), (62.7, 0.14, "(204)")]
+    y = sum(a * pv(tt, mu, 0.35, 0.5) for mu, a, _h in refl)
+    y += 0.03 + rng.normal(0, 0.006, tt.size)
+    fig = Figure(figsize=(5.2, 3.2))
+    ax = fig.add_subplot()
+    ax.plot(tt, y, color="#003E74", lw=1.2)
+    for mu, a, hkl in refl:
+        ax.annotate(hkl, (mu, a + 0.06), ha="center", fontsize=8)
+    ax.set_xlabel(r"2$\theta$ (°)")
+    ax.set_ylabel("Intensity (a.u.)")
+    ax.set_yticks([])
+    tidy(ax)
+    save(fig, "xrd")
+
+    # 3) Tauc plot: (alpha h nu)^2 against photon energy
+    e = np.linspace(2.8, 4.0, 200)
+    t = np.clip(e - 3.22, 0, None) * 40 + rng.normal(0, 0.3, e.size)
+    fig = Figure(figsize=(4.4, 3.2))
+    ax = fig.add_subplot()
+    ax.plot(e, t, color="#2E8B57", lw=2)
+    ax.plot([3.22, 3.95], [0, 0.73 * 40], color="#C8102E", ls="--")
+    ax.annotate("$E_g$ = 3.22 eV", (3.22, 0), (3.3, 22),
+                arrowprops=dict(arrowstyle="->"), fontsize=10)
+    ax.set_xlabel(r"$h\nu$ (eV)")
+    ax.set_ylabel(r"$(\alpha h\nu)^2$ (a.u.)")
+    tidy(ax)
+    save(fig, "tauc")
+
+    # 4) budget split (donut)
+    fig = Figure(figsize=(3.6, 3.6))
+    ax = fig.add_subplot()
+    ax.pie([45, 25, 15, 10, 5],
+           labels=["Staff", "Equipment", "Consumables", "Travel",
+                   "Other"],
+           colors=["#5B2C83", "#8E5CB5", "#B996D6", "#D9C6EA",
+                   "#EEE6F5"], startangle=90, counterclock=False,
+           wedgeprops=dict(width=0.42, edgecolor="white"),
+           autopct="%d%%", pctdistance=0.79, textprops={"fontsize": 9})
+    ax.set_aspect("equal")
+    save(fig, "budget")
+
+    # 5) geometry optimisation: energy against step
+    step = np.arange(0, 25)
+    en = -76.42 + 0.35 * np.exp(-step / 4) + rng.normal(0, 0.004,
+                                                         step.size)
+    fig = Figure(figsize=(4.6, 3.2))
+    ax = fig.add_subplot()
+    ax.plot(step, en, "o-", color="#00787A", ms=4)
+    ax.set_xlabel("Optimisation step")
+    ax.set_ylabel("Energy (Hartree)")
+    tidy(ax)
+    save(fig, "energy")
+    return {k: str(p) for k, p in paths.items()}
+
+
+def _gantt(tasks, months, x0, y0, w, h, colour, light, now=None):
+    """A Gantt chart built from shapes: one row per (name, start, length,
+    done) task, months as column headers, an optional "today" line."""
+    label_w = 0.22
+    cw = (w - label_w) / months
+    rh = h / (len(tasks) + 1)
+    out = []
+    for m in range(months):
+        mx = x0 + label_w + m * cw
+        if m % 2 == 0:
+            out.append(_shape("rect", mx, y0 + rh, cw, h - rh, light))
+        out.append(_label(f"M{m + 1}", mx, y0, cw, rh, 10,
+                          color="#555555", bold=False))
+    for i, (name, start, length, done) in enumerate(tasks):
+        y = y0 + (i + 1) * rh
+        out.append(_t(name, x0, y + rh * 0.18, label_w - 0.01, rh, 12))
+        bx = x0 + label_w + start * cw
+        out.append(_shape("rounded_rect", bx, y + rh * 0.2, length * cw,
+                          rh * 0.6, light, border=colour))
+        if done:
+            out.append(_shape("rounded_rect", bx, y + rh * 0.2,
+                              length * cw * done, rh * 0.6, colour))
+    if now is not None:
+        nx = x0 + label_w + now * cw
+        out.append(SlideLine(x=nx, y=y0 + rh * 0.8, w=0.0, h=h - rh * 0.8,
+                             color="#C8102E", width_pt=1.5, style="dashed"))
+        out.append(_t("today", nx - 0.04, y0 + h + 0.005, 0.08, 0.05, 10,
+                      align="center", color="#C8102E", italic=True))
+    return out
+
+
+# =================================================== 7. project kick-off
+def project_kickoff(assets: Path) -> Deck:
+    charts = _science_charts(assets)
+    purple, light = "#5B2C83", "#EEE6F5"
+    s = [_title_slide("Project NOVA — kick-off",
+                      "Scope, plan, roles and budget for the next 12 "
+                      "months", "Project manager  ·  Kick-off meeting",
+                      purple)]
+    s.append(Slide(title="Why this project?", objects=[
+        _t("Problem", 0.06, 0.22, 0.27, 0.06, 18, bold=True, color=purple),
+        _t("Thin-film coatings degrade in humid air within weeks.",
+           0.06, 0.3, 0.27, 0.3, 15),
+        _t("Objective", 0.37, 0.22, 0.27, 0.06, 18, bold=True,
+           color=purple),
+        _t("A coating that keeps 90\\,\\% of its performance after "
+           "1000\\,h damp-heat.", 0.37, 0.3, 0.27, 0.3, 15),
+        _t("Outcome", 0.68, 0.22, 0.27, 0.06, 18, bold=True, color=purple),
+        _t("A validated process transferred to the pilot line.",
+           0.68, 0.3, 0.27, 0.3, 15),
+        _t("Success = 1000\\,h stability, < 5\\,\\% cost increase, one "
+           "pilot customer.", 0.1, 0.7, 0.8, 0.09, 15, align="center",
+           fill=light, border_color=purple, corner="rounded"),
+    ]))
+    tasks = [("WP1 Requirements", 0, 2, 1.0), ("WP2 Synthesis", 1, 4, 0.6),
+             ("WP3 Analysis", 2, 6, 0.3),
+             ("WP4 Ageing tests", 5, 5, 0.0), ("WP5 Scale-up", 8, 4, 0.0),
+             ("WP6 Reporting", 0, 12, 0.2)]
+    gantt = _gantt(tasks, 12, 0.04, 0.2, 0.92, 0.58, purple, light,
+                   now=2.6)
+    for m, name in ((2, "M1"), (6, "M2"), (12, "M3")):
+        mx = 0.04 + 0.22 + m * (0.92 - 0.22) / 12
+        gantt.append(_shape("diamond", mx - 0.012, 0.815, 0.024, 0.043,
+                            "#F2C14E", border=purple))
+        gantt.append(_t(name, mx - 0.03, 0.86, 0.06, 0.05, 10,
+                        align="center", color=purple))
+    s.append(Slide(title="Plan (Gantt)", objects=gantt))
+    R = "\\textbf{R}"
+    s.append(Slide(title="Who does what (RACI)", objects=[
+        _table([["Work package", "PI", "Postdoc", "PhD", "Partner"],
+                ["Requirements", "A", R, "C", "C"],
+                ["Synthesis", "A", "C", R, "I"],
+                ["Characterisation", "A", R, R, "I"],
+                ["Ageing tests", "I", "A", "C", R],
+                ["Scale-up", "A", "C", "I", R]],
+               0.06, 0.22, 0.6, 0.56, purple, 13, striped=True,
+               stripe_color=light),
+        _t(_items("\\textbf{R}esponsible", "\\textbf{A}ccountable",
+                  "\\textbf{C}onsulted", "\\textbf{I}nformed"),
+           0.7, 0.3, 0.26, 0.4, 14),
+    ]))
+    s.append(Slide(title="Budget", objects=[
+        SlidePicture(path=charts["budget"], x=0.04, y=0.18, w=0.42,
+                     h=0.66, keep_aspect=True, locked=False),
+        *_card(0.52, 0.22, 0.2, 0.2, "£480k", "total", purple, 24),
+        *_card(0.76, 0.22, 0.2, 0.2, "12", "months", "#8E5CB5", 24),
+        _t(_items("Staff: one postdoc, one PhD student",
+                  "Equipment: humidity chamber",
+                  "10\\,\\% contingency held centrally"),
+           0.52, 0.5, 0.44, 0.3, 14),
+    ]))
+    s.append(Slide(title="Governance \\& communication", objects=[
+        _shape("rounded_rect", 0.38, 0.2, 0.24, 0.12, purple),
+        _label("Steering board", 0.38, 0.2, 0.24, 0.12, 14),
+        _arrow(0.5, 0.32, 0.5, 0.42, purple),
+        _shape("rounded_rect", 0.38, 0.42, 0.24, 0.12, "#8E5CB5"),
+        _label("Project manager", 0.38, 0.42, 0.24, 0.12, 14),
+        *[o for i, wp in enumerate(("WP1–2", "WP3–4", "WP5–6"))
+          for o in (_arrow(0.5, 0.54, 0.2 + i * 0.3, 0.64, purple),
+                    _shape("rounded_rect", 0.1 + i * 0.3, 0.64, 0.2, 0.1,
+                           light, border=purple),
+                    _label(wp, 0.1 + i * 0.3, 0.64, 0.2, 0.1, 13,
+                           color=purple))],
+        _t("Weekly stand-up  ·  monthly report  ·  quarterly board",
+           0.1, 0.82, 0.8, 0.06, 13, align="center", italic=True,
+           color="#555555"),
+    ]))
+    s.append(Slide(title="Decisions today", objects=[
+        _t(_items("Approve the work-package leads",
+                  "Approve the purchase of the humidity chamber",
+                  "Fix the date of the first steering board", enum=True),
+           0.08, 0.26, 0.84, 0.4, 20),
+        _t("Next meeting: end of month 2 (milestone M1).", 0.15, 0.72,
+           0.7, 0.1, 15, block="exampleblock", block_title="Next"),
+    ]))
+    deck = Deck(title="Project NOVA — kick-off", author="Project office",
+                aspect="169", slides=s, page_number="of_total")
+    return _themed(deck, _kit("UCL-style purple", footer_style="line"))
+
+
+# ================================================= 8. materials science
+def materials_talk(assets: Path) -> Deck:
+    charts = _science_charts(assets)
+    navy, blue, teal = "#003E74", "#0091D4", "#2E8B57"
+    s = [_title_slide("Oxygen vacancies in TiO$_2$ thin films",
+                      "Sputter deposition, XRD, XPS and optical band gap",
+                      "A. Researcher  ·  Surface Analysis Group  ·  "
+                      "\\today", navy)]
+    flow = []
+    for i, (name, col) in enumerate((("Sputter", navy),
+                                     ("Anneal", blue),
+                                     ("XRD", teal), ("XPS", "#C8102E"),
+                                     ("UV–Vis", "#B8860B"))):
+        x = 0.04 + i * 0.19
+        flow += [_shape("chevron", x, 0.24, 0.2, 0.16, col),
+                 _label(name, x + 0.02, 0.24, 0.16, 0.16, 11)]
+    flow += [
+        _t(_items("Reactive DC sputtering, Ar/O$_2$ = 4:1, 300\\,W",
+                  "Anneal 450\\,°C, 2\\,h, in air or vacuum",
+                  "Films 200\\,nm on Si and quartz"),
+           0.06, 0.5, 0.56, 0.32, 15),
+        _t("Vacuum anneal removes lattice oxygen: "
+           "$\\ce{TiO2 -> TiO_{2-x} + x/2 O2}$", 0.65, 0.5, 0.3, 0.3, 13,
+           block="block", block_title="Hypothesis"),
+    ]
+    s.append(Slide(title="Samples and workflow", objects=flow))
+    s.append(Slide(title="Structure: anatase only", objects=[
+        SlidePicture(path=charts["xrd"], x=0.03, y=0.18, w=0.56, h=0.66,
+                     keep_aspect=True, locked=False),
+        _t("Crystallite size (Scherrer):", 0.62, 0.22, 0.34, 0.06, 14),
+        _eq("D = \\frac{K\\lambda}{\\beta\\cos\\theta}", 0.62, 0.28, 0.34,
+            0.13, 18),
+        _table([["Anneal", "$D$ (nm)"], ["air", "18"], ["vacuum", "21"]],
+               0.66, 0.52, 0.26, 0.2, navy, 13),
+        _t("No rutile or brookite detected.", 0.62, 0.77, 0.34, 0.06, 12,
+           italic=True, color="#555555"),
+    ]))
+    s.append(Slide(title="Chemistry: Ti 2p XPS", objects=[
+        SlidePicture(path=charts["xps"], x=0.03, y=0.18, w=0.56, h=0.66,
+                     keep_aspect=True, locked=False),
+        _t(_items("Doublet split 5.7\\,eV, area ratio 2:1",
+                  "Ti$^{3+}$ shoulder at 457.1\\,eV",
+                  "Shirley background, pseudo-Voigt"),
+           0.61, 0.2, 0.36, 0.36, 13),
+        _table([["", "Ti$^{4+}$", "Ti$^{3+}$"], ["air", "100\\,\\%", "—"],
+                ["vacuum", "89\\,\\%", "11\\,\\%"]],
+               0.62, 0.64, 0.34, 0.18, navy, 12),
+    ]))
+    s.append(Slide(title="Optical band gap", objects=[
+        SlidePicture(path=charts["tauc"], x=0.04, y=0.18, w=0.48, h=0.66,
+                     keep_aspect=True, locked=False),
+        _t("Tauc relation (indirect gap, $n=2$):", 0.56, 0.22, 0.4, 0.06,
+           14),
+        _eq("(\\alpha h\\nu)^{1/n} = A\\,(h\\nu - E_g)", 0.55, 0.3, 0.42,
+            0.12, 20),
+        _t("Vacancies add states 0.8\\,eV below the conduction band "
+           "→ visible absorption, grey-blue films.", 0.56, 0.52, 0.4,
+           0.24, 13, block="alertblock", block_title="Observation"),
+    ]))
+    cards = []
+    for i, (v, cap, col) in enumerate((("11\\,\\%", "Ti$^{3+}$ after "
+                                        "vacuum", navy),
+                                       ("3.22 eV", "band gap", blue),
+                                       ("21 nm", "crystallites", teal))):
+        cards += _card(0.08 + i * 0.3, 0.22, 0.24, 0.22, v, cap, col, 26)
+    s.append(Slide(title="Conclusions", objects=cards + [
+        _t(_items("Vacuum annealing creates Ti$^{3+}$ without a phase "
+                  "change", "XPS quantifies it; XRD and UV–Vis confirm",
+                  "Next: photocatalysis against vacancy density"),
+           0.08, 0.52, 0.84, 0.32, 16),
+        _t("Spectra fitted in KherveFitting  ·  slides in KherveSlide",
+           0.1, 0.86, 0.8, 0.05, 10, align="center", color="#777777"),
+    ]))
+    deck = Deck(title="Oxygen vacancies in TiO2 thin films",
+                author="A. Researcher", aspect="169", slides=s,
+                page_number="of_total")
+    return _themed(deck, _kit("Imperial-style navy", footer_style="bar"))
+
+
+# ===================================================== 9. Kherve suite
+_SUITE = [
+    ("KherveTeX", "LaTeX, visually", "#003E74"),
+    ("KherveFitting", "XPS peak fitting", "#C8102E"),
+    ("KherveCAD", "3D parts, drawings", "#2E6B30"),
+    ("KherveMol", "Molecules in 3D", "#00787A"),
+    ("KherveSlide", "Beamer slides", "#5B2C83"),
+]
+
+
+def kherve_suite(assets: Path) -> Deck:
+    charts = _science_charts(assets)
+    ink = "#1A1A1A"
+    s = [_title_slide("The Kherve suite",
+                      "Open-source tools for writing, analysing, "
+                      "designing and presenting science",
+                      "github.com/gkerherve", "#003E74")]
+    hub = [_shape("ellipse", 0.4, 0.42, 0.2, 0.2, "#F2C14E"),
+           _label("your\\\\research", 0.4, 0.42, 0.2, 0.2, 14, color=ink)]
+    spots = [(0.06, 0.2), (0.7, 0.2), (0.06, 0.66), (0.7, 0.66),
+             (0.38, 0.75)]
+    for (name, what, col), (x, y) in zip(_SUITE, spots):
+        hub += [_shape("rounded_rect", x, y, 0.24, 0.14, col),
+                _label(name, x, y + 0.005, 0.24, 0.08, 15),
+                _label(what, x, y + 0.065, 0.24, 0.06, 10, bold=False)]
+        cx, cy = x + 0.12, y + 0.07
+        dy = 0.07 if cy < 0.5 else -0.07
+        hub.insert(0, SlideLine(x=cx, y=cy + dy, w=0.5 - cx,
+                                h=0.52 - cy - dy, color="#BBBBBB",
+                                width_pt=1.5))
+    s.append(Slide(title="One family of tools", objects=hub))
+    for name, what, col in _SUITE[:4]:
+        body = {
+            "KherveTeX": (
+                _items("Visual and source editing side by side",
+                       "Equation, chemistry and drawing builders",
+                       "Compiles with tectonic — no TeX install"),
+                "\\[\\int_0^\\infty e^{-x^2}\\,dx = "
+                "\\frac{\\sqrt{\\pi}}{2}\\]"),
+            "KherveFitting": (
+                _items("Shirley, Tougaard and linear backgrounds",
+                       "Pseudo-Voigt and doublet components",
+                       "Constraints, quantification, report tables"),
+                None),
+            "KherveCAD": (
+                _items("Parametric parts from sketches",
+                       "Assemblies and 2D drawings",
+                       "Export for 3D printing and figures"),
+                None),
+            "KherveMol": (
+                _items("Draw or import molecules",
+                       "3D view, geometry optimisation",
+                       "Figures straight into papers and slides"),
+                "\\chemfig{*6(-=-(-OH)=-=)}"),
+        }[name]
+        objs = [_shape("rect", 0.0, 0.17, 0.012, 0.7, col),
+                _t(what, 0.05, 0.2, 0.9, 0.07, 18, italic=True, color=col),
+                _t(body[0], 0.05, 0.32, 0.5, 0.45, 16)]
+        if name == "KherveFitting":
+            objs.append(SlidePicture(path=charts["xps"], x=0.56, y=0.28,
+                                     w=0.4, h=0.56, keep_aspect=True,
+                                     locked=False))
+        elif name == "KherveCAD":
+            objs += [_shape("rect", 0.62, 0.4, 0.2, 0.3, "#E3EDE3",
+                            border=col),
+                     _shape("ellipse", 0.68, 0.48, 0.08, 0.14, "#FFFFFF",
+                            border=col),
+                     SlideLine(x=0.62, y=0.76, w=0.2, h=0.0, color=col,
+                               width_pt=1.0, arrow_start=True,
+                               arrow_end=True),
+                     _t("40.0", 0.68, 0.77, 0.08, 0.05, 11, align="center",
+                        color=col)]
+        else:
+            objs.append(_t(body[1], 0.58, 0.36, 0.38, 0.3, 22,
+                           align="center"))
+        s.append(Slide(title=name, objects=objs))
+    s.append(Slide(title="A typical workflow", objects=[
+        *[o for i, (name, _w, col) in enumerate(
+            (_SUITE[3], _SUITE[1], _SUITE[0], _SUITE[4]))
+          for o in (_shape("chevron", 0.04 + i * 0.23, 0.3, 0.24, 0.18,
+                           col),
+                    _label(name, 0.075 + i * 0.23, 0.3, 0.17, 0.18, 10))],
+        _t(_items("Build the molecule, export a figure",
+                  "Fit the spectra, export the table",
+                  "Write the paper around both",
+                  "Present it — same figures, same fonts", enum=True),
+           0.12, 0.56, 0.76, 0.32, 15),
+    ]))
+    s.append(Slide(objects=[
+        _t("Free and open source", 0.1, 0.34, 0.8, 0.12, 32,
+           align="center", bold=True, color="#003E74"),
+        _t("github.com/gkerherve", 0.1, 0.52, 0.8, 0.08, 18,
+           align="center", color="#0091D4"),
+    ]))
+    deck = Deck(title="The Kherve suite", author="G. Kerherve",
+                aspect="169", slides=s, page_number="number")
+    return _themed(deck, _kit("Clean blue", footer_style="line"))
+
+
+# ================================================= 10. KherveFitting tutorial
+def fitting_tutorial(assets: Path) -> Deck:
+    charts = _science_charts(assets)
+    red, light = "#C8102E", "#FBE9EC"
+    s = [_title_slide("Fitting XPS spectra with KherveFitting",
+                      "From raw counts to a quantified table in five steps",
+                      "Training session  ·  Surface Analysis Lab", red)]
+    steps = ["Import", "Calibrate", "Background", "Components", "Report"]
+    flow = []
+    for i, name in enumerate(steps):
+        x = 0.04 + i * 0.185
+        flow += [_shape("chevron", x, 0.3, 0.2, 0.16,
+                        red if i == 0 else "#E07A8A"),
+                 _label(name, x + 0.03, 0.3, 0.14, 0.16, 12)]
+    flow.append(_t(_items(".vms, .xlsx or Avantage exports",
+                          "Charge-correct to adventitious C 1s = "
+                          "284.8\\,eV", "Then fit region by region"),
+                   0.1, 0.56, 0.8, 0.3, 16))
+    s.append(Slide(title="The workflow", objects=flow))
+    s.append(Slide(title="Backgrounds", objects=[
+        _t("\\textbf{Shirley} — the background at $E$ grows with the "
+           "peak area above it:", 0.05, 0.22, 0.9, 0.08, 15),
+        _eq("B(E) = I_2 + (I_1 - I_2)\\,\\frac{\\int_E^{E_2} "
+            "[I(E')-B(E')]\\,dE'}{\\int_{E_1}^{E_2}[I(E')-B(E')]\\,dE'}",
+            0.05, 0.32, 0.9, 0.16, 20),
+        _table([["Background", "Use for"],
+                ["Linear", "Insulators, narrow windows"],
+                ["Shirley", "Most core levels"],
+                ["Tougaard", "Quantitative depth info"]],
+               0.2, 0.55, 0.6, 0.3, red, 13, striped=True,
+               stripe_color=light),
+    ]))
+    s.append(Slide(title="Line shapes", objects=[
+        _t("Pseudo-Voigt: a Gaussian–Lorentzian mix", 0.05, 0.22, 0.9,
+           0.06, 16),
+        _eq("PV(x) = \\eta\\,L(x) + (1-\\eta)\\,G(x)", 0.05, 0.3, 0.9,
+            0.12, 22),
+        _t("Doublets", 0.06, 0.5, 0.4, 0.06, 16, bold=True, color=red),
+        _t(_items("Fix the splitting (Ti 2p: 5.7\\,eV)",
+                  "Fix the area ratio (p 1:2, d 2:3, f 3:4)",
+                  "Link the widths"), 0.06, 0.57, 0.42, 0.3, 14),
+        _t("Never fit more components than the chemistry allows.",
+           0.54, 0.56, 0.4, 0.2, 14, block="alertblock",
+           block_title="Rule of thumb"),
+    ]))
+    s.append(Slide(title="Result", objects=[
+        SlidePicture(path=charts["xps"], x=0.03, y=0.18, w=0.56, h=0.66,
+                     keep_aspect=True, locked=False),
+        _table([["Peak", "BE (eV)", "FWHM", "At.\\,\\%"],
+                ["Ti$^{4+}$ 2p$_{3/2}$", "458.6", "1.1", "29.4"],
+                ["Ti$^{3+}$ 2p$_{3/2}$", "457.1", "1.3", "3.6"],
+                ["O 1s lattice", "529.9", "1.2", "61.0"],
+                ["C 1s", "284.8", "1.4", "6.0"]],
+               0.6, 0.24, 0.37, 0.4, red, 11),
+        _t("$\\chi^2_\\nu = 1.04$  ·  residuals flat", 0.6, 0.7, 0.37,
+           0.06, 12, align="center", italic=True, color="#555555"),
+    ]))
+    s.append(Slide(title="Checklist", objects=[
+        _t(_items("Energy scale calibrated?", "Background end points "
+                  "on flat regions?", "Doublet constraints set?",
+                  "FWHM physically sensible?", "Residuals without "
+                  "structure?"), 0.1, 0.24, 0.8, 0.55, 18),
+    ]))
+    deck = Deck(title="Fitting XPS spectra with KherveFitting",
+                author="Surface Analysis Lab", aspect="169", slides=s,
+                page_number="of_total")
+    return _themed(deck, _kit("Crimson", footer_style="line"))
+
+
+# ============================================ 11. KherveMol & KherveCAD
+def mol_and_cad(assets: Path) -> Deck:
+    charts = _science_charts(assets)
+    teal, green = "#00787A", "#2E6B30"
+    s = [_title_slide("From molecule to model",
+                      "Designing with KherveMol and KherveCAD",
+                      "Lab meeting  ·  \\today", teal)]
+    s.append(Slide(title="Draw it: KherveMol", objects=[
+        _t("\\chemfig{*6(-=-(-COOH)=-(-OH)=)}", 0.04, 0.24, 0.4, 0.4,
+           12, align="center"),
+        _t("Salicylic acid", 0.04, 0.68, 0.44, 0.06, 13, align="center",
+           italic=True, color="#555555"),
+        _t(_items("Sketch in 2D, view in 3D",
+                  "SMILES / MOL import",
+                  "Bond lengths and angles on click"),
+           0.56, 0.26, 0.4, 0.4, 16),
+        _t("$\\ce{C7H6O3}$  ·  $M = 138.12$\\,g\\,mol$^{-1}$", 0.52,
+           0.7, 0.44, 0.06, 14, color=teal),
+    ]))
+    s.append(Slide(title="Relax it: geometry optimisation", objects=[
+        SlidePicture(path=charts["energy"], x=0.04, y=0.2, w=0.5, h=0.62,
+                     keep_aspect=True, locked=False),
+        _eq("\\mathbf{x}_{k+1} = \\mathbf{x}_k - \\mathbf{H}_k^{-1}"
+            "\\nabla E(\\mathbf{x}_k)", 0.55, 0.26, 0.42, 0.12, 18),
+        _t("Converged in 20 steps; the O–H$\\cdots$O hydrogen bond "
+           "locks the conformer.", 0.57, 0.48, 0.38, 0.24, 13,
+           block="exampleblock", block_title="Result"),
+    ]))
+    s.append(Slide(title="Build the hardware: KherveCAD", objects=[
+        _shape("rect", 0.08, 0.3, 0.36, 0.36, "#E3EDE3", border=green),
+        *[_shape("ellipse", 0.12 + c * 0.1, 0.38 + r * 0.14, 0.06, 0.1,
+                 "#FFFFFF", border=green)
+          for r in range(2) for c in range(3)],
+        SlideLine(x=0.08, y=0.72, w=0.36, h=0.0, color=green,
+                  width_pt=1.0, arrow_start=True, arrow_end=True),
+        _t("60.0 mm", 0.18, 0.73, 0.16, 0.05, 11, align="center",
+           color=green),
+        _t("A six-well sample holder for the XPS stage", 0.08, 0.2, 0.4,
+           0.06, 13, italic=True, color="#555555"),
+        _t(_items("Sketch → extrude → pocket",
+                  "Parameters: well size, pitch, depth",
+                  "STL for printing, PDF drawing for the workshop"),
+           0.52, 0.28, 0.44, 0.4, 16),
+    ]))
+    s.append(Slide(title="Parameters drive the design", objects=[
+        _table([["Parameter", "Value", "Driven by"],
+                ["Well diameter", "8.0 mm", "sample size"],
+                ["Pitch", "12.0 mm", "diameter + 4"],
+                ["Depth", "1.5 mm", "sample thickness"],
+                ["Plate", "60 × 30 mm", "pitch × wells"]],
+               0.12, 0.24, 0.76, 0.4, green, 14, striped=True,
+               stripe_color="#E3EDE3"),
+        _t("Change one number — the whole part follows.", 0.15, 0.72,
+           0.7, 0.08, 16, align="center", bold=True, color=green),
+    ]))
+    s.append(Slide(objects=[
+        _t("Molecule → measurement → model", 0.06, 0.36, 0.88, 0.14, 30,
+           align="center", bold=True, color=teal),
+        _t("KherveMol  ·  KherveFitting  ·  KherveCAD  ·  KherveSlide",
+           0.1, 0.56, 0.8, 0.08, 15, align="center", color="#555555"),
+    ]))
+    deck = Deck(title="From molecule to model", author="Lab meeting",
+                aspect="169", slides=s, page_number="number")
+    return _themed(deck, _kit("Cambridge-style teal", footer_style="line"))
+
+
 #: (name, description, factory(assets) -> Deck), in menu order.
 EXAMPLES = [
     ("Research talk", "University-style theme with a logo bar, equations, "
@@ -621,6 +1166,16 @@ EXAMPLES = [
      "comparison table — all built from shapes", diagrams),
     ("Lightning talk (dark)", "Dark theme, big statements, a chart with "
      "headline numbers", lightning_talk),
+    ("Project kick-off", "Gantt chart, RACI table, budget donut, "
+     "governance tree and decisions", project_kickoff),
+    ("Materials science talk", "TiO2 films: workflow, XRD, XPS fit, "
+     "Tauc plot, Scherrer equation and conclusions", materials_talk),
+    ("The Kherve suite", "KherveTeX, KherveFitting, KherveCAD, KherveMol "
+     "and KherveSlide — one slide each and a workflow", kherve_suite),
+    ("XPS fitting tutorial", "KherveFitting training: backgrounds, line "
+     "shapes, doublets and a quantified result", fitting_tutorial),
+    ("Molecule to model", "KherveMol and KherveCAD: chemfig structure, "
+     "geometry optimisation, a parametric part", mol_and_cad),
 ]
 
 
