@@ -834,17 +834,22 @@ class SlideWindow(QMainWindow):
             icons.chemfig_structure(), "Chemical &structure...", self,
             shortcut="Ctrl+Shift+T",
             triggered=lambda: self._add_chem_structure())
+        self.act_flowchart = QAction(
+            icons.flowchart_builder(), "&Flowchart builder...", self,
+            shortcut="Ctrl+Shift+F", triggered=lambda: self._add_flowchart())
         for a in (self.act_equation_builder, self.act_chemistry,
-                  self.act_chemfig):
+                  self.act_chemfig, self.act_flowchart):
             a.setToolTip(a.text().replace("&", "").rstrip(".") + " ("
                          + a.shortcut().toString() + ")")
         self._themed_icons += [
             (self.act_equation_builder, icons.equation_builder),
             (self.act_chemistry, icons.chemistry),
-            (self.act_chemfig, icons.chemfig_structure)]
+            (self.act_chemfig, icons.chemfig_structure),
+            (self.act_flowchart, icons.flowchart_builder)]
         m_insert.addAction(self.act_equation_builder)
         m_insert.addAction(self.act_chemistry)
         m_insert.addAction(self.act_chemfig)
+        m_insert.addAction(self.act_flowchart)
         m_insert.addAction("Drawing…", self._add_drawing)
 
         m_insert.addSeparator()
@@ -1174,6 +1179,7 @@ class SlideWindow(QMainWindow):
         tb.addAction(self.act_equation_builder)
         tb.addAction(self.act_chemistry)
         tb.addAction(self.act_chemfig)
+        tb.addAction(self.act_flowchart)
         vact(icons.symbol, "Insert symbol…", self._insert_symbol)
         vact(icons.drawing, "Add drawing", self._add_drawing)
         vact(icons.line_tool, "Add line", self._add_line)
@@ -2123,7 +2129,9 @@ class SlideWindow(QMainWindow):
             # made it (its source sits next to the picture).
             from .drawing_dialog import drawing_source_for
             p = Path(item.obj.path or "")
-            if p.with_suffix(".chemfig").exists():
+            if p.with_suffix(".flow.json").exists():
+                self._add_flowchart(item)
+            elif p.with_suffix(".chemfig").exists():
                 self._add_chem_structure(item)
             elif item.obj.path and drawing_source_for(p) is not None:
                 self._edit_drawing(item)
@@ -2785,6 +2793,61 @@ class SlideWindow(QMainWindow):
         self._select_last()
         self._touch_current()
 
+    def _theme_primary(self) -> str:
+        """The presentation's main colour (theme title bar / structure)."""
+        spec = self.deck.theme_spec
+        if spec.enabled:
+            return spec.title_bg or spec.structure or "#1F4E79"
+        return {"Madrid": "#3333B3", "AnnArbor": "#003366",
+                "Berkeley": "#3333B3", "Berlin": "#3333B3",
+                "CambridgeUS": "#A3001D", "Copenhagen": "#3333B3",
+                "Warsaw": "#3333B3"}.get(self.deck.theme, "#1F4E79")
+
+    def _add_flowchart(self, item=None):
+        """The flowchart builder: the chart is compiled to a vector PDF
+        placed as a picture, with its source (.flow.json, reopened on
+        double-click) and its TikZ (.tikz, reusable in any LaTeX
+        document) kept beside it."""
+        from . import flowchart
+        from .flowchart_builder import FlowchartBuilderDialog
+        existing = Path(item.obj.path) if item is not None else None
+        chart = None
+        if existing is not None:
+            src = existing.with_suffix(".flow.json")
+            try:
+                chart = flowchart.Flowchart.from_json(
+                    src.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                chart = None
+        dlg = FlowchartBuilderDialog(self, chart, self._theme_primary())
+        if not dlg.exec() or dlg.result_pdf is None:
+            return
+        if existing is not None:
+            pdf = existing.with_suffix(".pdf")
+        else:
+            d = self._figures_dir()
+            n = 1
+            while (d / f"flowchart_{n:03d}.pdf").exists():
+                n += 1
+            pdf = d / f"flowchart_{n:03d}.pdf"
+        pdf.write_bytes(dlg.result_pdf)
+        pdf.with_suffix(".flow.json").write_text(
+            dlg.result_chart.to_json(), encoding="utf-8")
+        pdf.with_suffix(".tikz").write_text(dlg.result_tikz,
+                                            encoding="utf-8")
+        if item is not None:
+            item.obj.path = str(pdf)
+            item._pix_path = None
+            item.update()
+            self._touch_current()
+            return
+        obj = SlidePicture(path=str(pdf), x=0.15, y=0.2, w=0.7, h=0.66,
+                           keep_aspect=True, locked=False)
+        self.slide.objects.append(obj)
+        self._reload_scene()
+        self._select_last()
+        self._touch_current()
+
     def _add_drawing(self):
         dlg = DrawingDialog(self._figures_dir(), self)
         dlg.drawingSaved.connect(self._on_drawing_saved)
@@ -3082,6 +3145,7 @@ class SlideWindow(QMainWindow):
             menu.addAction(self.act_equation_builder)
             menu.addAction(self.act_chemistry)
             menu.addAction(self.act_chemfig)
+            menu.addAction(self.act_flowchart)
             menu.addAction("Add drawing…", self._add_drawing)
             menu.addSeparator()
             paste = menu.addAction("Paste", lambda: self._paste(scene_pos))

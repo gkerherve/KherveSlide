@@ -110,6 +110,30 @@ it out in the normal flow of the slide. Right-click an object and use
   (rings, bonds, wedges), placed as a sharp picture; double-click it to
   edit.
 
+## Flowcharts
+
+**Flowchart builder** (`Ctrl+Shift+F`, or the flowchart button on the
+left toolbar) builds a LaTeX (TikZ) flowchart by clicking:
+
+- **Click a shape** in the palette — start / end, process, decision,
+  input / output, document, data, sub-process, connector, note — to add
+  it after the selected box, joined by an arrow. A chain grows as fast
+  as you click.
+- **Drag** boxes to move them (they snap to a grid); **Ctrl / ⌘-click**
+  another box to draw an arrow to it; **Delete** removes the selection.
+- **Edit** the text of a box, or the label of an arrow (*Yes*, *No*…), in
+  the panel on the right; LaTeX maths is welcome, and `\\` starts a new
+  line. Arrows can be automatic, straight or elbowed, and dashed.
+- **Direction**: top to bottom, or left to right. **Colours**: your
+  presentation's own, or a ready-made scheme. **Tidy up** lays the chart
+  out by itself. **Start from** offers ready-made charts.
+- The **preview** is compiled with LaTeX — exactly what lands on the
+  slide. **Show LaTeX** gives the TikZ code.
+
+The chart is placed on the slide as a sharp picture; double-click it to
+edit it again. Its TikZ code is saved beside the presentation
+(`figures/flowchart_001.tikz`) to reuse in any LaTeX document.
+
 ## Tables, shapes and lines
 
 - **Insert → Table** — pick the size; double-click a cell to type in it.
@@ -274,6 +298,7 @@ restart when an update has been installed.
 | Find / Check spelling | `Ctrl+F` / `F7` |
 | Compile now | `Ctrl+R` |
 | Equation builder / Chemical reaction / Chemical structure | `Ctrl+Shift+E` / `Ctrl+Shift+R` / `Ctrl+Shift+T` |
+| Flowchart builder | `Ctrl+Shift+F` |
 | Move slide up / down | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` |
 | Show / hide the slides list | `Ctrl+B` |
 | Show grid | `Ctrl+'` |

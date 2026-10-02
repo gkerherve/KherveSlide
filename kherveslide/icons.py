@@ -605,6 +605,32 @@ def equation_builder() -> QIcon:
     return QIcon(px)
 
 
+def flowchart_builder() -> QIcon:
+    """A tiny flowchart: a rounded start box, an arrow, a decision diamond,
+    an arrow, a process box — the flowchart builder (KherveSlide)."""
+    px, p = _new_canvas()
+    p.setRenderHint(QPainter.Antialiasing, True)
+    line = QPen(_fg(), 1.3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(line)
+    p.setBrush(QBrush(_accent()))
+    p.drawRoundedRect(QRectF(7, 1.5, 10, 4.5), 2.2, 2.2)
+    p.drawLine(QPointF(12, 6), QPointF(12, 8))
+    p.setBrush(Qt.NoBrush)
+    p.drawPolygon(QPolygonF([QPointF(12, 8), QPointF(17, 11.5),
+                             QPointF(12, 15), QPointF(7, 11.5)]))
+    p.drawLine(QPointF(12, 15), QPointF(12, 17.5))
+    p.drawLine(QPointF(17, 11.5), QPointF(21, 11.5))
+    p.drawLine(QPointF(21, 11.5), QPointF(21, 19.5))
+    p.setBrush(QBrush(_accent2()))
+    p.drawRect(QRectF(7, 17.5, 10, 4.5))
+    p.setBrush(QBrush(_fg()))
+    p.setPen(Qt.NoPen)
+    p.drawPolygon(QPolygonF([QPointF(12, 17.5), QPointF(10.6, 15.9),
+                             QPointF(13.4, 15.9)]))
+    p.end()
+    return QIcon(px)
+
+
 def zoom_out() -> QIcon:
     px, p = _new_canvas()
     p.setPen(QPen(_fg(), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))

@@ -870,6 +870,11 @@ def test_auto_compile_toggle_gates_scheduling(monkeypatch):
     QApplication.instance() or QApplication([])
     from kherveslide import window
     monkeypatch.setattr(window, "tectonic_available", lambda: True)
+    # Only the scheduling is under test: no real compiles / downloads,
+    # which would otherwise start threads that outlive the test.
+    for name in ("_start_compile", "_start_backdrop",
+                 "_maybe_autodownload_packages"):
+        monkeypatch.setattr(window.SlideWindow, name, lambda self, *a: None)
     w = window.SlideWindow()
     w._toggle_auto_compile(False)
     assert w._auto_compile is False
@@ -879,6 +884,8 @@ def test_auto_compile_toggle_gates_scheduling(monkeypatch):
     w._toggle_auto_compile(True)
     w._schedule_compile()
     assert w._auto_timer.isActive()
+    w._auto_timer.stop()
+    w.close()
 
 
 def test_group_round_trips():
@@ -2214,6 +2221,11 @@ def test_offline_warmup_covers_every_offered_theme_and_font():
         assert f"colours {c}" in names, f"offline warm-up misses colours {c}"
     for key in FONT_FAMILIES:
         assert f"font {key}" in names, f"offline warm-up misses font {key}"
+    docs = dict(offline._documents())
+    from kherveslide.flowchart import TIKZ_LIBRARIES
+    for lib in TIKZ_LIBRARIES:                 # the flowchart builder
+        assert lib in docs["flowchart"]
+    assert "mhchem" in docs["chemistry"] and "chemfig" in docs["chemistry"]
 
 
 # --- double-click an equation box reopens the equation editor ---
@@ -2825,3 +2837,71 @@ def test_app_examples_show_bundled_screenshots(tmp_path):
                 and Path(o.path).parent == _EXAMPLE_MEDIA]
         assert len(pics) >= 6, name
         assert all(Path(p.path).exists() for p in pics)
+
+
+# --- flowchart builder model (flowchart.py) ---
+
+def test_flowchart_add_chains_and_connects():
+    from kherveslide.flowchart import Flowchart
+    fc = Flowchart()
+    a = fc.add("terminal", "Start")
+    b = fc.add("process", after=a.id)
+    c = fc.add("decision", "OK?", after=b.id, label="")
+    assert (b.x, b.y) == (0, 1) and (c.x, c.y) == (0, 2)
+    assert [(e.src, e.dst) for e in fc.edges] == [(a.id, b.id), (b.id, c.id)]
+    assert b.text == "Process"                 # the shape's name by default
+    d = fc.add("process", "side", after=b.id)  # spot taken: sidesteps
+    assert (d.x, d.y) == (1, 2)
+    assert fc.connect(a.id, a.id) is None      # no self-loops
+    assert fc.connect(a.id, b.id) is fc.edges[0]   # no duplicates
+    fc.remove(b.id)
+    assert fc.node(b.id) is None
+    assert all(b.id not in (e.src, e.dst) for e in fc.edges)
+
+
+def test_flowchart_left_to_right_and_json_round_trip():
+    from kherveslide.flowchart import Flowchart
+    fc = Flowchart(direction="LR")
+    a = fc.add("database", "Data")
+    b = fc.add("process", "Clean", after=a.id)
+    assert (b.x, b.y) == (1, 0)
+    fc.edges[0].label = "raw"
+    fc.nodes[0].fill = "#FF0000"
+    back = Flowchart.from_json(fc.to_json())
+    assert back == fc
+
+
+def test_flowchart_tikz_shapes_routes_and_colours():
+    from kherveslide.flowchart import (
+        TEMPLATES, TIKZ_LIBRARIES, standalone_doc, to_tikz)
+    fc = TEMPLATES["Algorithm (sum to n)"]()
+    assert len({n.id for n in fc.nodes}) == len(fc.nodes)   # unique ids
+    tikz = to_tikz(fc, "#003E74")
+    assert tikz.count("\\node[") == len(fc.nodes)
+    assert tikz.count("\\draw[") == len(fc.edges)
+    assert "diamond" in tikz and "trapezium" in tikz
+    assert "rounded rectangle" in tikz
+    assert "{HTML}{003E74}" in tikz            # presentation colours
+    assert "node[pos=0.25" in tikz and "{Yes}" in tikz
+    # the loop back to the decision goes round the left side
+    assert ".west) -- ++(-1.9,0)" in tikz
+    doc = standalone_doc(fc)
+    for lib in TIKZ_LIBRARIES:
+        assert lib in doc
+    assert doc.startswith("\\documentclass[border=4pt]{standalone}")
+    for name, make in TEMPLATES.items():
+        assert make().nodes, name
+
+
+def test_flowchart_auto_layout_ranks_by_path():
+    from kherveslide.flowchart import Flowchart, auto_layout, Node
+    fc = Flowchart()
+    for nid in ("a", "b", "c", "d"):
+        fc.nodes.append(Node(nid, "process", nid, 5, 5))
+    fc.connect("a", "b"); fc.connect("a", "c"); fc.connect("b", "d")
+    fc.connect("c", "d"); fc.connect("d", "a")          # a loop back
+    auto_layout(fc)
+    y = {n.id: n.y for n in fc.nodes}
+    assert y == {"a": 0, "b": 1, "c": 1, "d": 2}
+    xs = sorted(n.x for n in fc.nodes if n.id in "bc")
+    assert xs == [-0.5, 0.5]                           # spread around 0

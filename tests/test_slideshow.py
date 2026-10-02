@@ -311,3 +311,45 @@ def test_auto_dialog_returns_the_choices(qapp):
     assert (a.seconds, a.repeat, a.minutes) == (7, "for", 12)
     assert dlg.mode.currentData() == "presenter"
     assert dlg.from_current.isChecked()
+
+
+# --- flowchart builder in the window ---
+
+def test_flowchart_inserted_as_picture_and_reopened(qapp, tmp_path,
+                                                    monkeypatch):
+    from kherveslide import flowchart as F
+    from kherveslide import flowchart_builder as FB
+    from kherveslide.window import SlideWindow
+    from kherveslide.model import SlidePicture
+    for name in ("_start_compile", "_start_backdrop",
+                 "_maybe_autodownload_packages"):
+        monkeypatch.setattr(SlideWindow, name, lambda self, *a: None)
+    monkeypatch.setattr(SlideWindow, "_figures_dir", lambda self: tmp_path)
+    seen = {}
+
+    def fake_exec(self):
+        seen["chart"] = self.fc
+        self.result_chart = self.fc
+        self.result_pdf = _pdf(1)
+        self.result_tikz = F.to_tikz(self.fc)
+        return True
+    monkeypatch.setattr(FB.FlowchartBuilderDialog, "exec", fake_exec)
+    monkeypatch.setattr(FB.FlowchartBuilderDialog, "_schedule",
+                        lambda self: None)
+    w = SlideWindow()
+    n = len(w.slide.objects)
+    w._add_flowchart()
+    pic = w.slide.objects[-1]
+    assert len(w.slide.objects) == n + 1 and isinstance(pic, SlidePicture)
+    pdf = tmp_path / "flowchart_001.pdf"
+    assert pic.path == str(pdf) and pdf.exists()
+    assert (tmp_path / "flowchart_001.flow.json").exists()
+    assert "\\begin{tikzpicture}" in (tmp_path / "flowchart_001.tikz"
+                                      ).read_text()
+    # double-click reopens the builder on the saved chart
+    item = w._items[-1]
+    seen.clear()
+    w._on_double_click(item)
+    assert seen["chart"].to_json() == F.template_simple().to_json()
+    assert len(w.slide.objects) == n + 1        # replaced, not added
+    w.close()

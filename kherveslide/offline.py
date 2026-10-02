@@ -45,6 +45,15 @@ def _documents() -> list[tuple[str, str]]:
         docs.append((f"font {key}",
                      "\\documentclass{beamer}" + _PKGS + "".join(pkg_lines)
                      + _BODY))
+    # The builders: flowcharts (TikZ shape libraries) and chemistry
+    # (mhchem reactions, chemfig structures).
+    from . import chemfig, flowchart
+    docs.append(("flowchart", flowchart.standalone_doc(
+        flowchart.template_algorithm())))
+    docs.append(("chemistry", chemfig.build_preview_doc(
+        "\\chemfig{*6(=-=-=-)}\\quad\\ce{2H2 + O2 -> 2H2O}").replace(
+        "\\usepackage{chemfig}",
+        "\\usepackage{chemfig}\\usepackage[version=4]{mhchem}")))
     return docs
 
 
