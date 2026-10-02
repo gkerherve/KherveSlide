@@ -1,5 +1,6 @@
 """Tests for the WYSIWYG beamer deck: model, serializer, templates."""
 import json
+from pathlib import Path
 
 import pytest
 
@@ -2581,3 +2582,116 @@ def test_saved_theme_keeps_its_kit(tmp_path):
     assert ThemeKit.from_dict(loaded["kit"]) == kit
     custom_themes.save_theme("Old", ThemeSpec(), Slide(), directory=tmp_path)
     assert custom_themes.load_themes(tmp_path)["Old"]["kit"] is None
+
+
+# --- importing a university template ---
+
+def _make_pptx(path):
+    """A template whose slide master has a navy bar across the top and a
+    small logo top-right (python-pptx can't add to a master directly, so
+    the shapes are built on a slide and moved over)."""
+    pptx = pytest.importorskip("pptx")
+    from pptx.oxml.shapes.picture import CT_Picture
+    from pptx.util import Emu
+    prs = pptx.Presentation()
+    master = prs.slide_masters[0]
+    sw, sh = int(prs.slide_width), int(prs.slide_height)
+    scratch = prs.slides.add_slide(prs.slide_layouts[6])
+    bar = scratch.shapes.add_shape(1, 0, 0, Emu(sw), Emu(int(sh * 0.12)))
+    bar.fill.solid()
+    bar.fill.fore_color.rgb = pptx.dml.color.RGBColor(0x00, 0x3E, 0x74)
+    master.shapes._spTree.append(bar._element)
+    import pymupdf
+    logo = path.parent / "logo.png"
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 40, 20), 0)
+    pix.clear_with(200)
+    pix.save(str(logo))
+    _part, rid = master.part.get_or_add_image_part(str(logo))
+    master.shapes._spTree.append(CT_Picture.new_pic(
+        99, "Logo", "", rid, int(sw * 0.85), int(sh * 0.02),
+        int(sw * 0.12), int(sh * 0.08)))
+    prs.save(str(path))
+    return path
+
+
+def test_pptx_template_gives_colours_bar_and_logo(tmp_path):
+    from kherveslide.theme_import import kit_from_pptx
+    src = _make_pptx(tmp_path / "Uni_Template.pptx")
+    kit = kit_from_pptx(src, tmp_path / "assets")
+    assert kit.name == "Uni Template"
+    assert kit.primary == "#003E74" and kit.title_style == "bar"
+    assert kit.title_text == "#FFFFFF"
+    assert kit.logo and Path(kit.logo).exists()
+    assert kit.logo_corner == "tr" and 0.05 <= kit.logo_size <= 0.3
+    assert kit.text.startswith("#") and kit.background.startswith("#")
+
+
+def test_potx_template_opens_too(tmp_path):
+    import zipfile
+    from kherveslide.theme_import import kit_from_pptx
+    src = _make_pptx(tmp_path / "t.pptx")
+    potx = tmp_path / "t.potx"
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(potx, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "[Content_Types].xml":
+                data = data.replace(b"presentationml.presentation.main+xml",
+                                    b"presentationml.template.main+xml")
+            zout.writestr(item, data)
+    assert kit_from_pptx(potx).primary == "#003E74"
+
+
+def test_powerpoint_fonts_map_to_latex_typefaces():
+    from kherveslide.theme_import import font_key
+    assert font_key("Arial") == "helvetica"
+    assert font_key("Times New Roman") == "times"
+    assert font_key("Calibri") == ""
+    assert font_key("Fira Sans") == "fira"
+
+
+def test_picture_of_a_slide_gives_bar_and_background(tmp_path):
+    import numpy as np
+    import pymupdf
+    from kherveslide.theme_import import kit_from_picture
+    h, w = 360, 640
+    img = np.full((h, w, 3), 255, dtype=np.uint8)
+    img[:40] = (0x50, 0x07, 0x78)           # purple title bar
+    img[-14:] = (0xAC, 0x14, 0x5A)          # magenta footer
+    img[100:110, 40:400] = (0x22, 0x22, 0x22)   # a line of dark text
+    pix = pymupdf.Pixmap(pymupdf.csRGB, w, h, img.tobytes(), 0)
+    path = tmp_path / "slide.png"
+    pix.save(str(path))
+    kit = kit_from_picture(path)
+    assert kit.title_style == "bar"
+    assert abs(int(kit.primary[1:3], 16) - 0x50) < 10
+    assert kit.background == "#FFFFFF"
+    assert kit.footer_style in ("bar", "line") and kit.accent
+    assert kit.title_text == "#FFFFFF"
+
+
+def test_beamer_zip_installs_theme_with_its_images(tmp_path):
+    import zipfile
+    from kherveslide.theme_import import install_beamer_theme
+    z = tmp_path / "uni-beamer.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("uni-beamer/beamerthemeUni.sty", "% theme")
+        zf.writestr("uni-beamer/beamercolorthemeUni.sty", "% colours")
+        zf.writestr("uni-beamer/logos/crest.png", b"png")
+        zf.writestr("uni-beamer/example.tex", "\\documentclass{beamer}")
+        zf.writestr("__MACOSX/uni-beamer/._beamerthemeUni.sty", "junk")
+    styles = tmp_path / "styles"
+    assert install_beamer_theme(z, styles) == "Uni"
+    assert (styles / "beamerthemeUni.sty").exists()
+    assert (styles / "beamercolorthemeUni.sty").exists()
+    assert (styles / "logos" / "crest.png").exists()
+    assert not (styles / "example.tex").exists()
+
+
+def test_beamer_import_rejects_other_files(tmp_path):
+    from kherveslide.theme_import import install_beamer_theme
+    plain = tmp_path / "notatheme.sty"
+    plain.write_text("%")
+    with pytest.raises(ValueError):
+        install_beamer_theme(plain, tmp_path / "s")
+    with pytest.raises(ValueError):
+        install_beamer_theme(tmp_path / "x.docx", tmp_path / "s")

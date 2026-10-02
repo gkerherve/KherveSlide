@@ -732,7 +732,9 @@ class SlideWindow(QMainWindow):
         m_theme.addAction("Preview themes…", self._open_theme_gallery)
         m_theme.addAction("Generate all theme previews…",
                           self._generate_all_previews)
-        m_theme.addAction("Custom theme builder…", self._open_theme_builder)
+        m_theme.addAction("Theme wizard — make or import a theme…",
+                          self._open_theme_wizard)
+        m_theme.addAction("Advanced theme builder…", self._open_theme_builder)
         m_theme.addSeparator()
         self.act_deco = QAction("Show theme decorations", self, checkable=True)
         self.act_deco.setToolTip("Show the theme's title bars / footers")
@@ -3196,7 +3198,7 @@ class SlideWindow(QMainWindow):
         """For theme/decoration changes: update LaTeX, show the PDF tab and
         compile straight away so the effect is immediately visible."""
         self._refresh_latex()
-        if tectonic_available():
+        if tectonic_available() and self._layout_mode != LAYOUT_VISUAL:
             self.right_tabs.setCurrentWidget(self.pdf_view)
             self._auto_timer.stop()
             self._start_compile()
@@ -3253,6 +3255,47 @@ class SlideWindow(QMainWindow):
                 self.act_deco.setChecked(True)
                 self.act_deco.blockSignals(False)
             self._recompile_now()
+
+    def _open_theme_wizard(self):
+        """The easy way to a theme: presets or an imported university
+        template, then colours / logo / title & footer / typeface."""
+        from . import custom_themes
+        from .theme_import import assets_dir
+        from .theme_kit import kit_from_theme
+        from .theme_wizard import ThemeWizard, keep_logo
+        spec = self.deck.theme_spec
+        current = kit_from_theme(spec) if spec.enabled else None
+        dlg = ThemeWizard(current, aspect=self.deck.aspect,
+                          title=self.deck.title, author=self.deck.author,
+                          parent=self)
+        if not dlg.exec():
+            return
+        if dlg.result_kit is not None:
+            kit = keep_logo(dlg.result_kit, assets_dir())
+            t = kit.to_theme(self.deck.master)
+            self.deck.theme = t["base_theme"]
+            self.deck.color_theme = t["color_theme"]
+            self.deck.theme_spec = t["spec"]
+            if dlg.save_to_library:
+                custom_themes.save_theme(
+                    kit.name, t["spec"], self.deck.master, t["base_theme"],
+                    t["color_theme"], kit=kit.to_dict())
+            msg = f"Theme “{kit.name}” applied"
+        elif dlg.result_base_theme:
+            # An imported beamer theme, used as it is.
+            self.deck.theme = dlg.result_base_theme
+            self.deck.color_theme = ""
+            self.deck.theme_spec.enabled = False
+            msg = f"Beamer theme “{dlg.result_base_theme}” applied"
+        else:
+            return
+        self.deck.plain_frames = False
+        self.act_deco.blockSignals(True)
+        self.act_deco.setChecked(True)
+        self.act_deco.blockSignals(False)
+        self._sync_theme_menus()
+        self._recompile_now()
+        self.statusBar().showMessage(msg, 4000)
 
     def _set_frame_title(self):
         text, ok = QInputDialog.getText(

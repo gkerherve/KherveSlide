@@ -37,6 +37,11 @@ _MISSING_RESOURCE_RE = re.compile(
     r" not found|not found in the bundle|unable to open main file")
 
 
+# Files an imported beamer theme may ship beside its .sty (see compile_tex).
+_THEME_ASSET_EXTS = {".png", ".jpg", ".jpeg", ".pdf", ".eps", ".tikz",
+                     ".otf", ".ttf"}
+
+
 def _log_wants_network(log: str) -> bool:
     """True when a failed offline compile looks like a fetchable missing
     package/font rather than a source-level LaTeX error."""
@@ -494,6 +499,17 @@ def compile_tex(
         for f in sd.glob("*.sty"):
             dest = workdir / f.name
             if not dest.exists() or f.stat().st_mtime > dest.stat().st_mtime:
+                shutil.copy2(f, dest)
+        # KherveSlide divergence: an imported beamer theme (e.g. an
+        # Overleaf zip) brings its logos / backgrounds, often in a
+        # subfolder its .sty points at (\includegraphics{logos/x.png}).
+        for f in sd.iterdir():
+            dest = workdir / f.name
+            if f.name.startswith(".") or dest.exists():
+                continue
+            if f.is_dir():
+                shutil.copytree(f, dest)
+            elif f.suffix.lower() in _THEME_ASSET_EXTS:
                 shutil.copy2(f, dest)
     if skip_images:
         tex_source = _strip_images(tex_source)
