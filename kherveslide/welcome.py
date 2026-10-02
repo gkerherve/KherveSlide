@@ -2,9 +2,9 @@
 
 The layout choice is asked every time (unless the page is switched off)
 because it depends on the task — the same choice KherveTeX offers: the
-WYSIWYG slide with the live PDF beside it when the LaTeX output matters,
-or the WYSIWYG alone, like PowerPoint, with the PDF and console hidden and
-no background compiles.
+Visual slide editor with the live PDF beside it (or in its own window)
+when the LaTeX output matters, or the Visual editor alone, like
+PowerPoint, with the PDF and console hidden and no background compiles.
 """
 from __future__ import annotations
 
@@ -18,25 +18,28 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-LAYOUT_SIDE = "side"        # WYSIWYG + PDF side by side
-LAYOUT_VISUAL = "visual"    # WYSIWYG only (PDF / console hidden)
-LAYOUT_SLIDE = "slide"      # WYSIWYG only, slide navigator hidden too
-LAYOUTS = (LAYOUT_SIDE, LAYOUT_VISUAL, LAYOUT_SLIDE)
+LAYOUT_SIDE = "side"        # Visual + PDF side by side
+LAYOUT_WINDOW = "window"    # Visual + PDF in its own window
+LAYOUT_VISUAL = "visual"    # Visual only (PDF / console hidden)
+LAYOUTS = (LAYOUT_SIDE, LAYOUT_WINDOW, LAYOUT_VISUAL)
 
 LAYOUT_TEXT = {
-    LAYOUT_SIDE: ("WYSIWYG + PDF side by side",
+    LAYOUT_SIDE: ("Visual + PDF side by side",
                   "Design the slide on the left and watch the compiled "
                   "beamer PDF on the right, updated as you edit."),
-    LAYOUT_VISUAL: ("WYSIWYG only — like PowerPoint",
-                    "The slides list and the slide. The PDF and console "
-                    "are hidden and nothing compiles while you work."),
-    LAYOUT_SLIDE: ("Just the slide",
-                   "As WYSIWYG only, with the slides list folded away "
-                   "too. Bring anything back from the View menu."),
+    LAYOUT_WINDOW: ("Visual + PDF in its own window",
+                    "The PDF and console in a separate window you can put "
+                    "on a second screen; close it to dock it back."),
+    LAYOUT_VISUAL: ("Visual only",
+                    "Just the slides and the Visual editor. The PDF and "
+                    "console are hidden and nothing compiles while you "
+                    "work."),
 }
 
 
 def normalise_layout(mode) -> str:
+    if mode in ("slide", "page"):     # v0.123's "just the slide"
+        return LAYOUT_VISUAL
     return mode if mode in LAYOUTS else LAYOUT_SIDE
 
 

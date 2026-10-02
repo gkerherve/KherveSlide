@@ -65,7 +65,7 @@ from .serializer import (
     BEAMER_THEMES, BEAMER_COLOR_THEMES,
 )
 from .welcome import (
-    LAYOUT_SIDE, LAYOUT_SLIDE, LAYOUT_TEXT, LAYOUT_VISUAL, LAYOUTS,
+    LAYOUT_SIDE, LAYOUT_TEXT, LAYOUT_VISUAL, LAYOUT_WINDOW, LAYOUTS,
     normalise_layout,
 )
 
@@ -106,6 +106,31 @@ class _CompileWorker(QThread):
                              skip_images=self._skip_images,
                              on_line=lambda s: self.line.emit(s))
         self.done.emit(result)
+
+
+class _PdfWindow(QWidget):
+    """Top-level window holding the PDF / console panel when it is shown
+    in its own window (e.g. on a second screen). Closing it docks the
+    panel back beside the Visual editor instead of losing it."""
+
+    def __init__(self, on_close, parent=None):
+        super().__init__(parent, Qt.Window)
+        self._on_close = on_close
+        self._quiet = False
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+    def close_quietly(self) -> None:
+        self._quiet = True
+        self.close()
+        self.deleteLater()
+
+    def closeEvent(self, ev) -> None:
+        if not self._quiet:
+            ev.ignore()
+            self._on_close()
+            return
+        super().closeEvent(ev)
 
 
 class _BackdropWorker(QThread):
@@ -434,9 +459,10 @@ class SlideWindow(QMainWindow):
         self._git_worker: _GitNetworkWorker | None = None
         self._pending_commit_msg: str | None = None
         self._theme_cache: dict = {}   # theme name -> preview QPixmap
-        # Layout: "side" (WYSIWYG + PDF), "visual" (WYSIWYG only, no
-        # background compiles) or "slide" (visual, slides list folded too).
+        # Layout: "side" (Visual + PDF), "window" (Visual + PDF in its own
+        # window) or "visual" (Visual only, no background compiles).
         self._layout_mode = LAYOUT_SIDE
+        self._pdf_window: _PdfWindow | None = None
         # Themed backdrop: the theme-only PDF (frame title bar, head/foot
         # lines, numbers, background, master) laid under the canvas boxes so
         # the WYSIWYG page looks like the LaTeX one.
@@ -557,20 +583,21 @@ class SlideWindow(QMainWindow):
             self._layout_group.addAction(a)
             self._layout_actions[mode] = a
         self._layout_actions[LAYOUT_SIDE].setChecked(True)
-        # Ctrl+4 flips between the two main modes (as in KherveTeX).
+        self._layout_actions[LAYOUT_SIDE].setShortcut("Ctrl+4")
+        self._layout_actions[LAYOUT_WINDOW].setShortcut("Ctrl+5")
+        self._layout_actions[LAYOUT_VISUAL].setShortcut("Ctrl+6")
+        # Toolbar button: the PDF on (side by side) or off (Visual only).
         self.act_pdf_side = QAction(icons.pdf_side_panel(),
-                                    "Show the PDF beside the slide", self)
+                                    "Visual + PDF side by side", self)
         self.act_pdf_side.setCheckable(True)
         self.act_pdf_side.setChecked(True)
-        self.act_pdf_side.setShortcut("Ctrl+4")
         self.act_pdf_side.setToolTip(
-            "PDF side by side (Ctrl+4) — off: WYSIWYG only, like "
-            "PowerPoint, with no background compiles")
+            "Visual + PDF side by side (Ctrl+4) — click again for Visual "
+            "only (Ctrl+6). View menu: PDF in its own window (Ctrl+5)")
         self.act_pdf_side.triggered.connect(
             lambda on: self.apply_layout_mode(
                 LAYOUT_SIDE if on else LAYOUT_VISUAL))
         self._themed_icons.append((self.act_pdf_side, icons.pdf_side_panel))
-        m_view.addAction(self.act_pdf_side)
         m_view.addSeparator()
         self.act_show_nav = m_view.addAction("Show slides list")
         self.act_show_nav.setCheckable(True)
@@ -1240,7 +1267,7 @@ class SlideWindow(QMainWindow):
         self.latex_view.regenerateRequested.connect(
             self._regenerate_latex_from_slides)
         self.left_tabs = QTabWidget()
-        self.left_tabs.addTab(wysiwyg, "WYSIWYG")
+        self.left_tabs.addTab(wysiwyg, "Visual")
         self.left_tabs.addTab(self.latex_view, "LaTeX")
         self.left_tabs.setCurrentIndex(0)
 
@@ -1601,13 +1628,15 @@ class SlideWindow(QMainWindow):
     def _update_title(self):
         name = self.path.name if self.path else "Untitled"
         self.setWindowTitle(f"KherveSlide {version_string()} — {name}")
+        if getattr(self, "_pdf_window", None) is not None:
+            self._pdf_window.setWindowTitle(f"{self.windowTitle()} — PDF")
 
     # ---------------- auto-compile ----------------
     def _schedule_compile(self):
         """Debounce: (re)start the timer so a compile fires shortly after
         the last change. Skipped while bulk-loading or when auto-compile off."""
         if (not self._loading and self._auto_compile
-                and self._layout_mode == LAYOUT_SIDE
+                and self._layout_mode != LAYOUT_VISUAL
                 and tectonic_available()):
             self._auto_timer.start()
 
@@ -1636,7 +1665,7 @@ class SlideWindow(QMainWindow):
         self.statusBar().showMessage(
             "Skip images ON — faster compiles (placeholders shown)"
             if on else "Skip images OFF — pictures included", 3000)
-        if tectonic_available() and self._layout_mode == LAYOUT_SIDE:
+        if tectonic_available() and self._layout_mode != LAYOUT_VISUAL:
             self._auto_timer.stop()
             self._start_compile()
 
@@ -1784,6 +1813,9 @@ class SlideWindow(QMainWindow):
             self._dl_worker.wait(2000)
         if self._gen_worker is not None:
             self._gen_worker.wait(4000)
+        if self._pdf_window is not None:
+            self._pdf_window.close_quietly()
+            self._pdf_window = None
         self._bd_timer.stop()
         if self._bd_worker is not None:
             self._bd_worker.wait(4000)
@@ -3313,27 +3345,25 @@ class SlideWindow(QMainWindow):
 
     # ---------------- layout modes / welcome / help ----------------
     def apply_layout_mode(self, mode: str) -> None:
-        """"side": WYSIWYG with the live PDF beside it.
-        "visual": WYSIWYG only, like PowerPoint — the PDF / console panel
-        is hidden and nothing compiles in the background.
-        "slide": as "visual", with the slides list folded away too."""
+        """"side": the Visual editor with the live PDF beside it.
+        "window": the same, with the PDF / console in its own window.
+        "visual": Visual only, like PowerPoint — the PDF / console panel
+        is hidden and nothing compiles in the background."""
         mode = normalise_layout(mode)
         prev = self._layout_mode
         self._layout_mode = mode
-        side = mode == LAYOUT_SIDE
-        self.right_tabs.setVisible(side)
-        self.act_auto.setEnabled(side)
+        pdf_on = mode != LAYOUT_VISUAL
+        self._set_pdf_detached(mode == LAYOUT_WINDOW)
+        if mode != LAYOUT_WINDOW:
+            self.right_tabs.setVisible(mode == LAYOUT_SIDE)
+        self.act_auto.setEnabled(pdf_on)
         self._layout_actions[mode].setChecked(True)
         self.act_pdf_side.blockSignals(True)
-        self.act_pdf_side.setChecked(side)
+        self.act_pdf_side.setChecked(mode == LAYOUT_SIDE)
         self.act_pdf_side.blockSignals(False)
-        if mode == LAYOUT_SLIDE:
-            self.act_show_nav.setChecked(False)
-        elif prev == LAYOUT_SLIDE:
-            self.act_show_nav.setChecked(True)
-        if side:
+        if pdf_on:
             # Bring the PDF up to date with what was edited meanwhile.
-            if prev != LAYOUT_SIDE and self._auto_compile:
+            if prev == LAYOUT_VISUAL and self._auto_compile:
                 self._auto_timer.stop()
                 self._start_compile()
         else:
@@ -3343,6 +3373,42 @@ class SlideWindow(QMainWindow):
             QTimer.singleShot(0, self.view.fit_to_window)
         if prev != mode:
             self.statusBar().showMessage(LAYOUT_TEXT[mode][0], 3000)
+
+    def _set_pdf_detached(self, detached: bool) -> None:
+        """Move the PDF / console panel into its own window (e.g. for a
+        second screen) or dock it back beside the Visual editor."""
+        if detached == (self._pdf_window is not None):
+            return
+        settings = QSettings("kherveDOC", "KherveSlide")
+        if detached:
+            sizes = self._main_split.sizes()
+            win = _PdfWindow(lambda: self.apply_layout_mode(LAYOUT_SIDE),
+                             self)
+            win.setWindowTitle(f"{self.windowTitle()} — PDF")
+            win.setWindowIcon(self.windowIcon())
+            win.layout().addWidget(self.right_tabs)
+            self.right_tabs.show()
+            geo = settings.value("pdf_window_geometry")
+            if geo is not None:
+                win.restoreGeometry(geo)
+            else:
+                win.resize(760, max(600, self.height()))
+                win.move(self.x() + self.width() - 760 + 40, self.y() + 40)
+            self._docked_sizes = sizes
+            self._pdf_window = win
+            win.show()
+        else:
+            win = self._pdf_window
+            self._pdf_window = None
+            settings.setValue("pdf_window_geometry", win.saveGeometry())
+            self._main_split.addWidget(self.right_tabs)
+            sizes = getattr(self, "_docked_sizes", None)
+            if sizes and len(sizes) == 2 and sizes[1] > 50:
+                self._main_split.setSizes(sizes)
+            else:
+                total = max(800, sum(self._main_split.sizes()))
+                self._main_split.setSizes([total * 3 // 5, total * 2 // 5])
+            win.close_quietly()
 
     def show_welcome(self) -> None:
         from .welcome import WelcomeDialog
@@ -3648,7 +3714,7 @@ class SlideWindow(QMainWindow):
             self.console.setPlainText("tectonic is not available on this system.")
             self.right_tabs.setCurrentWidget(self.console)
             return
-        if self._layout_mode != LAYOUT_SIDE:
+        if self._layout_mode == LAYOUT_VISUAL:
             self.apply_layout_mode(LAYOUT_SIDE)
         self.right_tabs.setCurrentWidget(self.pdf_view)
         self._auto_timer.stop()

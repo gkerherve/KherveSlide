@@ -532,7 +532,7 @@ class LatexView(QWidget):
         _lbl = QLabel("Manual LaTeX edits — the slides won't overwrite them.")
         _btn = QPushButton("Regenerate from slides")
         _btn.setToolTip("Discard the manual LaTeX edits and rebuild the source "
-                        "from the WYSIWYG slides")
+                        "from the Visual slides")
         _btn.clicked.connect(lambda: self.regenerateRequested.emit())
         _bl.addWidget(_lbl)
         _bl.addStretch(1)

@@ -76,10 +76,11 @@ stays live as you edit on the left.
 
 Start-up mirrors KherveTeX too: a runtime-painted splash
 (`splash.py`), then a Welcome page (`welcome.py`: new / open / import,
-templates, recent files) that also asks how to work — WYSIWYG + PDF
-side by side, WYSIWYG only (PDF/console hidden, no background
-compiles), or just the slide (slides list folded). Switch any time from
-View or Ctrl+4. Help holds the Welcome page and the GitHub auto-updater
+templates, recent files) that also asks how to work, worded exactly as
+KherveTeX: Visual + PDF side by side, Visual + PDF in its own window
+(close it to dock back), or Visual only (PDF/console hidden, no
+background compiles). Switch any time from View (Ctrl+4 / 5 / 6). The
+user-facing name of the slide editor is "Visual", never "WYSIWYG". Help holds the Welcome page and the GitHub auto-updater
 (`updater.py`, ported from KhervePlot: fast-forwards a clean checkout).
 
 The canvas is drawn to look like the PDF: text uses beamer's Latin

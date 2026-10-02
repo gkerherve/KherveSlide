@@ -2300,11 +2300,14 @@ def test_latex_fonts_finds_the_cache_folder(tmp_path):
 
 def test_layout_modes_normalise_to_side():
     from kherveslide.welcome import (
-        LAYOUTS, LAYOUT_SIDE, LAYOUT_TEXT, normalise_layout)
+        LAYOUTS, LAYOUT_SIDE, LAYOUT_TEXT, LAYOUT_VISUAL, LAYOUT_WINDOW,
+        normalise_layout)
+    assert LAYOUTS == (LAYOUT_SIDE, LAYOUT_WINDOW, LAYOUT_VISUAL)
     for m in LAYOUTS:
         assert normalise_layout(m) == m
-        assert m in LAYOUT_TEXT
-    assert normalise_layout("window") == LAYOUT_SIDE
+        assert LAYOUT_TEXT[m][0].startswith("Visual")
+    assert normalise_layout("slide") == LAYOUT_VISUAL   # old saved mode
+    assert normalise_layout("bogus") == LAYOUT_SIDE
     assert normalise_layout(None) == LAYOUT_SIDE
 
 

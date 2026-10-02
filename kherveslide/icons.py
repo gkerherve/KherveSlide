@@ -1180,7 +1180,7 @@ def toggle_navigator() -> QIcon:
 
 def pdf_side_panel() -> QIcon:
     """A window split in two, the right half a red-tagged PDF page — show
-    the compiled PDF beside the slide (off = WYSIWYG only)."""
+    the compiled PDF beside the slide (off = Visual only)."""
     px, p = _new_canvas()
     p.setPen(QPen(_fg(), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
     p.setBrush(Qt.NoBrush)
