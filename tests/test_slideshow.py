@@ -158,3 +158,44 @@ def test_dropping_a_kslide_anywhere_opens_it(qapp, tmp_path, monkeypatch):
     m.setUrls([QUrl.fromLocalFile(str(img))])
     assert SlideWindow.dropped_presentation(m) is None
     w.close()
+
+
+# --- the start page (Welcome page inside the window) ---
+
+def test_start_page_shows_in_window_and_leaves_on_a_choice(qapp, tmp_path,
+                                                           monkeypatch):
+    from kherveslide.window import SlideWindow
+    for name in ("_start_compile", "_start_backdrop",
+                 "_maybe_autodownload_packages", "_fill_start_cards"):
+        monkeypatch.setattr(SlideWindow, name, lambda self, *a: None)
+    monkeypatch.setattr(SlideWindow, "examples_dir",
+                        staticmethod(lambda: tmp_path))
+    w = SlideWindow()
+    w.show()
+    w.show_welcome()
+    assert w.start_page_shown()
+    assert w._nav_stack.currentWidget() is w._recent_panel
+    assert w._nav_title.text() == "Recent"
+    # Continue (or Esc) goes back to the slides
+    w._start_page.continueRequested.emit()
+    assert not w.start_page_shown() and w._nav_title.text() == "Slides"
+    # choosing an example opens it and leaves the start page
+    w.show_welcome()
+    w._start_page.exampleChosen.emit("Maths seminar")
+    assert not w.start_page_shown()
+    assert w.deck.title == "The Gaussian integral"
+    # any other way of opening something also leaves it
+    w.show_welcome()
+    w._new_deck()
+    assert not w.start_page_shown()
+    w.close()
+
+
+def test_thumbnails_render_at_high_resolution(qapp):
+    from kherveslide import templates
+    from kherveslide.canvas import render_thumbnail, thumbnail_dpr
+    deck = templates.instantiate_builtin("Title + content")
+    pm = render_thumbnail(deck.slides[0], deck, 200, dpr=2.0)
+    assert pm.devicePixelRatio() == 2.0 and pm.width() == 400
+    assert pm.deviceIndependentSize().width() == 200
+    assert thumbnail_dpr() >= 2.0

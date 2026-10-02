@@ -1131,6 +1131,8 @@ class TextBoxItem(BoxItem):
 
     def _underline_misspelled(self, doc):
         from . import spellcheck
+        if getattr(self.scene(), "thumbnail", False):
+            return                  # previews don't show spelling marks
         if not (spellcheck.enabled() and spellcheck.available()):
             return
         spans = spellcheck.misspelled_spans(doc.toPlainText())
@@ -1895,25 +1897,41 @@ class SlideView(QGraphicsView):
             self.fit_mode = True
 
 
+def thumbnail_dpr() -> float:
+    """Pixel density for thumbnails: the screen's, and never below 2 — a
+    supersampled thumbnail keeps small text readable even on 1x screens."""
+    from PySide6.QtGui import QGuiApplication
+    screen = QGuiApplication.primaryScreen()
+    return max(2.0, screen.devicePixelRatio() if screen else 1.0)
+
+
 def render_thumbnail(slide: Slide, deck, width_px: int = 160,
-                     backdrop: QPixmap | None = None) -> QPixmap:
+                     backdrop: QPixmap | None = None,
+                     dpr: float | None = None) -> QPixmap:
     """Render *slide* to a small pixmap for the navigator — reuses the
     same item painting as the live canvas so the thumbnail matches.
-    *backdrop* is the slide's themed page, drawn under the objects."""
+    *backdrop* is the slide's themed page, drawn under the objects. The
+    pixmap is *width_px* logical pixels wide, rendered at *dpr* (default
+    thumbnail_dpr()) so it is sharp on high-resolution screens."""
     pw, ph, fs = page_size_px(deck.aspect, deck.page_w_cm, deck.page_h_cm)
     scene = SlideScene(deck.aspect)
     scene.set_page(pw, ph, deck.gap)
     scene.page_color = slide.bg or "#FFFFFF"
     scene.backdrop = backdrop
+    scene.thumbnail = True
     for obj in slide.objects:
         item = make_item(obj, pw, ph, deck.gap, fs)
         item.setSelected(False)
         scene.addItem(item)
+    dpr = dpr or thumbnail_dpr()
     height_px = int(width_px * ph / pw)
-    pm = QPixmap(width_px, height_px)
+    pm = QPixmap(int(round(width_px * dpr)), int(round(height_px * dpr)))
+    pm.setDevicePixelRatio(dpr)
     pm.fill(QColor("#FFFFFF"))
     painter = QPainter(pm)
     painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setRenderHint(QPainter.TextAntialiasing, True)
+    painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
     scene.render(painter, QRectF(0, 0, width_px, height_px), scene.page_rect())
     painter.end()
     return pm

@@ -23,7 +23,7 @@ from PySide6.QtCore import (
     QThread, QTimer, Qt, Signal,
 )
 from PySide6.QtGui import (
-    QAction, QActionGroup, QColor, QFont, QPixmap, QTextCharFormat,
+    QAction, QActionGroup, QColor, QFont, QPainter, QPixmap, QTextCharFormat,
     QTextListFormat, QTransform,
 )
 from PySide6.QtWidgets import (
@@ -197,7 +197,7 @@ class _LayoutMenuRow(QWidget):
         h.setSpacing(10)
         pic = QLabel()
         pic.setPixmap(pixmap)
-        pic.setFixedSize(pixmap.size())
+        pic.setFixedSize(pixmap.deviceIndependentSize().toSize())
         h.addWidget(pic)
         h.addWidget(QLabel(label), 1)
 
@@ -250,7 +250,6 @@ class _InlineEditor(QTextEdit):
         super().paintEvent(event)
         if self.bullet_style is None:
             return
-        from PySide6.QtGui import QPainter
         from .canvas import _draw_bullets, bullet_blocks
         p = QPainter(self.viewport())
         p.setRenderHint(QPainter.SmoothPixmapTransform)
@@ -1251,6 +1250,7 @@ class SlideWindow(QMainWindow):
         nav_title = QLabel("Slides")
         f = nav_title.font(); f.setBold(True); nav_title.setFont(f)
         nav_head.addWidget(nav_title)
+        self._nav_title = nav_title
         nav_head.addStretch(1)
         fold = QToolButton()
         fold.setText("«")
@@ -1259,7 +1259,18 @@ class SlideWindow(QMainWindow):
         fold.clicked.connect(lambda: self.act_show_nav.setChecked(False))
         nav_head.addWidget(fold)
         nv.addLayout(nav_head)
-        nv.addWidget(self.nav)
+        # The slides list, or — while the start page shows — recent files.
+        from PySide6.QtWidgets import QStackedWidget
+        from .start_page import RecentPanel, StartPage
+        self._recent_panel = RecentPanel()
+        self._recent_panel.chosen.connect(
+            lambda p: self._start_choice(lambda: self.open_path(p)))
+        self._recent_panel.openRequested.connect(
+            lambda: self._start_choice(self._open_deck, ask=False))
+        self._nav_stack = QStackedWidget()
+        self._nav_stack.addWidget(self.nav)
+        self._nav_stack.addWidget(self._recent_panel)
+        nv.addWidget(self._nav_stack)
 
         self._nav_strip = QToolButton()
         self._nav_strip.setText("»\nS\nl\ni\nd\ne\ns")
@@ -1367,7 +1378,28 @@ class SlideWindow(QMainWindow):
 
         wysiwyg = QSplitter(Qt.Horizontal)
         wysiwyg.addWidget(nav_panel)
-        wysiwyg.addWidget(canvas_box)
+        # The slide editor, or the start page (the Welcome page in-window).
+        self._start_page = StartPage()
+        sp = self._start_page
+        sp.newRequested.connect(lambda: self._start_choice(self._new_deck))
+        sp.openRequested.connect(
+            lambda: self._start_choice(self._open_deck, ask=False))
+        sp.importRequested.connect(
+            lambda: self._start_choice(self._import_pptx, ask=False))
+        sp.templateChosen.connect(lambda n: self._start_choice(
+            lambda: self._new_from_template(n)))
+        sp.exampleChosen.connect(lambda n: self._start_choice(
+            lambda: self.open_example(n, ask=False)))
+        sp.continueRequested.connect(self.hide_start_page)
+        sp.layoutChosen.connect(self.apply_layout_mode)
+        sp.showAtStartChanged.connect(
+            lambda on: QSettings("kherveDOC", "KherveSlide").setValue(
+                "show_welcome", bool(on)))
+        self._start_cards_ready = False
+        self._right_stack = QStackedWidget()
+        self._right_stack.addWidget(canvas_box)
+        self._right_stack.addWidget(sp)
+        wysiwyg.addWidget(self._right_stack)
         wysiwyg.setStretchFactor(1, 1)
         wysiwyg.setCollapsible(0, False)
         wysiwyg.setSizes([220, 760])
@@ -1798,6 +1830,9 @@ class SlideWindow(QMainWindow):
     def _reset_history(self):
         self._history = [deck_to_json(self.deck)]
         self._hist_index = 0
+        # Any new / opened presentation means work: leave the start page.
+        if hasattr(self, "_right_stack"):
+            self.hide_start_page()
         # A fresh / just-opened presentation counts as saved.
         self._saved_snapshot = self._history[0]
         self._update_undo_actions()
@@ -3941,33 +3976,93 @@ class SlideWindow(QMainWindow):
             win.close_quietly()
 
     def show_welcome(self) -> None:
-        from .examples import EXAMPLES
-        from .welcome import WelcomeDialog
-        settings = QSettings("kherveDOC", "KherveSlide")
-        dlg = WelcomeDialog(
-            recent=self._recent_files(),
-            templates=self.store.all_names(),
-            examples=[(n, d) for n, d, _f in EXAMPLES],
-            layout=self._layout_mode,
-            show_at_start=settings.value("show_welcome", True, type=bool),
-            parent=self)
-        if dlg.exec() != QDialog.Accepted:
-            dlg.choice = ("continue",)
-        settings.setValue("show_welcome", dlg.show_at_start())
-        self.apply_layout_mode(dlg.layout_mode)
-        kind = dlg.choice[0]
-        if kind == "new":
-            self._new_deck()
-        elif kind == "open":
-            self._open_deck()
-        elif kind == "pptx":
-            self._import_pptx()
-        elif kind == "template":
-            self._new_from_template(dlg.choice[1])
-        elif kind == "example":
-            self.open_example(dlg.choice[1], ask=False)
-        elif kind == "recent":
-            self.open_path(dlg.choice[1])
+        """Show the start page in the slide area (and recent files in the
+        slides frame) — the Welcome page, inside the window."""
+        sp = self._start_page
+        sp.set_layout(self._layout_mode)
+        sp.set_show_at_start(QSettings("kherveDOC", "KherveSlide").value(
+            "show_welcome", True, type=bool))
+        self._recent_panel.set_files(self._recent_files())
+        self.left_tabs.setCurrentIndex(0)
+        self.act_show_nav.setChecked(True)
+        self._right_stack.setCurrentWidget(sp)
+        self._nav_stack.setCurrentWidget(self._recent_panel)
+        self._nav_title.setText("Recent")
+        sp.setFocus()
+        if not self._start_cards_ready:
+            # Thumbnails after the page is up (examples draw their charts
+            # the first time, which takes a moment).
+            QTimer.singleShot(0, self._fill_start_cards)
+
+    def start_page_shown(self) -> bool:
+        return self._right_stack.currentWidget() is self._start_page
+
+    def hide_start_page(self) -> None:
+        if not self.start_page_shown():
+            return
+        self._right_stack.setCurrentIndex(0)
+        self._nav_stack.setCurrentWidget(self.nav)
+        self._nav_title.setText("Slides")
+        if self.view.fit_mode:
+            QTimer.singleShot(0, self.view.fit_to_window)
+        self.view.setFocus()
+
+    def _start_choice(self, action, ask: bool = True) -> None:
+        """Run a start-page choice; back to the slides once something
+        new is open (a cancelled Open dialog stays on the start page)."""
+        if ask and not self.offer_save_before("starting another "
+                                              "presentation"):
+            return
+        before = (id(self.deck), self.path)
+        action()
+        if (id(self.deck), self.path) != before:
+            self.hide_start_page()
+
+    def _card_thumb(self, deck) -> QPixmap:
+        """A picture card of a deck's first slide, hinting its theme:
+        background colour and a bar in the theme's main colour."""
+        from .canvas import render_thumbnail, thumbnail_dpr
+        from .start_page import CARD_W
+        spec = deck.theme_spec
+        if spec.enabled:
+            primary = spec.title_bg or spec.structure or "#1F4E79"
+            canvas = spec.canvas_bg or "#FFFFFF"
+        else:
+            primary = {"Madrid": "#3333B3"}.get(deck.theme, "#1F4E79")
+            canvas = "#FFFFFF"
+        dpr = thumbnail_dpr()
+        w, h = int(CARD_W * dpr), int(CARD_W * 9 / 16 * dpr)
+        bd = QPixmap(w, h)
+        bd.fill(QColor(canvas))
+        p = QPainter(bd)
+        p.fillRect(0, int(h * 0.94), w, h - int(h * 0.94), QColor(primary))
+        p.end()
+        slide = deck.slides[0] if deck.slides else Slide()
+        return render_thumbnail(slide, deck, CARD_W, backdrop=bd)
+
+    def _fill_start_cards(self) -> None:
+        from .examples import EXAMPLES, build_example
+        sp = self._start_page
+        sp.templates.clear()
+        for name in self.store.all_names():
+            try:
+                pm = self._card_thumb(self.store.instantiate(name))
+            except Exception:
+                pm = None
+            sp.templates.add_card(name, name, pm)
+        sp.examples.clear()
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            for name, desc, _f in EXAMPLES:
+                try:
+                    pm = self._card_thumb(build_example(name,
+                                                        self.examples_dir()))
+                except Exception:
+                    pm = None
+                sp.examples.add_card(name, name, pm, desc)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._start_cards_ready = True
 
     def has_unsaved_changes(self) -> bool:
         return deck_to_json(self.deck) != getattr(self, "_saved_snapshot",

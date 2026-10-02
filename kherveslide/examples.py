@@ -108,7 +108,8 @@ def _title_slide(title, subtitle, author, colour, *, dark=False):
     return Slide(objects=[
         _t(title, 0.08, 0.16, 0.84, 0.32, 32, align="center", bold=True,
            color=ink),
-        _shape("rect", 0.38, 0.52, 0.24, 0.008, colour),
+        SlideLine(x=0.38, y=0.52, w=0.24, h=0.0, color=colour,
+                  width_pt=2.5),
         _t(subtitle, 0.08, 0.57, 0.84, 0.12, 17, align="center",
            color=soft),
         _t(author, 0.08, 0.76, 0.84, 0.08, 13, align="center", color=soft),

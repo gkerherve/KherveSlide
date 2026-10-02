@@ -14,7 +14,7 @@ from .canvas import render_thumbnail
 from .model import Deck
 
 
-THUMB_W = 168
+THUMB_W = 200
 
 
 class SlideNavigator(QListWidget):
@@ -46,7 +46,8 @@ class SlideNavigator(QListWidget):
     def _backdrop(self, index: int):
         if self.backdrop_for is None:
             return None
-        return self.backdrop_for(index, THUMB_W * 2)
+        from .canvas import thumbnail_dpr
+        return self.backdrop_for(index, int(THUMB_W * thumbnail_dpr()))
 
     def _on_row(self, row: int):
         if not self._suppress and row >= 0:
@@ -66,7 +67,8 @@ class SlideNavigator(QListWidget):
         for i, slide in enumerate(deck.slides):
             pm = render_thumbnail(slide, deck, THUMB_W, self._backdrop(i))
             item = QListWidgetItem(QIcon(pm), f"  {i + 1}")
-            item.setSizeHint(QSize(THUMB_W + 8, pm.height() + 8))
+            h = round(pm.height() / pm.devicePixelRatio())
+            item.setSizeHint(QSize(THUMB_W + 8, h + 8))
             item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             item.setData(Qt.UserRole, i)   # source index, survives reorder
             self.addItem(item)

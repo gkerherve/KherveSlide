@@ -78,8 +78,10 @@ LaTeX source and the compiler Console (+ a PDF preview). The LaTeX view
 stays live as you edit on the left.
 
 Start-up mirrors KherveTeX too: a runtime-painted splash
-(`splash.py`), then a Welcome page (`welcome.py`: new / open / import,
-templates, recent files) that also asks how to work, worded exactly as
+(`splash.py`), then the Welcome page — shown inside the window, not as a
+dialog (`start_page.py`): a big blank slide in the slide area with new /
+open / import, template and example cards, while the slides frame lists
+recent files. It also asks how to work (`welcome.py`), worded exactly as
 KherveTeX: Visual + PDF side by side, Visual + PDF in its own window
 (close it to dock back), or Visual only (PDF/console hidden, no
 background compiles). Switch any time from View (Ctrl+4 / 5 / 6). The
