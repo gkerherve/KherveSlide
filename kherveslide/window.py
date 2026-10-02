@@ -916,6 +916,22 @@ class SlideWindow(QMainWindow):
         m_ai = mb.addMenu("&AI")
         m_ai.addAction("Connect to &Claude…", self._show_mcp_dialog)
 
+        m_show = mb.addMenu("Sli&deshow")
+        for label, mode, cur, key in (
+                ("From the &beginning", "full", False, "F5"),
+                ("From the &current slide", "full", True, "Shift+F5"),
+                ("&Presenter view", "presenter", True, "Alt+F5"),
+                ("Current + &next slide (two screens)", "next", True, "")):
+            a = m_show.addAction(
+                label, lambda m=mode, c=cur: self.start_slideshow(m, c))
+            if key:
+                a.setShortcut(key)
+        m_show.addSeparator()
+        self._m_show_screen = m_show.addMenu("Show the slides on")
+        self._m_show_screen.aboutToShow.connect(self._fill_screen_menu)
+        self._show_screen_name = ""        # "" = automatic
+        self._slideshow = None
+
         m_help = mb.addMenu("&Help")
         m_help.addAction("&Welcome page…", self.show_welcome)
         m_help.addSeparator()
@@ -1824,6 +1840,8 @@ class SlideWindow(QMainWindow):
         self._downloaded_this_run = False
         self._set_compile_status("Compiling…", "busy")
         worker = _CompileWorker(tex, workdir, src_dir, self._skip_images)
+        # What this PDF was made from, so a slideshow can reuse it.
+        self._compiling = (tex, self._skip_images)
         worker.done.connect(self._on_compiled)
         worker.line.connect(self._on_compile_line)
         worker.finished.connect(self._on_worker_finished)
@@ -1854,6 +1872,9 @@ class SlideWindow(QMainWindow):
             if "Fontconfig error" not in ln)
 
     def _on_compiled(self, result):
+        if result.ok and result.pdf_path:
+            self._last_pdf = (getattr(self, "_compiling", None),
+                              Path(result.pdf_path))
         self.console.setPlainText(self._clean_log(result.log))
         if result.ok and result.pdf_path:
             self.pdf_view.show_pdf(Path(result.pdf_path))
@@ -1957,6 +1978,8 @@ class SlideWindow(QMainWindow):
             self._pdf_window = None
         if getattr(self, "_mcp_bridge", None) is not None:
             self._mcp_bridge.stop()
+        if getattr(self, "_slideshow", None) is not None:
+            self._slideshow.end()
         self._bd_timer.stop()
         if self._bd_worker is not None:
             self._bd_worker.wait(4000)
@@ -3917,6 +3940,99 @@ class SlideWindow(QMainWindow):
         dlg = McpServerDialog(self.mcp_bridge(), self)
         dlg.setAttribute(Qt.WA_DeleteOnClose)
         dlg.show()
+
+    # ---------------- slideshow (the compiled PDF, full screen) ----------
+    def _fill_screen_menu(self):
+        from PySide6.QtGui import QGuiApplication
+        m = self._m_show_screen
+        m.clear()
+        group = QActionGroup(m)
+        for name, label in [("", "Automatic (the other screen if there "
+                                 "is one)")] + [
+                (s.name(), f"{s.name()}  ({s.size().width()}×"
+                           f"{s.size().height()})")
+                for s in QGuiApplication.screens()]:
+            a = m.addAction(label)
+            a.setCheckable(True)
+            a.setChecked(name == self._show_screen_name)
+            a.triggered.connect(
+                lambda _=False, n=name: setattr(self, "_show_screen_name", n))
+            group.addAction(a)
+
+    def _slideshow_pdf(self) -> Path | None:
+        """The compiled PDF of the presentation as it is now (with its
+        pictures): reuse the last compile when it is current, else compile
+        now (also in Visual-only mode)."""
+        import threading
+        last = getattr(self, "_last_pdf", None)
+        tex = self.latex_view.source()
+        if last and last[0] == (tex, False) and last[1].exists():
+            return last[1]
+        if not tectonic_available():
+            QMessageBox.warning(self, "Slideshow",
+                                "LaTeX (tectonic) is not available, so the "
+                                "slides cannot be built.")
+            return None
+        box: dict = {}
+        src_dir = self.path.parent if self.path else None
+
+        def run():
+            box["r"] = compile_tex(
+                tex, Path(tempfile.gettempdir()) / "kherveslide_show",
+                "slides", source_dir=src_dir)
+        self.statusBar().showMessage("Building the slides for the show…")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            t = threading.Thread(target=run, daemon=True)
+            t.start()
+            while t.is_alive():
+                QApplication.processEvents()
+                t.join(0.03)
+        finally:
+            QApplication.restoreOverrideCursor()
+        r = box.get("r")
+        if r is None or not (r.ok and r.pdf_path):
+            self.console.setPlainText(self._clean_log(getattr(r, "log", "")))
+            QMessageBox.warning(self, "Slideshow",
+                                "The slides could not be compiled — see the "
+                                "Console tab.")
+            return None
+        self.statusBar().clearMessage()
+        return Path(r.pdf_path)
+
+    def start_slideshow(self, mode: str = "full",
+                        from_current: bool = False) -> None:
+        """Present the compiled PDF full screen (see slideshow.py)."""
+        from PySide6.QtGui import QGuiApplication
+        from . import slideshow
+        if self._slideshow is not None:
+            self._slideshow.end()
+        self._finish_edit()
+        pdf = self._slideshow_pdf()
+        if pdf is None:
+            return
+        pages = slideshow.PdfPages(pdf.read_bytes())
+        if not len(pages):
+            return
+        screen = None
+        if self._show_screen_name:
+            screen = next((s for s in QGuiApplication.screens()
+                           if s.name() == self._show_screen_name), None)
+        start = min(self.current, len(pages) - 1) if from_current else 0
+        show = slideshow.start(pages, mode, start, self, screen)
+        show.finished.connect(self._slideshow_finished)
+        self._slideshow = show
+
+    def _slideshow_finished(self):
+        show, self._slideshow = self._slideshow, None
+        if show is not None:
+            # Land on the slide the show ended on.
+            last = min(show.index, len(self.deck.slides) - 1)
+            if last != self.current:
+                self.current = last
+                self.nav.setCurrentRow(last)
+        self.raise_()
+        self.activateWindow()
 
     def _about(self) -> None:
         from . import __version__

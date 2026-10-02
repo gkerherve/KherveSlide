@@ -85,6 +85,11 @@ KherveTeX: Visual + PDF side by side, Visual + PDF in its own window
 background compiles). Switch any time from View (Ctrl+4 / 5 / 6). The
 user-facing name of the slide editor is "Visual", never "WYSIWYG". Help holds the Welcome page and the GitHub auto-updater
 (`updater.py`, ported from KhervePlot: fast-forwards a clean checkout).
+The Slideshow menu (`slideshow.py`) presents the compiled PDF — never
+the Visual canvas — full screen, in a presenter view (slides on the
+other screen; current + next slide, timer and clock here) or as current
++ next slide on two screens. Templates ▸ Example presentations
+(`examples.py`) are complete decks built in code.
 
 The canvas is drawn to look like the PDF: text uses beamer's Latin
 Modern faces from tectonic's cache (`latex_fonts.py`), and the theme's
