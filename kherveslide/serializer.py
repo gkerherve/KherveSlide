@@ -572,7 +572,63 @@ def _theme_spec_lines(spec) -> list[str]:
                 "\\setbeamertemplate{footline}{%\n"
                 f"\\hbox{{\\color{{{rule_color}}}\\rule{{\\paperwidth}}{{{w}pt}}}}"
                 "\\vskip0pt}")
+    if getattr(spec, "footer_bar", False):
+        # A full-width bar in the title-bar colours: author | title | n / N.
+        # Without a title bar, title_fg is the bar colour itself, so pick
+        # whichever of black / white reads on the bar instead.
+        bar = spec.title_bg or spec.structure or "#1F4E79"
+        fg = cname(spec.title_fg if spec.title_bg else _readable_on(bar))
+        bg = cname(bar)
+        lines += [
+            f"\\setbeamercolor{{ks footer bar}}{{fg={fg},bg={bg}}}",
+            "\\setbeamertemplate{footline}{%",
+            "\\leavevmode\\hbox{\\begin{beamercolorbox}[wd=\\paperwidth,"
+            "ht=2.6ex,dp=1.1ex,leftskip=1.5ex,rightskip=1.5ex]{ks footer bar}%",
+            "\\usebeamerfont{author in head/foot}\\insertshortauthor\\hfill"
+            "\\insertshorttitle\\hfill"
+            "\\insertframenumber\\,/\\,\\inserttotalframenumber",
+            "\\end{beamercolorbox}}\\vskip0pt}"]
     return lines
+
+
+def _readable_on(hex_color: str) -> str:
+    """Black or white text, whichever reads better on *hex_color*."""
+    h = _hex_to_rgb_arg(hex_color)
+    if not h:
+        return "#FFFFFF"
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return "#000000" if 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 \
+        else "#FFFFFF"
+
+
+def _logo_lines(spec) -> list[str]:
+    """The theme logo, drawn from the footline as a page overlay so it
+    sits ON TOP of the title bar (a background-layer logo would be hidden
+    under it). Emitted after every other footline definition, since a
+    later \\setbeamertemplate{footline} would drop the hook. Needs tikz."""
+    if spec is None or not getattr(spec, "enabled", False):
+        return []
+    path = (getattr(spec, "logo", "") or "").replace("\\", "/")
+    if not path:
+        return []
+    corner = getattr(spec, "logo_corner", "tr")
+    if corner not in ("tr", "tl", "br", "bl"):
+        corner = "tr"
+    v = "north" if corner[0] == "t" else "south"
+    h = "east" if corner[1] == "r" else "west"
+    size = _fmt(max(0.03, min(0.4, getattr(spec, "logo_size", 0.12))))
+    dx = "-0.025" if h == "east" else "0.025"
+    # Bottom logos clear a footer bar / line.
+    low = spec.footer_bar or spec.footline_rule
+    dy = "-0.025" if v == "north" else ("0.07" if low else "0.025")
+    return [
+        "\\addtobeamertemplate{footline}{%",
+        "\\begin{tikzpicture}[remember picture,overlay]"
+        f"\\node[anchor={v} {h},inner sep=0pt] at "
+        f"([xshift={dx}\\paperheight,yshift={dy}\\paperheight]"
+        f"current page.{v} {h})"
+        f"{{\\includegraphics[height={size}\\paperheight]{{{path}}}}};"
+        "\\end{tikzpicture}}{}"]
 
 
 def theme_to_sty(spec, name: str, base_theme: str = "",
@@ -596,8 +652,12 @@ def theme_to_sty(spec, name: str, base_theme: str = "",
     if color_theme:
         lines.append(f"\\usecolortheme{{{color_theme}}}")
     spec_on = replace(spec, enabled=True)
+    logo = _logo_lines(spec_on)
+    if logo:
+        lines.append("\\RequirePackage{tikz}")
     lines += _theme_spec_lines(spec_on)
     lines += _font_family_lines(spec_on)
+    lines += logo
     lines += ["\\mode<all>", ""]
     return "\n".join(lines)
 
@@ -1078,7 +1138,8 @@ def serialize_deck(deck: Deck) -> str:
     needs_opacity = any(isinstance(o, SlidePicture) and o.opacity < 1.0
                         for o in _all_objs)
     needs_shadow = any(getattr(o, "shadow", False) for o in _all_objs)
-    if needs_tikz or needs_opacity:
+    logo = _logo_lines(getattr(deck, "theme_spec", None))
+    if needs_tikz or needs_opacity or logo:
         # tikz also drives image opacity (a node with opacity= tints it).
         lines.append("\\usepackage{tikz}")
     if needs_tikz:
@@ -1122,6 +1183,7 @@ def serialize_deck(deck: Deck) -> str:
     if not (deck.nav_symbols and not deck.plain_frames):
         lines.append("\\setbeamertemplate{navigation symbols}{}")
     lines += _header_footer_lines(deck)
+    lines += logo           # last: a later footline definition drops it
     if deck.title:
         lines.append(f"\\title{{{deck.title}}}")
     if deck.author:

@@ -46,8 +46,10 @@ def _safe_stem(name: str) -> str:
 
 def save_theme(name: str, spec: ThemeSpec, master: Slide,
                base_theme: str = "default", color_theme: str = "",
-               directory: Path | None = None) -> Path:
-    """Persist a named theme (overwrites an existing theme of that name)."""
+               directory: Path | None = None, kit: dict | None = None) -> Path:
+    """Persist a named theme (overwrites an existing theme of that name).
+    *kit* is the theme wizard's simple description (ThemeKit.to_dict()),
+    kept so the wizard reopens on the same choices."""
     payload = {
         "name": name,
         "base_theme": base_theme or "default",
@@ -55,6 +57,8 @@ def save_theme(name: str, spec: ThemeSpec, master: Slide,
         "spec": asdict(spec),
         "master": asdict(master),
     }
+    if kit:
+        payload["kit"] = dict(kit)
     path = themes_dir(directory) / f"{_safe_stem(name)}.json"
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False),
                     encoding="utf-8")
@@ -77,6 +81,7 @@ def load_themes(directory: Path | None = None) -> dict[str, dict]:
             "color_theme": str(raw.get("color_theme", "")),
             "spec": _build_theme_spec(raw.get("spec", {})),
             "master": _build_slide(raw.get("master", {})),
+            "kit": raw.get("kit") or None,
             "path": p,
         }
     return out

@@ -270,6 +270,15 @@ class ThemeSpec:
     footline_rule: bool = False  # a coloured bar along the bottom edge
     rule_color: str = ""       # hex for the rules; "" = use structure colour
     rule_width: float = 1.5    # rule thickness in pt
+    # A coloured footer bar across the bottom (title-bar colours): author
+    # on the left, presentation title in the middle, slide number right.
+    footer_bar: bool = False
+    # A logo drawn on every (decorated) slide, on top of the title bar:
+    # image path, corner ("tr" | "tl" | "br" | "bl") and height as a
+    # fraction of the slide height.
+    logo: str = ""
+    logo_corner: str = "tr"
+    logo_size: float = 0.12
     type: str = "ThemeSpec"
 
 
@@ -555,6 +564,10 @@ def _build_theme_spec(d: dict) -> ThemeSpec:
         footline_rule=bool(d.get("footline_rule", False)),
         rule_color=str(d.get("rule_color", "")),
         rule_width=float(d.get("rule_width", 1.5)),
+        footer_bar=bool(d.get("footer_bar", False)),
+        logo=str(d.get("logo", "")),
+        logo_corner=str(d.get("logo_corner", "tr")),
+        logo_size=float(d.get("logo_size", 0.12)),
     )
 
 

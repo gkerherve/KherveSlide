@@ -2477,3 +2477,107 @@ def test_canvas_page_height_matches_beamer_paper():
     assert abs(fs1610 - SCENE_H / (10.0 * cm)) < 1e-9
     _, _, custom = page_size_px("169", 20.0, 10.0)
     assert abs(custom - SCENE_H / (10.0 * cm)) < 1e-9
+
+
+# --- theme kit: the simple theme description behind the wizard ---
+
+def test_theme_kit_bar_style_maps_to_title_bar_and_footer():
+    from kherveslide.theme_kit import ThemeKit
+    kit = ThemeKit(primary="#003E74", accent="#0091D4", title_text="#FFFFFF",
+                   title_style="bar", footer_style="bar")
+    spec = kit.to_spec()
+    assert spec.enabled and spec.structure == "#003E74"
+    assert spec.title_bg == "#003E74" and spec.title_fg == "#FFFFFF"
+    assert spec.footer_bar and not spec.footline_rule
+    assert spec.rule_color == "#0091D4"
+    assert spec.block_bg.startswith("#") and spec.block_bg != "#003E74"
+
+
+def test_theme_kit_plain_and_underline_titles():
+    from kherveslide.theme_kit import ThemeKit
+    plain = ThemeKit(primary="#500778", title_style="plain",
+                     footer_style="line").to_spec()
+    assert plain.title_bg == "" and plain.title_fg == "#500778"
+    assert plain.footline_rule and not plain.footer_bar
+    under = ThemeKit(title_style="underline", footer_style="none").to_spec()
+    assert under.title_rule and not under.footline_rule and not under.footer_bar
+
+
+def test_theme_kit_round_trips_through_spec_and_dict():
+    from kherveslide.theme_kit import ThemeKit, kit_from_theme
+    kit = ThemeKit(name="Uni", primary="#002147", accent="#A79D96",
+                   text="#111111", background="#FAFAFA", title_style="bar",
+                   footer_style="line", logo="/x/logo.png", logo_corner="bl",
+                   logo_size=0.1, bullets="ball")
+    back = kit_from_theme(kit.to_spec(), name="Uni")
+    for f in ("primary", "accent", "text", "background", "title_style",
+              "footer_style", "logo", "logo_corner", "logo_size", "bullets"):
+        assert getattr(back, f) == getattr(kit, f), f
+    assert ThemeKit.from_dict(kit.to_dict()) == kit
+    assert ThemeKit.from_dict({"primary": "#123456", "bogus": 1}).primary \
+        == "#123456"
+
+
+def test_theme_kit_keeps_the_master_slide():
+    from kherveslide.theme_kit import ThemeKit
+    master = Slide(objects=[SlideText(text="watermark")])
+    t = ThemeKit().to_theme(master)
+    assert t["master"] is master and t["base_theme"] == "default"
+
+
+def test_presets_are_all_valid_kits():
+    from kherveslide.theme_kit import presets, TITLE_STYLES, FOOTER_STYLES
+    kits = presets()
+    assert len({k.name for k in kits}) == len(kits) >= 5
+    for k in kits:
+        assert k.title_style in TITLE_STYLES and k.footer_style in FOOTER_STYLES
+        assert k.to_spec().enabled
+
+
+def test_footer_bar_and_logo_latex():
+    from kherveslide.model import ThemeSpec
+    d = _sample_deck()
+    d.theme_spec = ThemeSpec(enabled=True, title_bg="#003E74",
+                             title_fg="#FFFFFF", footer_bar=True,
+                             logo="/tmp/logo.png", logo_corner="br")
+    tex = serialize_deck(d)
+    assert "{ks footer bar}" in tex and "\\insertshortauthor" in tex
+    assert "\\usepackage{tikz}" in tex
+    # the logo hook comes after every footline definition
+    assert tex.rindex("\\addtobeamertemplate{footline}") > \
+        tex.rindex("\\setbeamertemplate{footline}")
+    assert "current page.south east" in tex
+    assert "yshift=0.07\\paperheight" in tex      # clears the footer bar
+    assert "\\includegraphics[height=0.12\\paperheight]{/tmp/logo.png}" in tex
+
+
+def test_footer_bar_text_is_readable_without_a_title_bar():
+    from kherveslide.model import ThemeSpec
+    from kherveslide.serializer import _theme_spec_lines, _readable_on
+    assert _readable_on("#500778") == "#FFFFFF"
+    assert _readable_on("#F5E663") == "#000000"
+    lines = "\n".join(_theme_spec_lines(ThemeSpec(
+        enabled=True, structure="#500778", title_fg="#500778",
+        footer_bar=True)))
+    assert "{HTML}{FFFFFF}" in lines
+
+
+def test_theme_to_sty_carries_the_logo():
+    from kherveslide.model import ThemeSpec
+    from kherveslide.serializer import theme_to_sty
+    sty = theme_to_sty(ThemeSpec(logo="logo.pdf"), "Uni")
+    assert "\\RequirePackage{tikz}" in sty and "{logo.pdf}" in sty
+    assert "logo" not in theme_to_sty(ThemeSpec(), "Uni").split(
+        "ProvidesPackage")[1]
+
+
+def test_saved_theme_keeps_its_kit(tmp_path):
+    from kherveslide import custom_themes
+    from kherveslide.theme_kit import ThemeKit
+    kit = ThemeKit(name="Uni", primary="#002147")
+    custom_themes.save_theme("Uni", kit.to_spec(), Slide(),
+                             directory=tmp_path, kit=kit.to_dict())
+    loaded = custom_themes.load_themes(tmp_path)["Uni"]
+    assert ThemeKit.from_dict(loaded["kit"]) == kit
+    custom_themes.save_theme("Old", ThemeSpec(), Slide(), directory=tmp_path)
+    assert custom_themes.load_themes(tmp_path)["Old"]["kit"] is None
