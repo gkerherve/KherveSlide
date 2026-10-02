@@ -13,16 +13,24 @@ one page per slide. Three ways to present, like PowerPoint:
 Keys (in any slideshow window): → ↓ Space PageDown Enter N or a click go
 forward; ← ↑ Backspace PageUp P or a right-click go back; Home / End;
 type a number then Enter to jump; B / W black / white screen; Esc ends.
+
+An **automatic** show (:class:`AutoPlay`) advances by itself every few
+seconds — once through, looping for ever (a kiosk), or looping for a set
+time. S pauses / resumes it; going back or forward by hand gives the new
+slide its full time again; a blanked screen holds the countdown.
 """
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, \
     QPixmap
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel, QPushButton,
+    QRadioButton, QVBoxLayout, QWidget,
 )
 
 
@@ -63,14 +71,36 @@ class PdfPages:
         return pm
 
 
+REPEATS = {"once": "Once through, then end",
+           "loop": "Loop continuously (until Esc)",
+           "for": "Loop for a set time"}
+
+
+@dataclass
+class AutoPlay:
+    """An automatic show: each slide stays *seconds*; *repeat* is "once",
+    "loop" or "for" (loop until *minutes* have passed)."""
+    seconds: float = 10.0
+    repeat: str = "once"
+    minutes: float = 30.0
+
+
 class Slideshow(QObject):
     """Where the show is (slide index, blanking) — the views follow it."""
 
     changed = Signal()
     finished = Signal()
 
-    def __init__(self, pages: PdfPages, start: int = 0, parent=None):
+    def __init__(self, pages: PdfPages, start: int = 0, parent=None,
+                 auto: AutoPlay | None = None):
         super().__init__(parent)
+        self.auto = auto
+        self.auto_paused = False
+        self._auto_started = time.monotonic()
+        self._auto_timer = QTimer(self)
+        self._auto_timer.setSingleShot(True)
+        self._auto_timer.timeout.connect(self._auto_next)
+        self.changed.connect(self._arm)
         self.pages = pages
         self.index = max(0, min(start, len(pages) - 1))
         self.blank: str | None = None        # None | "black" | "white"
@@ -102,11 +132,52 @@ class Slideshow(QObject):
         self.blank = None if self.blank == colour else colour
         self.changed.emit()
 
+    # ---- automatic advance ----
+    def _arm(self) -> None:
+        """(Re)start the countdown for the slide now showing."""
+        if (self.auto is not None and not self.auto_paused
+                and not self.blank and not self._ending):
+            self._auto_timer.start(int(max(0.2, self.auto.seconds) * 1000))
+        else:
+            self._auto_timer.stop()
+
+    def _auto_next(self) -> None:
+        a = self.auto
+        if a is None or self._ending:
+            return
+        if a.repeat == "for" and \
+                time.monotonic() - self._auto_started >= a.minutes * 60:
+            self.end()
+            return
+        if self.index < len(self.pages) - 1:
+            self.go(self.index + 1)
+        elif a.repeat in ("loop", "for"):
+            if self.index == 0:          # a one-slide show: just re-arm
+                self._arm()
+            else:
+                self.go(0)
+        else:
+            self.end()
+
+    def toggle_auto(self) -> None:
+        if self.auto is None:
+            return
+        self.auto_paused = not self.auto_paused
+        self._arm()
+        self.changed.emit()
+
+    def auto_remaining(self) -> float | None:
+        """Seconds until the next automatic advance (None when off)."""
+        if self.auto is None or self.auto_paused or self.blank:
+            return None
+        return max(0.0, self._auto_timer.remainingTime() / 1000)
+
     def end(self) -> None:
         """Close every slideshow window (closing any one ends the show)."""
         if self._ending:
             return
         self._ending = True
+        self._auto_timer.stop()
         views, self.views = list(self.views), []
         for v in views:
             v.close()
@@ -160,6 +231,8 @@ class Slideshow(QObject):
             self.toggle_blank("black")
         elif k in (Qt.Key_W, Qt.Key_Comma):
             self.toggle_blank("white")
+        elif k == Qt.Key_S:
+            self.toggle_auto()
         elif k == Qt.Key_Escape:
             self.end()
         else:
@@ -320,6 +393,9 @@ class PresenterConsole(QWidget):
         right.addLayout(row)
         self._clock = QLabel()
         right.addWidget(self._clock)
+        self._auto_label = QLabel()
+        self._auto_label.setStyleSheet("color:#F2C14E;")
+        right.addWidget(self._auto_label)
         hint = QLabel("→ / Space next · ← back · number + Enter jump · "
                       "B / W blank · Esc end")
         hint.setStyleSheet("color:#888888;")
@@ -350,6 +426,17 @@ class PresenterConsole(QWidget):
         self._timer_label.setText(
             f"{t // 3600:d}:{t // 60 % 60:02d}:{t % 60:02d}")
         self._clock.setText(time.strftime("Clock  %H:%M"))
+        s = self.show_
+        if s.auto is None:
+            self._auto_label.setText("")
+        elif s.auto_paused:
+            self._auto_label.setText("Automatic: paused (S resumes)")
+        else:
+            left = s.auto_remaining()
+            self._auto_label.setText(
+                "Automatic: next slide in "
+                f"{int(round(left)) if left is not None else '—'} s "
+                "(S pauses)")
 
     def keyPressEvent(self, event):
         if not self.show_.handle_key(event):
@@ -394,9 +481,10 @@ def screens_for(window) -> tuple:
 
 
 def start(pages: PdfPages, mode: str, start_index: int, window,
-          audience_screen=None) -> Slideshow:
-    """Open the slideshow windows for *mode*; returns the controller."""
-    show = Slideshow(pages, start_index, window)
+          audience_screen=None, auto: AutoPlay | None = None) -> Slideshow:
+    """Open the slideshow windows for *mode*; returns the controller.
+    *auto* makes it advance by itself."""
+    show = Slideshow(pages, start_index, window, auto=auto)
     here, other = screens_for(window)
     audience = audience_screen or other
     if mode == "presenter":
@@ -429,4 +517,69 @@ def start(pages: PdfPages, mode: str, start_index: int, window,
         show.views.append(slides)
         _put_on(slides, here if audience_screen is None else audience)
         slides.setFocus()
+    show._arm()
     return show
+
+
+class AutoSlideshowDialog(QDialog):
+    """Slideshow ▸ Automatic slideshow… — how long each slide shows and
+    how the show repeats."""
+
+    def __init__(self, auto: AutoPlay, mode: str = "full",
+                 from_current: bool = False, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Automatic slideshow")
+        form = QFormLayout(self)
+        self.seconds = QDoubleSpinBox()
+        self.seconds.setRange(1, 3600)
+        self.seconds.setDecimals(0)
+        self.seconds.setSuffix(" s")
+        self.seconds.setValue(auto.seconds)
+        form.addRow("Each slide shows for", self.seconds)
+        self._repeat = QButtonGroup(self)
+        box = QVBoxLayout()
+        self._repeat_buttons = {}
+        for key, text in REPEATS.items():
+            rb = QRadioButton(text)
+            rb.setChecked(key == auto.repeat)
+            self._repeat.addButton(rb)
+            self._repeat_buttons[key] = rb
+            if key == "for":
+                row = QHBoxLayout()
+                row.addWidget(rb)
+                self.minutes = QDoubleSpinBox()
+                self.minutes.setRange(1, 24 * 60)
+                self.minutes.setDecimals(0)
+                self.minutes.setSuffix(" min")
+                self.minutes.setValue(auto.minutes)
+                row.addWidget(self.minutes)
+                row.addStretch(1)
+                box.addLayout(row)
+            else:
+                box.addWidget(rb)
+        form.addRow("Repeat", box)
+        self.mode = QComboBox()
+        self.mode.addItem("Full screen", "full")
+        self.mode.addItem("Presenter view", "presenter")
+        self.mode.setCurrentIndex(max(0, self.mode.findData(mode)))
+        form.addRow("Show as", self.mode)
+        self.from_current = QCheckBox("Start from the current slide")
+        self.from_current.setChecked(from_current)
+        form.addRow("", self.from_current)
+        hint = QLabel("During the show: S pauses / resumes, the arrow "
+                      "keys still move by hand, Esc ends.")
+        hint.setStyleSheet("color:#666;")
+        hint.setWordWrap(True)
+        form.addRow(hint)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        go = buttons.addButton("Start", QDialogButtonBox.AcceptRole)
+        go.setDefault(True)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def result_auto(self) -> AutoPlay:
+        repeat = next(k for k, rb in self._repeat_buttons.items()
+                      if rb.isChecked())
+        return AutoPlay(seconds=self.seconds.value(), repeat=repeat,
+                        minutes=self.minutes.value())

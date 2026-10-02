@@ -244,3 +244,70 @@ def test_user_guide_matches_the_app(qapp, monkeypatch):
         assert shortcut in keys or shortcut in ("Ctrl+I", "Shift+Tab"), \
             shortcut
     w.close()
+
+
+# --- automatic slideshow ---
+
+def test_auto_show_once_ends_after_the_last_slide(qapp):
+    auto = slideshow.AutoPlay(seconds=5, repeat="once")
+    show = slideshow.Slideshow(slideshow.PdfPages(_pdf(3)), auto=auto)
+    ended = []
+    show.finished.connect(lambda: ended.append(True))
+    show._arm()
+    assert show.auto_remaining() is not None
+    show._auto_next(); show._auto_next()
+    assert show.index == 2 and not ended
+    show._auto_next()
+    assert ended == [True]
+
+
+def test_auto_show_loops_and_pauses(qapp):
+    show = slideshow.Slideshow(slideshow.PdfPages(_pdf(2)),
+                               auto=slideshow.AutoPlay(1, "loop"))
+    show._arm()
+    show._auto_next()
+    show._auto_next()
+    assert show.index == 0                     # wrapped round
+    show.handle_key(_key(Qt.Key_S, "s"))
+    assert show.auto_paused and show.auto_remaining() is None
+    show.handle_key(_key(Qt.Key_S, "s"))
+    assert not show.auto_paused and show.auto_remaining() is not None
+    show.toggle_blank("black")                 # a blank screen holds it
+    assert show.auto_remaining() is None
+    show.end()
+
+
+def test_auto_show_for_a_set_time(qapp, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(slideshow.time, "monotonic", lambda: clock[0])
+    show = slideshow.Slideshow(slideshow.PdfPages(_pdf(2)),
+                               auto=slideshow.AutoPlay(10, "for", 1))
+    ended = []
+    show.finished.connect(lambda: ended.append(True))
+    show._auto_next(); show._auto_next()
+    assert show.index == 0 and not ended       # still looping
+    clock[0] = 61.0
+    show._auto_next()
+    assert ended == [True]
+
+
+def test_auto_show_really_advances_on_its_timer(qapp):
+    import time
+    show = slideshow.Slideshow(slideshow.PdfPages(_pdf(3)),
+                               auto=slideshow.AutoPlay(0.2, "once"))
+    show._arm()
+    end = time.monotonic() + 3
+    while show.index < 1 and time.monotonic() < end:
+        qapp.processEvents()
+        time.sleep(0.02)
+    assert show.index >= 1
+    show.end()
+
+
+def test_auto_dialog_returns_the_choices(qapp):
+    dlg = slideshow.AutoSlideshowDialog(
+        slideshow.AutoPlay(7, "for", 12), "presenter", True)
+    a = dlg.result_auto()
+    assert (a.seconds, a.repeat, a.minutes) == (7, "for", 12)
+    assert dlg.mode.currentData() == "presenter"
+    assert dlg.from_current.isChecked()

@@ -207,6 +207,22 @@ Present the compiled PDF full screen from the **Slideshow** menu:
 
 **Show the slides on** chooses the screen (normally the other one).
 
+### Automatic slideshow
+
+**Slideshow → Automatic slideshow…** plays the slides by themselves —
+for a kiosk, a poster session or a looping display. Choose:
+
+- **Each slide shows for** — the number of seconds per slide.
+- **Repeat** — *once through, then end*; *loop continuously* (until
+  `Esc`); or *loop for a set time* (in minutes).
+- **Show as** — full screen or presenter view, and whether to start from
+  the current slide.
+
+During an automatic show, `S` pauses and resumes it; the arrow keys
+still move by hand (each slide then gets its full time again); a blank
+screen (`B` / `W`) holds the countdown. The presenter view shows how
+long until the next slide. Your choices are remembered.
+
 During the show: `→`, `Space`, `Page Down` or a click go forward; `←`,
 `Page Up` or a right-click go back; `Home` / `End`; type a number and
 press `Enter` to jump; `B` / `W` blank the screen black / white; `Esc`

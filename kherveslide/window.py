@@ -941,6 +941,7 @@ class SlideWindow(QMainWindow):
                 label, lambda m=mode, c=cur: self.start_slideshow(m, c))
             if key:
                 a.setShortcut(key)
+        m_show.addAction("&Automatic slideshow…", self._auto_slideshow)
         m_show.addSeparator()
         mb.insertMenu(m_git.menuAction(), m_show)
         self._m_show_screen = m_show.addMenu("Show the slides on")
@@ -4173,8 +4174,31 @@ class SlideWindow(QMainWindow):
         self.statusBar().clearMessage()
         return Path(r.pdf_path)
 
+    def _auto_slideshow(self) -> None:
+        """Slideshow ▸ Automatic slideshow… — slides advance by themselves
+        (once, looping, or looping for a set time); choices remembered."""
+        from .slideshow import AutoPlay, AutoSlideshowDialog
+        st = QSettings("kherveDOC", "KherveSlide")
+        auto = AutoPlay(
+            seconds=float(st.value("auto_show/seconds", 10)),
+            repeat=str(st.value("auto_show/repeat", "once")),
+            minutes=float(st.value("auto_show/minutes", 30)))
+        dlg = AutoSlideshowDialog(
+            auto, str(st.value("auto_show/mode", "full")),
+            st.value("auto_show/from_current", False, type=bool), self)
+        if not dlg.exec():
+            return
+        auto = dlg.result_auto()
+        mode = dlg.mode.currentData()
+        cur = dlg.from_current.isChecked()
+        for k, v in (("seconds", auto.seconds), ("repeat", auto.repeat),
+                     ("minutes", auto.minutes), ("mode", mode),
+                     ("from_current", cur)):
+            st.setValue(f"auto_show/{k}", v)
+        self.start_slideshow(mode, cur, auto=auto)
+
     def start_slideshow(self, mode: str = "full",
-                        from_current: bool = False) -> None:
+                        from_current: bool = False, auto=None) -> None:
         """Present the compiled PDF full screen (see slideshow.py)."""
         from PySide6.QtGui import QGuiApplication
         from . import slideshow
@@ -4192,7 +4216,7 @@ class SlideWindow(QMainWindow):
             screen = next((s for s in QGuiApplication.screens()
                            if s.name() == self._show_screen_name), None)
         start = min(self.current, len(pages) - 1) if from_current else 0
-        show = slideshow.start(pages, mode, start, self, screen)
+        show = slideshow.start(pages, mode, start, self, screen, auto=auto)
         show.finished.connect(self._slideshow_finished)
         self._slideshow = show
 
