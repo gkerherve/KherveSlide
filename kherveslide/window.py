@@ -19,8 +19,8 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import (
-    QByteArray, QEvent, QMimeData, QPointF, QSettings, QSize, QThread, QTimer,
-    Qt, Signal,
+    QByteArray, QEvent, QMimeData, QPointF, QRectF, QSettings, QSize,
+    QThread, QTimer, Qt, Signal,
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QFont, QPixmap, QTextCharFormat,
@@ -228,6 +228,36 @@ class _InlineEditor(QTextEdit):
         self._speller = spellcheck.SpellHighlighter(self.document())
         self._speller.enabled = (self.spellcheck_enabled
                                  and spellcheck.available())
+        # (size_pt, font_px) when the theme's bullets are drawn in place of
+        # Qt's list markers, as on the canvas; None keeps Qt's.
+        self.bullet_style = None
+        self._fixing_lists = False
+        self.document().contentsChanged.connect(self._keep_theme_bullets)
+
+    def _keep_theme_bullets(self):
+        """A list started while editing (toolbar / Enter) gets Qt's disc;
+        swap it for the marker-less style so the theme bullet shows."""
+        if self.bullet_style is None or self._fixing_lists:
+            return
+        from .canvas import hide_list_markers
+        self._fixing_lists = True
+        try:
+            hide_list_markers(self.document())
+        finally:
+            self._fixing_lists = False
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.bullet_style is None:
+            return
+        from PySide6.QtGui import QPainter
+        from .canvas import _draw_bullets, bullet_blocks
+        p = QPainter(self.viewport())
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        p.translate(-self.horizontalScrollBar().value(),
+                    -self.verticalScrollBar().value())
+        _draw_bullets(p, bullet_blocks(self.document()), *self.bullet_style)
+        p.end()
 
     # Editing shortcuts (bold/italic, clipboard, undo, select-all) that the
     # window's menu actions also claim. While the editor has focus it must
@@ -1979,6 +2009,62 @@ class SlideWindow(QMainWindow):
             img.save(out, "PNG")
             self.statusBar().showMessage(f"Exported image to {out}")
 
+    def _begin_box_edit(self, item):
+        """Edit a text box in place, looking exactly like the slide: the
+        editor is transparent and frameless, lays the text out with the
+        canvas's own styling (font, weight, colour, TeX spacing, theme
+        bullets) and sits on the painted text's first baseline; it grows
+        with the text instead of clipping it."""
+        from PySide6.QtWidgets import QFrame
+        from .canvas import _first_baseline_shift, style_box_document
+        self._cancel_edit()
+        obj = item.obj
+        editor = _InlineEditor()
+        editor.setFrameShape(QFrame.NoFrame)
+        editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        editor.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        editor.setViewportMargins(0, 0, 0, 0)
+        editor.setAttribute(Qt.WA_TranslucentBackground)
+        editor.viewport().setAutoFillBackground(False)
+        editor.setStyleSheet("QTextEdit { background: transparent;"
+                             " border: none; }")
+        doc = editor.document()
+        font_px, _items = style_box_document(doc, obj, obj.text,
+                                             self._font_scale)
+        from .canvas import themed_bullets
+        if themed_bullets():
+            editor.bullet_style = (obj.font_pt, font_px)
+        area = item.text_scene_rect()
+        # Bullets hang left of the text area; give them room inside the
+        # editor so they aren't clipped.
+        hang = font_px if editor.bullet_style else 0.0
+        root = doc.rootFrame().frameFormat()
+        root.setLeftMargin(hang)
+        doc.rootFrame().setFrameFormat(root)
+
+        def place():
+            doc.setTextWidth(area.width() + hang)
+            shift = _first_baseline_shift(doc)
+            h = max(area.height() - shift, doc.size().height() + 4)
+            proxy.setGeometry(QRectF(area.x() - hang, area.y() + shift,
+                                     area.width() + hang, h))
+
+        proxy = self.scene.addWidget(editor)
+        proxy.setZValue(1e6)
+        place()
+        doc.contentsChanged.connect(place)
+        self._edit_proxy = proxy
+        self._edit_commit = lambda t: self._commit_obj_text(item, t)
+        self._edit_hidden_item = item
+        try:
+            item._editing = True       # paint the box, not its text
+            item.update()
+        except RuntimeError:
+            self._edit_hidden_item = None
+        editor.editingFinished.connect(self._finish_edit)
+        editor.setFocus()
+        editor.selectAll()
+
     def _begin_inline_edit(self, rect, initial, *, font_pt, commit,
                            hide_item=None, bg="#ffffff"):
         """Float a *rich* editor over *rect* (lists show as real bullets,
@@ -2026,10 +2112,7 @@ class SlideWindow(QMainWindow):
         return document_to_latex(self._edit_proxy.widget().document())
 
     def _edit_text_item(self, item):
-        self._begin_inline_edit(
-            item.scene_rect(), item.obj.text, font_pt=item.obj.font_pt,
-            commit=lambda t: self._commit_obj_text(item, t),
-            hide_item=item, bg=getattr(item.obj, "fill", "") or "#ffffff")
+        self._begin_box_edit(item)
 
     def _commit_obj_text(self, item, text):
         item.obj.text = text

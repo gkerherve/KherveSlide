@@ -233,29 +233,88 @@ def _bullet_for(level: int, size_pt: float):
     return min(entries, key=lambda e: abs(e[0].size_pt - size_pt))
 
 
+_BULLET_STYLES = (QTextListFormat.ListDisc, QTextListFormat.ListCircle,
+                  QTextListFormat.ListSquare,
+                  QTextListFormat.ListStyleUndefined)
+
+
+def bullet_blocks(doc: QTextDocument) -> list:
+    """(block, level) of every bulleted (not numbered) list item."""
+    items = []
+    block = doc.begin()
+    while block.isValid():
+        lst = block.textList()
+        if lst is not None and lst.format().style() in _BULLET_STYLES:
+            items.append((block, max(1, lst.format().indent())))
+        block = block.next()
+    return items
+
+
+def hide_list_markers(doc: QTextDocument) -> bool:
+    """Give bulleted lists the marker-less style (Qt draws nothing for it,
+    and it still converts back to itemize) so the theme's bullets can be
+    painted instead. Returns True if anything changed."""
+    changed = False
+    seen = set()
+    block = doc.begin()
+    while block.isValid():
+        lst = block.textList()
+        if lst is not None and id(lst) not in seen:
+            seen.add(id(lst))
+            fmt = lst.format()
+            if fmt.style() in _BULLET_STYLES[:3]:
+                fmt.setStyle(QTextListFormat.ListStyleUndefined)
+                lst.setFormat(fmt)
+                changed = True
+        block = block.next()
+    return changed
+
+
 def _prepare_bullets(doc: QTextDocument, size_pt: float,
                      font_px: float) -> list:
-    """Swap Qt's list markers for the theme's bullets: hide the markers
-    (their colour comes from the block's char format), indent like beamer,
-    and return the (block, level) pairs _draw_bullets paints next to."""
+    """Swap Qt's list markers for the theme's bullets: hide the markers,
+    indent like beamer, and return the (block, level) pairs _draw_bullets
+    paints next to."""
     if not _BULLETS:
         return []
     first = _bullet_for(1, size_pt)
     if first is not None and first[0].indent_em > 0:
         doc.setIndentWidth(first[0].indent_em * font_px)
-    items = []
-    block = doc.begin()
-    while block.isValid():
-        lst = block.textList()
-        if lst is not None and lst.format().style() in (
-                QTextListFormat.ListDisc, QTextListFormat.ListCircle,
-                QTextListFormat.ListSquare):
-            fmt = block.charFormat()
-            fmt.setForeground(QBrush(Qt.transparent))
-            QTextCursor(block).setBlockCharFormat(fmt)
-            items.append((block, max(1, lst.format().indent())))
-        block = block.next()
-    return items
+    hide_list_markers(doc)
+    return bullet_blocks(doc)
+
+
+def themed_bullets() -> bool:
+    """True once the theme's bullets are known (a backdrop compiled)."""
+    return bool(_BULLETS)
+
+
+def style_box_document(doc: QTextDocument, obj, text: str,
+                       font_scale: float) -> tuple[float, list]:
+    """Lay a text box's content into *doc* exactly as the canvas draws it
+    — font, weight, colour, alignment, TeX spacing and the theme's
+    bullets. Shared by the canvas painter and the in-place editor, so
+    editing a box doesn't change how it looks. Returns (font_px, bullet
+    blocks)."""
+    font = canvas_font(max(6, int(obj.font_pt * font_scale)))
+    _apply_font_family(font, getattr(obj, "font_family", ""))
+    font.setBold(obj.bold)
+    font.setItalic(obj.italic)
+    doc.setDefaultFont(font)
+    align = {"center": Qt.AlignHCenter, "right": Qt.AlignRight}.get(
+        obj.align, Qt.AlignLeft)
+    opt = QTextOption(align)
+    opt.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+    doc.setDefaultTextOption(opt)
+    colour = obj.color or "#000000"
+    doc.setHtml(f'<div style="color:{colour}">{latex_to_html(text)}</div>')
+    font_px = obj.font_pt * font_scale
+    bullets = _prepare_bullets(doc, obj.font_pt, font_px)
+    # Same leading as the serializer's \fontsize{pt}{lead}.
+    _apply_tex_spacing(doc, round(obj.font_pt * 1.2) * font_scale,
+                       font_scale)
+    doc.setDocumentMargin(0)
+    return font_px, bullets
 
 
 # beamer's list spacing (beamerbaselocalstructure.sty), in pt: the gap
@@ -756,6 +815,12 @@ class TextBoxItem(BoxItem):
         # appears doubled outside the box. Keep the selection chrome so the
         # handles still frame it.
         if getattr(self, "_editing", False):
+            # The transparent in-place editor draws the text; keep the
+            # box's fill / frame / block header under it so editing looks
+            # exactly like the finished slide.
+            self._paint_decoration(painter)
+            if getattr(obj, "block", ""):
+                self._paint_block(painter)
             self._paint_selection(painter)
             return
         self._paint_decoration(painter)
@@ -781,36 +846,11 @@ class TextBoxItem(BoxItem):
         if getattr(obj, "block", ""):
             body_top = self._paint_block(painter)
 
-        font = canvas_font(max(6, int(obj.font_pt * self._font_scale)))
-        _apply_font_family(font, getattr(obj, "font_family", ""))
-        font.setBold(obj.bold)
-        font.setItalic(obj.italic)
-
         doc = QTextDocument()
-        doc.setDefaultFont(font)
-        align = {"center": Qt.AlignHCenter, "right": Qt.AlignRight}.get(
-            obj.align, Qt.AlignLeft)
-        opt = QTextOption(align)
-        opt.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
-        doc.setDefaultTextOption(opt)
-        colour = obj.color or "#000000"
-        doc.setHtml(f'<div style="color:{colour}">{latex_to_html(obj.text)}</div>')
+        font_px, bullets = style_box_document(doc, obj, obj.text,
+                                              self._font_scale)
         self._underline_misspelled(doc)
-        font_px = obj.font_pt * self._font_scale
-        bullets = _prepare_bullets(doc, obj.font_pt, font_px)
-        # Same leading as the serializer's \fontsize{pt}{lead}.
-        _apply_tex_spacing(doc, round(obj.font_pt * 1.2) * self._font_scale,
-                           self._font_scale)
-        doc.setDocumentMargin(0)
-        # textpos puts the text flush with the box; a framed box is a tikz
-        # node with "inner sep=3pt" (serializer._frame_wrap).
-        from .serializer import _has_frame
-        pad = 3 * self._font_scale if _has_frame(obj) else 0.0
-        if getattr(obj, "block", ""):
-            pad = max(pad, 4.0)
-        inner = QRectF(self._rect.x() + pad, body_top + pad,
-                       self._rect.width() - 2 * pad,
-                       self._rect.bottom() - body_top - 2 * pad)
+        inner = self._text_rect(body_top)
         doc.setTextWidth(inner.width())
         shift = _first_baseline_shift(doc)
 
@@ -823,6 +863,29 @@ class TextBoxItem(BoxItem):
         _draw_bullets(painter, bullets, obj.font_pt, font_px)
         painter.restore()
         self._paint_selection(painter)
+
+    def _block_header_h(self) -> float:
+        return max(16.0, self.obj.font_pt * self._font_scale * 0.85)
+
+    def _text_rect(self, body_top: float | None = None) -> QRectF:
+        """Where the text lays out: flush with the box as textpos puts it,
+        inset only for a framed box (tikz "inner sep=3pt") or a block."""
+        obj = self.obj
+        if body_top is None:
+            body_top = self._rect.y()
+            if getattr(obj, "block", ""):
+                body_top += self._block_header_h()
+        from .serializer import _has_frame
+        pad = 3 * self._font_scale if _has_frame(obj) else 0.0
+        if getattr(obj, "block", ""):
+            pad = max(pad, 4.0)
+        return QRectF(self._rect.x() + pad, body_top + pad,
+                      self._rect.width() - 2 * pad,
+                      self._rect.bottom() - body_top - 2 * pad)
+
+    def text_scene_rect(self) -> QRectF:
+        """_text_rect in scene coordinates (for the in-place editor)."""
+        return self.mapRectToScene(self._text_rect())
 
     _BLOCK_COLORS = {"block": QColor("#3b5ba9"),
                      "alertblock": QColor("#b03a3a"),
@@ -852,7 +915,7 @@ class TextBoxItem(BoxItem):
             title = f"{label} ({obj.block_title})" if obj.block_title else label
         else:
             title = obj.block_title or ""
-        bh = max(16.0, obj.font_pt * self._font_scale * 0.85)
+        bh = self._block_header_h()
         hdr = QRectF(self._rect.x(), self._rect.y(), self._rect.width(), bh)
         body = QRectF(self._rect.x(), hdr.bottom(), self._rect.width(),
                       max(0.0, self._rect.bottom() - hdr.bottom()))
