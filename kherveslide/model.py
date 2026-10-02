@@ -262,6 +262,9 @@ class Slide:
     # layout — content flows in the frame body and beamer places it.
     free: bool = True
     type: str = "Slide"
+    # Hidden (PowerPoint's "Hide slide"): kept in the presentation and the
+    # Visual editor, left out of the PDF and so of the slideshow.
+    hidden: bool = False
 
 
 @dataclass
@@ -561,6 +564,7 @@ def _build_slide(d: dict) -> Slide:
         bg=str(d.get("bg", "")),
         bg_alpha=float(d.get("bg_alpha", 1.0)),
         free=slide_free,
+        hidden=bool(d.get("hidden", False)),
     )
 
 

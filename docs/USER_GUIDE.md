@@ -78,8 +78,14 @@ toolbar.
   offers layouts with a picture of each), or **Slide → Add slide with
   layout**.
 - **Right-click a slide** in the list to apply a layout to it, add a new
-  slide after it, duplicate, move or delete it.
-- **Move a slide**: drag it in the list, or `Ctrl+Shift+↑` / `↓`.
+  slide after it, duplicate, move, hide / show or delete it. **Delete**
+  removes the selected slide too.
+- **Move a slide**: drag it up or down in the list — an orange line shows
+  where it will land — or `Ctrl+Shift+↑` / `↓`.
+- **Hide a slide** (right-click ▸ *Hide slide*, or **Slide → Hide / show
+  slide**): it stays in the presentation, faded in the list with its
+  number struck through, but is left out of the PDF and the slideshow.
+  *Show slide* brings it back.
 - **Background colour**: **Slide → Background colour…**.
 
 ## Text

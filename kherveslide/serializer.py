@@ -1268,6 +1268,8 @@ def serialize_deck(deck: Deck) -> str:
     lines += ["", "\\begin{document}"]
     counter = [0]
     for i, slide in enumerate(deck.slides):
+        if getattr(slide, "hidden", False):
+            continue              # hidden: not in the PDF / slideshow
         lines.append("")          # blank line between slides
         lines.append(_serialize_slide(slide, deck.plain_frames, g, counter,
                                       getattr(deck, "page_number", "none"),
@@ -1347,6 +1349,7 @@ def serialize_backdrop(deck: Deck, master: bool = True) -> str:
     With *master* False the master slide's objects are left out too (and
     the source starts with NO_MASTER_MARK): the page under the canvas
     while the master itself is being edited there."""
+    # Every slide — hidden ones too — so page i stays slide i.
     slides = [Slide(objects=[], title=s.title, bg=s.bg, bg_alpha=s.bg_alpha,
                     free=s.free)
               for s in deck.slides]

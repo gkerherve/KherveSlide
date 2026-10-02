@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from .canvas import render_thumbnail, thumbnail_dpr
+from .navigator import faded
 
 _NUMBER_H = 18           # room under each mini page for its number
 
@@ -121,6 +122,8 @@ class SlideOverview(QWidget):
         if self.backdrop_for is not None:
             bd = self.backdrop_for(index, int(width * thumbnail_dpr()))
         pm = render_thumbnail(slide, self._deck, width, bd)
+        if slide.hidden:
+            pm = faded(pm)
         dpr = pm.devicePixelRatio()
         h = round(pm.height() / dpr)
         out = QPixmap(round(width * dpr), round((h + _NUMBER_H) * dpr))
@@ -133,8 +136,9 @@ class SlideOverview(QWidget):
         p.drawRect(0, 0, width - 1, h - 1)
         f = QFont()
         f.setPixelSize(12)
+        f.setStrikeOut(slide.hidden)
         p.setFont(f)
-        p.setPen(QColor("#374151"))
+        p.setPen(QColor("#9ca3af" if slide.hidden else "#374151"))
         p.drawText(0, h, width, _NUMBER_H, Qt.AlignCenter, str(index + 1))
         p.end()
         return out
@@ -152,7 +156,8 @@ class SlideOverview(QWidget):
             size = QSize(w, round(pm.height() / pm.devicePixelRatio()))
             item = QListWidgetItem(QIcon(pm), "")
             item.setData(Qt.UserRole, i)     # source index, survives drags
-            item.setToolTip(slide.title or f"Slide {i + 1}")
+            item.setToolTip((slide.title or f"Slide {i + 1}")
+                            + (" — hidden" if slide.hidden else ""))
             item.setSizeHint(size + QSize(8, 8))
             g.addItem(item)
         if size is not None:

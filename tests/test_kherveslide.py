@@ -2987,3 +2987,84 @@ def test_console_is_a_main_window_tab_after_latex(monkeypatch):
     assert w.left_tabs.widget(2) is w.console
     assert w.right_tabs.indexOf(w.console) == -1     # not with the PDF
     w.close()
+
+
+def test_hidden_slides_left_out_of_the_pdf_only():
+    from kherveslide.model import Deck, Slide, deck_from_json, deck_to_json
+    from kherveslide.serializer import serialize_backdrop, serialize_deck
+    deck = Deck(slides=[Slide(title="Alpha"), Slide(title="Bravo"),
+                        Slide(title="Charlie")])
+    deck.slides[1].hidden = True
+    tex = serialize_deck(deck)
+    assert "Alpha" in tex and "Charlie" in tex and "Bravo" not in tex
+    assert tex.count("\\begin{frame}") == 2
+    # the canvas backdrop keeps every slide, so page i is still slide i
+    assert "Bravo" in serialize_backdrop(deck)
+    back = deck_from_json(deck_to_json(deck))
+    assert [s.hidden for s in back.slides] == [False, True, False]
+    old = json.loads(deck_to_json(deck))       # saved before Hide slide
+    for d in old["slides"]:
+        d.pop("hidden")
+    assert not any(s.hidden for s in deck_from_json(json.dumps(old)).slides)
+
+
+def _nav_mouse(widget, kind, pos, buttons):
+    """Send a real mouse press / move / release to *widget*."""
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+    t = {"press": QEvent.MouseButtonPress, "move": QEvent.MouseMove,
+         "release": QEvent.MouseButtonRelease}[kind]
+    p = QPointF(pos)
+    button = Qt.NoButton if kind == "move" else Qt.LeftButton
+    QApplication.sendEvent(widget, QMouseEvent(
+        t, p, widget.mapToGlobal(p), button, buttons, Qt.NoModifier))
+
+
+def test_slides_list_drag_hide_and_delete(monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide.model import Slide
+    from kherveslide.window import SlideWindow
+    for name in ("_start_compile", "_start_backdrop",
+                 "_maybe_autodownload_packages"):
+        monkeypatch.setattr(SlideWindow, name, lambda self, *a: None)
+    w = SlideWindow()
+    w.hide_start_page()
+    w.deck.slides = [Slide(title=t) for t in "ABCD"]
+    w.current = 0
+    w._reload_all()
+    nav = w.nav
+    nav.resize(260, 900)
+    vp = nav.viewport()
+    rect = lambda r: nav.visualItemRect(nav.item(r))
+    # drag A below C: press on A, move past the drag distance, release
+    start = rect(0).center()
+    end = rect(3).topLeft() + (rect(3).center() - rect(3).topLeft()) / 2
+    _nav_mouse(vp, "press", start, Qt.LeftButton)
+    _nav_mouse(vp, "move", start + (rect(1).center() - start) / 2,
+               Qt.LeftButton)
+    _nav_mouse(vp, "move", end, Qt.LeftButton)
+    assert nav._drop_row == 3                 # the orange line, before D
+    _nav_mouse(vp, "release", end, Qt.NoButton)
+    assert [s.title for s in w.deck.slides] == list("BCAD")
+    assert w.deck.slides[w.current].title == "A"   # it stays selected
+    # hide / show from the right-click menu's action
+    w._toggle_hidden(1)
+    assert w.deck.slides[1].hidden and w.current == 1
+    assert nav.item(1).font().strikeOut()
+    assert w._pdf_page_of(3) == 2              # C has no page: D is page 3
+    w._toggle_hidden(1)
+    assert not w.deck.slides[1].hidden
+    assert not nav.item(1).font().strikeOut()
+    # Delete in the list removes the selected slide
+    n = len(w.deck.slides)
+    nav.setCurrentRow(0)
+    nav.setFocus()
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtCore import QEvent
+    QApplication.sendEvent(nav, QKeyEvent(QEvent.KeyPress, Qt.Key_Delete,
+                                          Qt.NoModifier))
+    assert len(w.deck.slides) == n - 1
+    w.close()

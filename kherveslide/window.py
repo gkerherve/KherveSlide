@@ -857,6 +857,8 @@ class SlideWindow(QMainWindow):
         m_slide.addAction("Add blank slide", self._add_slide)
         self._fill_new_slide_menu(m_slide.addMenu("Add slide with layout"))
         m_slide.addAction("Delete slide", self._del_slide)
+        m_slide.addAction("Hide / show slide",
+                          lambda: self._toggle_hidden(self.current))
         m_slide.addSeparator()
         m_slide.addAction("Move slide up",
                           lambda: self._move_slide(-1)).setShortcut(
@@ -1298,6 +1300,7 @@ class SlideWindow(QMainWindow):
         self.nav.slideSelected.connect(self._on_slide_changed)
         self.nav.slidesReordered.connect(self._on_reorder)
         self.nav.slideMenuRequested.connect(self._slide_context_menu)
+        self.nav.deleteRequested.connect(self._delete_slide_at)
 
         # The slides list folds away to a slim strip and back with one
         # click (« in its header, the strip itself, Ctrl+B, the toolbar
@@ -2523,7 +2526,7 @@ class SlideWindow(QMainWindow):
         self.current = row
         self._reload_scene()
         # Jump the PDF preview to the matching page (each slide is one page).
-        self.pdf_view.go_to_page(row)
+        self.pdf_view.go_to_page(self._pdf_page_of(row))
 
     def _on_reorder(self, order):
         if self._master_mode:
@@ -2615,8 +2618,31 @@ class SlideWindow(QMainWindow):
                               lambda: self._move_slide_at(row, 1))
         down.setEnabled(row < len(self.deck.slides) - 1)
         menu.addSeparator()
+        hidden = self.deck.slides[row].hidden
+        hide = menu.addAction("Show slide" if hidden else "Hide slide",
+                              lambda: self._toggle_hidden(row))
+        hide.setToolTip("A hidden slide stays here but is left out of the "
+                        "PDF and the slideshow")
         menu.addAction("Delete slide", lambda: self._delete_slide_at(row))
         menu.exec(global_pos)
+
+    def _toggle_hidden(self, row):
+        """PowerPoint's Hide slide: kept in the presentation, left out of
+        the PDF and the slideshow."""
+        if self._master_mode or not (0 <= row < len(self.deck.slides)):
+            return
+        s = self.deck.slides[row]
+        s.hidden = not s.hidden
+        self.current = row
+        self._reload_all()
+        self.statusBar().showMessage(
+            f"Slide {row + 1} hidden — not in the PDF or the slideshow"
+            if s.hidden else f"Slide {row + 1} shown again", 4000)
+
+    def _pdf_page_of(self, row: int) -> int:
+        """The PDF page of slide *row*: hidden slides have none, so count
+        the shown slides before it."""
+        return sum(1 for s in self.deck.slides[:row] if not s.hidden)
 
     def _apply_layout(self, row, name):
         layout = templates.instantiate_slide_layout(name)
@@ -4486,7 +4512,8 @@ class SlideWindow(QMainWindow):
         if self._show_screen_name:
             screen = next((s for s in QGuiApplication.screens()
                            if s.name() == self._show_screen_name), None)
-        start = min(self.current, len(pages) - 1) if from_current else 0
+        start = (min(self._pdf_page_of(self.current), len(pages) - 1)
+                 if from_current else 0)
         show = slideshow.start(pages, mode, start, self, screen, auto=auto)
         show.finished.connect(self._slideshow_finished)
         self._slideshow = show
