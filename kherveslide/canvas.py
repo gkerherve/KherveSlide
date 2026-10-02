@@ -1188,11 +1188,27 @@ class PictureBoxItem(BoxItem):
     def _pixmap(self) -> QPixmap | None:
         # Keyed on the file's mtime too, so a drawing or chemical structure
         # re-saved under the same name shows its new content.
-        key = (self.obj.path, _mtime(self.obj.path))
+        from . import image_effects
+        fx = image_effects.has_effects(self.obj)
+        path = image_effects.baked_path(self.obj) if fx else self.obj.path
+        key = (path, _mtime(self.obj.path))
         if key != self._pix_path:
             self._pix_path = key
-            self._pix = load_picture(self.obj.path)
+            self._pix = load_picture(path or self.obj.path)
+            self._baked = bool(fx and path)
         return self._pix
+
+    def _pad(self):
+        from . import image_effects
+        return (image_effects.padding(self.obj)
+                if getattr(self, "_baked", False) else (0.0, 0.0, 0.0, 0.0))
+
+    def boundingRect(self) -> QRectF:
+        # Glow and reflection paint beyond the box.
+        r = super().boundingRect()
+        pl, pt, pr, pb = self._pad()
+        w, h = self._rect.width(), self._rect.height()
+        return r.adjusted(-pl * w, -pt * h, pr * w, pb * h)
 
     def _aspect_locked(self):
         return bool(self.obj.keep_aspect)
@@ -1200,6 +1216,8 @@ class PictureBoxItem(BoxItem):
     def _source_rect(self, pm: QPixmap) -> QRectF:
         """The kept (un-cropped) region of the source pixmap."""
         o = self.obj
+        if getattr(self, "_baked", False):      # crop is baked in
+            return QRectF(0, 0, pm.width(), pm.height())
         cl = max(0.0, min(0.9, getattr(o, "crop_l", 0.0)))
         ct = max(0.0, min(0.9, getattr(o, "crop_t", 0.0)))
         cr = max(0.0, min(0.9, getattr(o, "crop_r", 0.0)))
@@ -1213,6 +1231,11 @@ class PictureBoxItem(BoxItem):
         pm = self._pixmap()
         if pm is not None:
             src = self._source_rect(pm)
+            pl, pt, pr, pb = self._pad()
+            if pl or pt or pr or pb:
+                # Measure the aspect on the content, not the padding.
+                src = QRectF(0, 0, src.width() / (1 + pl + pr),
+                             src.height() / (1 + pt + pb))
             # Target rect inside the box, honouring the *cropped* aspect.
             if self.obj.keep_aspect and src.height() > 0:
                 ratio = src.width() / src.height()
@@ -1234,6 +1257,10 @@ class PictureBoxItem(BoxItem):
                 painter.rotate(angle)
                 painter.translate(-cx, -cy)
             painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+            if pl or pt or pr or pb:
+                tw, th = target.width(), target.height()
+                target = target.adjusted(-pl * tw, -pt * th, pr * tw, pb * th)
+                src = QRectF(0, 0, pm.width(), pm.height())
             painter.drawPixmap(target, pm, src)
             painter.restore()
         else:

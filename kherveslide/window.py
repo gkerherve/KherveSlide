@@ -2162,7 +2162,11 @@ class SlideWindow(QMainWindow):
         o.path = dlg.path
         o.crop_l, o.crop_t, o.crop_r, o.crop_b = dlg.crop
         o.rotation = dlg.rotation
+        o.opacity = dlg.opacity
+        for name, value in dlg.effects.items():
+            setattr(o, name, value)
         item._pix_path = None        # force pixmap reload if path changed
+        item.prepareGeometryChange()  # glow/reflection change the bounds
         item.update()
         self._touch_current()
 

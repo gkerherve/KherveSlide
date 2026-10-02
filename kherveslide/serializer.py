@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+from . import image_effects as _image_effects
 from . import shapes as _shapes
 from .model import (
     Deck, Slide, SlideText, SlidePicture, SlideTable, SlideLine, SlideShape,
@@ -182,6 +183,22 @@ def _picture_graphic(obj: SlidePicture, rel: str = "\\paperwidth",
                      rel_h: str = "\\paperheight",
                      width_expr: str | None = None) -> str:
     path = obj.path.replace("\\", "/")
+    baked = _image_effects.baked_path(obj) if _image_effects.has_effects(obj) else ""
+    if baked:
+        # Effects (and the crop) are baked into one PNG; glow/reflection
+        # pad it beyond the box, so grow it and shift it back by the pad.
+        pl, pt, pr, pb = _image_effects.padding(obj)
+        bw = width_expr or f"{_fmt(obj.w)}{rel}"
+        opts = (f"width={_fmt(1 + pl + pr)}\\dimexpr {bw}\\relax,"
+                f"height={_fmt(obj.h * (1 + pt + pb))}{rel_h}")
+        if obj.keep_aspect:
+            opts += ",keepaspectratio"
+        graphic = f"\\includegraphics[{opts}]{{{baked.replace(chr(92), '/')}}}"
+        out = _picture_finish(obj, graphic)
+        if pl or pt:
+            out = (f"\\vspace*{{-{_fmt(obj.h * pt)}{rel_h}}}\\noindent"
+                   f"\\hspace*{{-{_fmt(pl)}\\dimexpr {bw}\\relax}}{out}")
+        return out
     # width_expr overrides the box-fraction width (used to fill a column).
     w = width_expr or f"{_fmt(obj.w)}{rel}"
     opts = f"width={w},height={_fmt(obj.h)}{rel_h}"
@@ -196,6 +213,11 @@ def _picture_graphic(obj: SlidePicture, rel: str = "\\paperwidth",
         graphic = f"\\adjincludegraphics[{trim},clip,{opts}]{{{path}}}"
     else:
         graphic = f"\\includegraphics[{opts}]{{{path}}}"
+    return _picture_finish(obj, graphic)
+
+
+def _picture_finish(obj: SlidePicture, graphic: str) -> str:
+    """Rotation and opacity, applied on top of the (baked) graphic."""
     angle = getattr(obj, "rotation", 0.0)
     if angle:
         graphic = f"\\rotatebox[origin=c]{{{_fmt(angle)}}}{{{graphic}}}"

@@ -1,4 +1,6 @@
-"""Interactive picture editor: crop and rotate a :class:`SlidePicture`.
+"""Interactive picture editor: crop, rotate and apply PowerPoint-style
+effects (corrections, colour, artistic, transparency/fade, soft edges,
+glow, reflection) to a :class:`SlidePicture`.
 
 The crop rectangle is defined on the *unrotated* image (the serializer
 trims first, then rotates), so the crop canvas never rotates — rotation
@@ -14,11 +16,14 @@ from PySide6.QtGui import (
     QBrush, QColor, QImage, QPainter, QPen, QPixmap, QTransform,
 )
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
-    QLabel, QSizePolicy, QToolBar, QVBoxLayout, QWidget,
+    QApplication, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
+    QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+    QPushButton, QSizePolicy, QSlider, QTabWidget, QToolBar, QVBoxLayout,
+    QWidget,
 )
 
 from . import icons
+from . import image_effects
 
 _HANDLE = 7.0
 _MIN_FRAC = 0.05          # the crop must keep at least this fraction each axis
@@ -173,9 +178,13 @@ class PictureEditDialog(QDialog):
 
     def __init__(self, obj, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Edit picture — crop & rotate")
-        self.resize(640, 560)
+        self.setWindowTitle("Edit picture")
+        self.resize(900, 600)
         self.path = obj.path
+        self.effects = {n: getattr(obj, n, v)
+                        for n, v in image_effects.EFFECT_FIELDS.items()}
+        self.opacity = float(getattr(obj, "opacity", 1.0))
+        self._crop0 = (obj.crop_l, obj.crop_t, obj.crop_r, obj.crop_b)
         self.rotation = float(getattr(obj, "rotation", 0.0))
         self._src = QPixmap(self.path) if self.path else QPixmap()
 
@@ -213,17 +222,155 @@ class PictureEditDialog(QDialog):
         tb.addWidget(spacer)
         tb.addWidget(QLabel("Result: "))
         self._preview = QLabel()
-        self._preview.setFixedSize(72, 72)
+        self._preview.setFixedSize(150, 110)
         self._preview.setAlignment(Qt.AlignCenter)
         self._preview.setStyleSheet("border:1px solid #888;background:#fff;")
         tb.addWidget(self._preview)
         root.addWidget(tb)            # toolbar on top
-        root.addWidget(self._canvas, 1)
+        body = QHBoxLayout()
+        body.addWidget(self._canvas, 1)
+        body.addWidget(self._build_effects(), 0)
+        root.addLayout(body, 1)
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         root.addWidget(bb)
+        self._update_preview()
+
+    # ------------------------------------------------------------ effects
+    def _build_effects(self) -> QWidget:
+        """The Picture Format panel: PowerPoint's picture effects grouped
+        as tabs. Every control writes into :attr:`effects`."""
+        self._fx_widgets = {}
+        tabs = QTabWidget()
+        tabs.setMinimumWidth(290)
+
+        def page(rows):
+            w = QWidget()
+            f = QFormLayout(w)
+            for label, widget in rows:
+                f.addRow(label, widget)
+            return w
+
+        def slider(name, lo, hi, scale=100):
+            s = QSlider(Qt.Horizontal)
+            s.setRange(int(lo * scale), int(hi * scale))
+            s.setValue(int(round(self.effects[name] * scale)))
+            s.valueChanged.connect(
+                lambda v, n=name: self._set_fx(n, v / scale))
+            self._fx_widgets[name] = (s, scale)
+            return s
+
+        def combo(name, items):
+            c = QComboBox()
+            for value, text in items:
+                c.addItem(text, value)
+            c.setCurrentIndex(max(0, c.findData(self.effects[name])))
+            c.currentIndexChanged.connect(
+                lambda _i, n=name, c=c: self._set_fx(n, c.currentData()))
+            self._fx_widgets[name] = (c, None)
+            return c
+
+        def colour(name, default):
+            b = QPushButton()
+            self._paint_swatch(b, self.effects[name] or default)
+
+            def pick(_=False, n=name, b=b):
+                c = QColorDialog.getColor(
+                    QColor(self.effects[n] or default), self, "Colour")
+                if c.isValid():
+                    self._paint_swatch(b, c.name())
+                    self._set_fx(n, c.name())
+            b.clicked.connect(pick)
+            self._fx_widgets[name] = (b, default)
+            return b
+
+        tabs.addTab(page([
+            ("Brightness", slider("brightness", -1, 1)),
+            ("Contrast", slider("contrast", -1, 1)),
+            ("Sharpen / soften", slider("sharpness", -1, 1)),
+        ]), "Corrections")
+        tabs.addTab(page([
+            ("Saturation", slider("saturation", 0, 2)),
+            ("Temperature", slider("temperature", -1, 1)),
+            ("Recolour", combo("recolor", [
+                ("", "None"), ("grayscale", "Grayscale"),
+                ("sepia", "Sepia"), ("washout", "Washout"),
+                ("bw", "Black and white"), ("duotone", "Duotone")])),
+            ("Duotone colour", colour("recolor_color", "#1f4e79")),
+        ]), "Colour")
+        tabs.addTab(page([
+            ("Effect", combo("artistic", [
+                ("", "None"), ("blur", "Blur"),
+                ("pencil", "Pencil sketch"),
+                ("line_drawing", "Line drawing"), ("mosaic", "Mosaic"),
+                ("posterize", "Posterize"), ("emboss", "Emboss"),
+                ("glow_edges", "Glowing edges"),
+                ("watercolor", "Watercolour")])),
+            ("Strength", slider("artistic_amount", 0, 1)),
+        ]), "Artistic")
+        op = QSlider(Qt.Horizontal)
+        op.setRange(0, 100)
+        op.setValue(int(round((1 - self.opacity) * 100)))
+        op.valueChanged.connect(self._set_transparency)
+        self._op_slider = op
+        tabs.addTab(page([
+            ("Transparency", op),
+            ("Fade", combo("fade", [
+                ("", "None"), ("left", "From the left"),
+                ("right", "From the right"), ("top", "From the top"),
+                ("bottom", "From the bottom"),
+                ("radial", "Towards the edges")])),
+            ("Fade starts", slider("fade_start", 0, 1)),
+            ("Fade ends", slider("fade_end", 0, 1)),
+            ("Soft edges", slider("soft_edge", 0, 0.5)),
+        ]), "Transparency")
+        tabs.addTab(page([
+            ("Glow colour", colour("glow_color", "#ffd966")),
+            ("Glow size", slider("glow_size", 0, 0.3)),
+            ("Reflection", slider("reflection", 0, 1)),
+        ]), "Glow && reflection")
+
+        box = QWidget()
+        v = QVBoxLayout(box)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.addWidget(tabs, 1)
+        reset = QPushButton("Reset all effects")
+        reset.clicked.connect(self._reset_effects)
+        v.addWidget(reset)
+        return box
+
+    @staticmethod
+    def _paint_swatch(button, colour):
+        button.setStyleSheet(f"background:{colour};min-width:60px;")
+
+    def _set_fx(self, name, value):
+        self.effects[name] = value
+        if name == "glow_size" and value and not self.effects["glow_color"]:
+            self.effects["glow_color"] = "#ffd966"
+        self._update_preview()
+
+    def _set_transparency(self, v):
+        self.opacity = 1 - v / 100
+        self._update_preview()
+
+    def _reset_effects(self):
+        for name, neutral in image_effects.EFFECT_FIELDS.items():
+            self.effects[name] = neutral
+            w, extra = self._fx_widgets.get(name, (None, None))
+            if isinstance(w, QSlider):
+                w.blockSignals(True)
+                w.setValue(int(round(neutral * extra)))
+                w.blockSignals(False)
+            elif isinstance(w, QComboBox):
+                w.blockSignals(True)
+                w.setCurrentIndex(max(0, w.findData(neutral)))
+                w.blockSignals(False)
+            elif isinstance(w, QPushButton):
+                self._paint_swatch(w, extra)
+        self._op_slider.setValue(0)
+        self.opacity = 1.0
         self._update_preview()
 
     @property
@@ -355,13 +502,47 @@ class PictureEditDialog(QDialog):
         if self._src.isNull():
             self._preview.clear()
             return
-        l, t, r, b = self._canvas.crop()
-        w, h = self._src.width(), self._src.height()
-        cropped = self._src.copy(int(l * w), int(t * h),
-                                 max(1, int((1 - l - r) * w)),
-                                 max(1, int((1 - t - b) * h)))
+        pm = self._effects_preview()
+        if pm is None:
+            l, t, r, b = self._canvas.crop()
+            w, h = self._src.width(), self._src.height()
+            pm = self._src.copy(int(l * w), int(t * h),
+                                max(1, int((1 - l - r) * w)),
+                                max(1, int((1 - t - b) * h)))
         if self.rotation:
-            cropped = cropped.transformed(
+            pm = pm.transformed(
                 QTransform().rotate(self.rotation), Qt.SmoothTransformation)
-        self._preview.setPixmap(cropped.scaled(
-            68, 68, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        if self.opacity < 1:
+            faded = QPixmap(pm.size())
+            faded.fill(Qt.transparent)
+            p = QPainter(faded)
+            p.setOpacity(max(0.0, self.opacity))
+            p.drawPixmap(0, 0, pm)
+            p.end()
+            pm = faded
+        self._preview.setPixmap(pm.scaled(
+            self._preview.width() - 4, self._preview.height() - 4,
+            Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def _effects_preview(self) -> QPixmap | None:
+        """The cropped picture with its effects, from a downscaled copy of
+        the source so dragging a slider stays responsive."""
+        if not self.path:
+            return None
+        from types import SimpleNamespace
+        l, t, r, b = self._canvas.crop()
+        probe = SimpleNamespace(path=self.path, crop_l=l, crop_t=t,
+                                crop_r=r, crop_b=b, **self.effects)
+        if not image_effects.has_effects(probe):
+            return None
+        try:
+            from PIL import Image
+            with Image.open(self.path) as im:
+                im = im.convert("RGBA")
+                im.thumbnail((360, 360))
+                out = image_effects.render(im, probe)
+        except Exception:
+            return None
+        data = out.tobytes("raw", "RGBA")
+        img = QImage(data, out.width, out.height, QImage.Format_RGBA8888)
+        return QPixmap.fromImage(img.copy())

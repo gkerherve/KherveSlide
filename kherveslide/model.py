@@ -95,6 +95,23 @@ class SlidePicture:
     fill_opacity: float = 1.0
     shadow: bool = False
     corner_radius: float = 4.0
+    # PowerPoint-style picture effects, baked by image_effects.py.
+    brightness: float = 0.0     # -1..1
+    contrast: float = 0.0       # -1..1
+    sharpness: float = 0.0      # -1 (soften) .. 1 (sharpen)
+    saturation: float = 1.0     # 0 (grey) .. 2
+    temperature: float = 0.0    # -1 (cool) .. 1 (warm)
+    recolor: str = ""           # "" | grayscale | sepia | washout | bw | duotone
+    recolor_color: str = ""     # duotone colour
+    artistic: str = ""          # "" | blur | pencil | line_drawing | mosaic | ...
+    artistic_amount: float = 0.5
+    fade: str = ""              # gradient transparency: left|right|top|bottom|radial
+    fade_start: float = 0.0     # fully transparent up to here (0..1 from that side)
+    fade_end: float = 0.5       # fully opaque from here
+    soft_edge: float = 0.0      # feather width, fraction of the shorter side
+    glow_color: str = ""
+    glow_size: float = 0.0      # fraction of the shorter side
+    reflection: float = 0.0     # reflection height, fraction of the picture
     locked: bool = True         # see SlideText.locked
     group: int = 0
     type: str = "SlidePicture"
@@ -334,6 +351,20 @@ def deck_to_json(deck: Deck) -> str:
     return json.dumps(asdict(deck), indent=2, ensure_ascii=False)
 
 
+_PICTURE_EFFECTS = {
+    "brightness": 0.0, "contrast": 0.0, "sharpness": 0.0,
+    "saturation": 1.0, "temperature": 0.0, "recolor": "",
+    "recolor_color": "", "artistic": "", "artistic_amount": 0.5,
+    "fade": "", "fade_start": 0.0, "fade_end": 0.5, "soft_edge": 0.0,
+    "glow_color": "", "glow_size": 0.0, "reflection": 0.0,
+}
+
+
+def _picture_effects_from(d: dict) -> dict:
+    """Picture-effect fields from JSON, typed like their defaults."""
+    return {k: type(v)(d.get(k, v)) for k, v in _PICTURE_EFFECTS.items()}
+
+
 def deck_from_json(s: str) -> Deck:
     return _build_deck(json.loads(s))
 
@@ -388,6 +419,7 @@ def _build_object(d: dict) -> SlideObject:
             fill_opacity=float(d.get("fill_opacity", 1.0)),
             shadow=bool(d.get("shadow", False)),
             corner_radius=float(d.get("corner_radius", 4.0)),
+            **_picture_effects_from(d),
             locked=bool(d.get("locked", True)),
             group=int(d.get("group", 0)),
         )
