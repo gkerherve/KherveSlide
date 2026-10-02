@@ -259,9 +259,21 @@ Present the compiled PDF full screen from the **Slideshow** menu:
 | **From the current slide** | Full screen from the slide you are on. | `Shift+F5` |
 | **Presenter view** | The slides on the other screen; on yours, the current and next slide, the slide count, a timer and the clock. | `Alt+F5` |
 | **Current + next slide** | Two screens: the current slide on one, the next on the other. | |
-| **In a window** | A normal, resizable window — beside other work or shared in a video call. `F` switches it to full screen and back. | |
+| **In a window** | A normal, resizable window — beside other work or shared in a video call — with a player bar (see below). `F` switches it to full screen and back. | |
 
 **Show the slides on** chooses the screen (normally the other one).
+
+### The slideshow window
+
+A slideshow **in a window** has a player bar under the slides: first,
+previous, **Play / Pause** and next; **Each slide** (seconds);
+**Once**, **Loop** or **Loop for…** (minutes); a *next in … s*
+countdown; the slide number; full screen and end. Press **Play** (or
+`S`) at any time to let the slides advance by themselves, and again to
+pause; change the seconds or the repeat while it runs. A *Once* run
+stops on the last slide and leaves the window open, ready to play
+again. In full screen the bar hides, and comes back when you move the
+mouse.
 
 ### Automatic slideshow
 

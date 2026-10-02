@@ -22,16 +22,17 @@ slide its full time again; a blanked screen holds the countdown.
 """
 from __future__ import annotations
 
+import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from PySide6.QtCore import QObject, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, \
     QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel, QPushButton,
-    QRadioButton, QVBoxLayout, QWidget,
+    QRadioButton, QToolButton, QVBoxLayout, QWidget,
 )
 
 
@@ -110,6 +111,11 @@ class Slideshow(QObject):
         self._typed = ""
         self._ending = False
         self.views: list[QWidget] = []
+        # Settings Play uses when a show started by hand goes automatic
+        # (None: S does nothing, as in a full-screen manual show).
+        self.auto_defaults: AutoPlay | None = None
+        # Window shows don't close when a "once" automatic run ends.
+        self.keep_open = False
 
     # ---- navigation ----
     def go(self, index: int) -> None:
@@ -157,15 +163,56 @@ class Slideshow(QObject):
                 self._arm()
             else:
                 self.go(0)
+        elif self.keep_open:
+            # A window show stays up at its last slide, ready to replay.
+            self.auto_paused = True
+            self._arm()
+            self.changed.emit()
         else:
             self.end()
 
     def toggle_auto(self) -> None:
+        """S / the Play button: pause or resume — or, in a show started by
+        hand, switch automatic advance on with :attr:`auto_defaults`."""
         if self.auto is None:
+            if self.auto_defaults is None:
+                return
+            self.start_auto(replace(self.auto_defaults))
             return
         self.auto_paused = not self.auto_paused
+        if not self.auto_paused and self.auto.repeat == "for":
+            self._auto_started = time.monotonic()
         self._arm()
         self.changed.emit()
+
+    def start_auto(self, auto: AutoPlay) -> None:
+        """Advance by itself from now on (restarting the countdown)."""
+        self.auto = auto
+        self.auto_paused = False
+        self._auto_started = time.monotonic()
+        self._arm()
+        self.changed.emit()
+
+    def set_auto_seconds(self, seconds: float) -> None:
+        """Change the time per slide; a running countdown restarts."""
+        if self.auto_defaults is not None:
+            self.auto_defaults.seconds = seconds
+        if self.auto is not None:
+            self.auto.seconds = seconds
+            self._arm()
+
+    def set_auto_repeat(self, repeat: str, minutes: float | None = None):
+        for a in (self.auto, self.auto_defaults):
+            if a is not None:
+                a.repeat = repeat
+                if minutes is not None:
+                    a.minutes = minutes
+        if self.auto is not None:
+            self._auto_started = time.monotonic()
+
+    @property
+    def auto_running(self) -> bool:
+        return self.auto is not None and not self.auto_paused
 
     def auto_remaining(self) -> float | None:
         """Seconds until the next automatic advance (None when off)."""
@@ -241,13 +288,124 @@ class Slideshow(QObject):
         return True
 
 
+class _ControlBar(QWidget):
+    """The player bar under a slideshow in a window: move by hand, or
+    Play to advance automatically (time per slide, once / loop / for a
+    while), with a countdown; full screen and end."""
+
+    HEIGHT = 40
+
+    def __init__(self, screen: "SlideScreen"):
+        super().__init__(screen)
+        from . import icons
+        self.screen_ = screen
+        show = screen.show_
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(
+            "QWidget#bar{background:#1e1e1e;}"
+            "QLabel{color:#dddddd;}"
+            "QToolButton{border:none;padding:3px;border-radius:4px;}"
+            "QToolButton:hover{background:#3a3a3a;}"
+            "QDoubleSpinBox, QComboBox{background:#2d2d2d;color:#eeeeee;"
+            "border:1px solid #444;border-radius:3px;padding:1px 4px;}")
+        self.setObjectName("bar")
+        row = QHBoxLayout(self)
+        row.setContentsMargins(8, 4, 8, 4)
+        row.setSpacing(4)
+
+        def button(kind, tip, slot):
+            b = QToolButton(self)
+            b.setIcon(icons.media(kind))
+            b.setIconSize(QSize(20, 20))
+            b.setToolTip(tip)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.clicked.connect(slot)
+            row.addWidget(b)
+            return b
+
+        button("first", "First slide (Home)", lambda: show.go(0))
+        button("prev", "Previous slide (←)", show.prev)
+        self.play = button("play", "Play automatically (S)",
+                           show.toggle_auto)
+        button("next", "Next slide (→)", show.next)
+        row.addSpacing(10)
+        row.addWidget(QLabel("Each slide"))
+        self.seconds = QDoubleSpinBox(self)
+        self.seconds.setRange(1, 3600)
+        self.seconds.setDecimals(0)
+        self.seconds.setSuffix(" s")
+        self.seconds.setFocusPolicy(Qt.ClickFocus)
+        defaults = show.auto or show.auto_defaults or AutoPlay()
+        self.seconds.setValue(defaults.seconds)
+        self.seconds.valueChanged.connect(show.set_auto_seconds)
+        self.seconds.editingFinished.connect(screen.setFocus)
+        row.addWidget(self.seconds)
+        self.repeat = QComboBox(self)
+        self.repeat.setFocusPolicy(Qt.NoFocus)
+        self.repeat.addItem("Once", "once")
+        self.repeat.addItem("Loop", "loop")
+        self.repeat.addItem("Loop for…", "for")
+        self.repeat.setCurrentIndex(
+            max(0, self.repeat.findData(defaults.repeat)))
+        self.repeat.currentIndexChanged.connect(self._repeat_changed)
+        row.addWidget(self.repeat)
+        self.minutes = QDoubleSpinBox(self)
+        self.minutes.setRange(1, 24 * 60)
+        self.minutes.setDecimals(0)
+        self.minutes.setSuffix(" min")
+        self.minutes.setFocusPolicy(Qt.ClickFocus)
+        self.minutes.setValue(defaults.minutes)
+        self.minutes.valueChanged.connect(
+            lambda v: show.set_auto_repeat("for", v))
+        self.minutes.editingFinished.connect(screen.setFocus)
+        row.addWidget(self.minutes)
+        self.countdown = QLabel(self)
+        self.countdown.setMinimumWidth(80)
+        row.addWidget(self.countdown)
+        row.addStretch(1)
+        self.where = QLabel(self)
+        row.addWidget(self.where)
+        row.addSpacing(6)
+        button("fullscreen", "Full screen (F)", screen.toggle_full_screen)
+        button("stop", "End the slideshow (Esc)", show.end)
+        self.setFixedHeight(self.HEIGHT)
+        self._tick = QTimer(self)
+        self._tick.timeout.connect(self.refresh)
+        self._tick.start(250)
+        show.changed.connect(self.refresh)
+        self.refresh()
+
+    def mousePressEvent(self, event):
+        event.accept()            # a click on the bar never turns the slide
+
+    def _repeat_changed(self):
+        key = self.repeat.currentData()
+        self.minutes.setVisible(key == "for")
+        self.screen_.show_.set_auto_repeat(key, self.minutes.value())
+
+    def refresh(self):
+        from . import icons
+        show = self.screen_.show_
+        running = show.auto_running
+        self.play.setIcon(icons.media("pause" if running else "play"))
+        self.play.setToolTip("Pause (S)" if running
+                             else "Play automatically (S)")
+        self.minutes.setVisible(self.repeat.currentData() == "for")
+        left = show.auto_remaining()
+        self.countdown.setText(f"next in {int(math.ceil(left))} s"
+                               if running and left is not None else "")
+        self.where.setText(f"{show.index + 1} / {len(show.pages)}")
+
+
 class SlideScreen(QWidget):
     """One full-screen slide: the current page (or, with offset=1, the
     next one), letterboxed on black."""
 
     def __init__(self, show: Slideshow, offset: int = 0, parent=None,
                  windowed: bool = False):
+        self.bar = None              # the window-mode player bar
         super().__init__(parent, Qt.Window)
+        self.bar = None
         self.show_ = show
         self.offset = offset
         self.windowed = windowed
@@ -255,31 +413,91 @@ class SlideScreen(QWidget):
         if not windowed:
             self.setCursor(Qt.BlankCursor)
         else:
-            self.setMinimumSize(320, 180)
+            self.setMinimumSize(560, 260)
             show.changed.connect(self._title)
             self._title()
         self.setFocusPolicy(Qt.StrongFocus)
         show.changed.connect(self.update)
+        if windowed:
+            self.bar = _ControlBar(self)
+            # In full screen the bar hides, and comes back when the mouse
+            # moves (then fades out again after a few idle seconds).
+            self.setMouseTracking(True)
+            self._bar_hide = QTimer(self)
+            self._bar_hide.setSingleShot(True)
+            self._bar_hide.timeout.connect(self._hide_bar)
+
+    # ---- window mode: the control bar --------------------------------
+    def _bar_docked(self) -> bool:
+        """Below the slide (normal window) rather than over it."""
+        return self.bar is not None and not self.isFullScreen()
+
+    def _slide_rect(self):
+        r = self.rect()
+        if self._bar_docked():
+            r.setBottom(r.bottom() - _ControlBar.HEIGHT)
+        return r
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.bar is not None:
+            self.bar.setGeometry(0, self.height() - _ControlBar.HEIGHT,
+                                 self.width(), _ControlBar.HEIGHT)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if self.bar is not None and event.type() == QEvent.WindowStateChange:
+            if self.isFullScreen():
+                self._hide_bar()
+            else:
+                self.bar.show()
+                self.setCursor(Qt.ArrowCursor)
+            self.update()
+
+    def _hide_bar(self):
+        if self.bar is not None and self.isFullScreen():
+            if self.bar.underMouse() or self.bar.seconds.hasFocus() or \
+                    self.bar.minutes.hasFocus():
+                self._bar_hide.start(2500)
+                return
+            self.bar.hide()
+            self.setCursor(Qt.BlankCursor)
+
+    def mouseMoveEvent(self, event):
+        if self.bar is not None and self.isFullScreen():
+            self.bar.show()
+            self.bar.raise_()
+            self.setCursor(Qt.ArrowCursor)
+            self._bar_hide.start(2500)
+        super().mouseMoveEvent(event)
+
+    def toggle_full_screen(self):
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+        self.setFocus()
 
     def paintEvent(self, _event):
         p = QPainter(self)
         show = self.show_
+        area = self._slide_rect() if self.bar is not None else self.rect()
         if show.blank and self.offset == 0:
-            p.fillRect(self.rect(), QColor(show.blank))
+            p.fillRect(area, QColor(show.blank))
             return
-        p.fillRect(self.rect(), Qt.black)
+        p.fillRect(area, Qt.black)
         i = show.index + self.offset
         if not 0 <= i < len(show.pages):
             p.setPen(QColor("#888888"))
-            p.drawText(self.rect(), Qt.AlignCenter,
+            p.drawText(area, Qt.AlignCenter,
                        "End of slideshow" if self.offset == 0
                        else "— end —")
             return
-        pm = show.pages.pixmap(i, self.size(), self.devicePixelRatioF())
+        pm = show.pages.pixmap(i, area.size(), self.devicePixelRatioF())
         w = pm.width() / pm.devicePixelRatio()
         h = pm.height() / pm.devicePixelRatio()
-        p.drawPixmap(int((self.width() - w) / 2),
-                     int((self.height() - h) / 2), pm)
+        p.drawPixmap(int(area.x() + (area.width() - w) / 2),
+                     int(area.y() + (area.height() - h) / 2), pm)
 
     def _title(self):
         s = self.show_
@@ -288,10 +506,7 @@ class SlideScreen(QWidget):
 
     def keyPressEvent(self, event):
         if self.windowed and event.key() == Qt.Key_F:
-            if self.isFullScreen():
-                self.showNormal()
-            else:
-                self.showFullScreen()
+            self.toggle_full_screen()
             return
         if (self.windowed and event.key() == Qt.Key_Escape
                 and self.isFullScreen()):
@@ -539,12 +754,14 @@ def start(pages: PdfPages, mode: str, start_index: int, window,
     elif mode == "window":
         # A normal, resizable window (e.g. beside other work, or shared
         # in a video call); F switches it to full screen and back.
+        show.keep_open = True
+        show.auto_defaults = replace(auto) if auto else AutoPlay(repeat="loop")
         slides = SlideScreen(show, windowed=True)
         show.views.append(slides)
         screen = audience_screen or here
         avail = screen.availableGeometry() if screen else None
         w = int(min(1280, (avail.width() if avail else 1280) * 0.7))
-        slides.resize(w, int(w / pages.aspect()))
+        slides.resize(w, int(w / pages.aspect()) + _ControlBar.HEIGHT)
         if avail is not None:
             slides.move(avail.center().x() - slides.width() // 2,
                         avail.center().y() - slides.height() // 2)

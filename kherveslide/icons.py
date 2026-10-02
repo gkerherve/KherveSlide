@@ -1963,6 +1963,45 @@ def slideshow() -> QIcon:
     return QIcon(px)
 
 
+def media(kind: str, colour: str = "#FFFFFF") -> QIcon:
+    """Player controls for the slideshow window, drawn light for its dark
+    bar: first | prev | play | pause | next | fullscreen | stop."""
+    px, p = _new_canvas()
+    c = QColor(colour)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(c))
+
+    def tri(x0, x1):                   # a triangle pointing from x0 to x1
+        p.drawPolygon(QPolygonF([QPointF(x0, 6), QPointF(x0, 18),
+                                 QPointF(x1, 12)]))
+
+    if kind == "play":
+        tri(7, 19)
+    elif kind == "pause":
+        p.drawRect(QRectF(7, 6, 3.5, 12))
+        p.drawRect(QRectF(13.5, 6, 3.5, 12))
+    elif kind == "next":
+        tri(6, 15)
+        p.drawRect(QRectF(15.5, 6, 2.5, 12))
+    elif kind == "prev":
+        tri(18, 9)
+        p.drawRect(QRectF(6, 6, 2.5, 12))
+    elif kind == "first":
+        tri(19, 12)
+        tri(12, 5)
+    elif kind == "stop":
+        p.drawRect(QRectF(7, 7, 10, 10))
+    elif kind == "fullscreen":
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(c, 1.8, Qt.SolidLine, Qt.SquareCap))
+        for x, y, dx, dy in ((5, 5, 1, 1), (19, 5, -1, 1), (5, 19, 1, -1),
+                             (19, 19, -1, -1)):
+            p.drawLine(QPointF(x, y), QPointF(x + 4.5 * dx, y))
+            p.drawLine(QPointF(x, y), QPointF(x, y + 4.5 * dy))
+    p.end()
+    return QIcon(px)
+
+
 def theme_palette() -> QIcon:
     """A painter's palette — the slide theme."""
     px, p = _new_canvas()

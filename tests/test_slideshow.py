@@ -477,3 +477,46 @@ def test_windowed_automatic_show(qapp):
     show.end()
     dlg = slideshow.AutoSlideshowDialog(slideshow.AutoPlay(), "window")
     assert dlg.mode.currentData() == "window"
+
+
+def test_window_show_has_player_bar_and_goes_automatic(qapp):
+    from PySide6.QtWidgets import QWidget
+    host = QWidget()
+    show = slideshow.start(slideshow.PdfPages(_pdf(3)), "window", 0, host)
+    screen = show.views[0]
+    bar = screen.bar
+    assert bar is not None and show.keep_open
+    assert not show.auto_running                 # started by hand
+    # The slide is drawn above the bar, not under it.
+    assert screen._slide_rect().height() == screen.height() - bar.HEIGHT
+    bar.play.click()                             # Play → automatic
+    assert show.auto_running and show.auto.repeat == "loop"
+    assert show.auto_remaining() is not None
+    bar.seconds.setValue(3)                      # change the time per slide
+    assert show.auto.seconds == 3
+    show.toggle_auto()                           # S pauses
+    assert not show.auto_running
+    show.end()
+
+
+def test_window_show_once_stops_at_last_slide_instead_of_closing(qapp):
+    from PySide6.QtWidgets import QWidget
+    host = QWidget()
+    auto = slideshow.AutoPlay(seconds=1, repeat="once")
+    show = slideshow.start(slideshow.PdfPages(_pdf(2)), "window", 1, host,
+                           auto=auto)
+    ended = []
+    show.finished.connect(lambda: ended.append(True))
+    assert show.auto_running
+    show._auto_next()                            # timer fires on the last
+    assert not ended and not show.auto_running and show.index == 1
+    show.toggle_auto()                           # Play again: resumes
+    assert show.auto_running
+    show.end()
+    assert ended
+
+
+def test_full_screen_manual_show_ignores_s(qapp):
+    show = slideshow.Slideshow(slideshow.PdfPages(_pdf(2)))
+    show.toggle_auto()                           # no defaults → no-op
+    assert show.auto is None
