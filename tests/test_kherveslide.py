@@ -2185,6 +2185,9 @@ def test_missing_resource_triggers_network_but_syntax_error_does_not():
     assert _log_wants_network(
         "! Font OT1/lmss/m/n/11=rm-lmss12 at 11.0pt not loadable: Metric (TFM) "
         "file or installed font not found.")
+    assert _log_wants_network(
+        "! Package tikz Error: I did not find the tikz library "
+        "'shapes.geometric'.")
     # Source-level errors: no network retry.
     assert not _log_wants_network("! Undefined control sequence.")
     assert not _log_wants_network("! Missing $ inserted.")

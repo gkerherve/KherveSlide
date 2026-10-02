@@ -1306,6 +1306,13 @@ class SlideWindow(QMainWindow):
         self.view.imageDropped.connect(self._on_image_dropped)
         self.view.deleteRequested.connect(self._delete_selected)
         self.view.contextMenuRequested.connect(self._canvas_context_menu)
+        # Re-render the theme backdrop at the new resolution after a zoom
+        # or window resize (debounced so wheel-zooming stays smooth).
+        self._bd_res_timer = QTimer(self)
+        self._bd_res_timer.setSingleShot(True)
+        self._bd_res_timer.setInterval(120)
+        self._bd_res_timer.timeout.connect(self._apply_backdrop)
+        self.view.zoomChanged.connect(self._bd_res_timer.start)
         # The grey "desk" + white page are painted in SlideScene.drawBackground;
         # we must NOT set a view backgroundBrush here, or the view stops
         # delegating to the scene and the page never gets drawn.
@@ -4354,14 +4361,25 @@ class SlideWindow(QMainWindow):
             except Exception:
                 return None
             pm = QPixmap.fromImage(img)
-            if len(self._bd_cache) > 400:
+            # Full-resolution pages are big: keep only a handful.
+            if len(self._bd_cache) > (400 if width <= 512 else 24):
                 self._bd_cache.clear()
             self._bd_cache[key] = pm
         return pm
 
+    def _backdrop_width(self) -> int:
+        """Pixels the slide really takes on screen (zoom × screen pixel
+        density), rounded up so small zoom steps reuse the render."""
+        scale = abs(self.view.transform().m11()) or 1.0
+        dpr = self.view.devicePixelRatioF() or 1.0
+        px = self.scene.page_w * scale * dpr
+        return int(min(5120, max(1024, 256 * -(-px // 256))))
+
     def _apply_backdrop(self):
-        width = int(self.scene.page_w * 1.5)
-        self.scene.backdrop = self.backdrop_pixmap(self.current, width)
+        """The themed page under the slide, rendered at the on-screen
+        resolution so the theme's title and lines stay sharp."""
+        self.scene.backdrop = self.backdrop_pixmap(self.current,
+                                                   self._backdrop_width())
         self.scene.update()
 
     def _toggle_grid(self, on):

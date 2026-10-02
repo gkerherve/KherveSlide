@@ -39,7 +39,8 @@ _MISSING_RESOURCE_RE = re.compile(
     # in the cache — e.g. lmss12 for 11-14 pt sans — is fetchable too.
     r"|Could not locate a virtual/physical font|unable to generate PK font"
     r"|Cannot proceed without \.vf or \"physical\" font"
-    r"|Font [^\n]* not loadable: Metric \(TFM\) file")
+    r"|Font [^\n]* not loadable: Metric \(TFM\) file"
+    r"|I did not find the tikz library")
 
 
 # Files an imported beamer theme may ship beside its .sty (see compile_tex).
@@ -669,7 +670,9 @@ def compile_tex(
     # cache; only reach for the network if the failure is a missing package
     # tectonic could fetch — not an ordinary LaTeX error in the source.
     res = _attempt(cache_only=True)
-    if res.ok or not _log_wants_network(res.log):
+    # A missing package / font / TikZ library can still leave a PDF
+    # (continue-on-errors), drawn without it — so "ok" alone isn't enough.
+    if not _log_wants_network(res.log):
         return res
     if on_line is not None:
         try:
@@ -677,7 +680,9 @@ def compile_tex(
                     "fetching it once from the network…")
         except Exception:
             pass
-    return _attempt(cache_only=False)
+    online = _attempt(cache_only=False)
+    # Offline with no network: keep the PDF we already have.
+    return res if res.ok and not online.ok else online
 
 
 # ======================= Typst compiler =======================

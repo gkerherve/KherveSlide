@@ -1755,7 +1755,10 @@ class SlideScene(QGraphicsScene):
         if bd is not None and not bd.isNull():
             # A pre-rendered image of the themed page sits under the objects.
             painter.fillRect(r, QColor("#FFFFFF"))
+            painter.save()
+            painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
             painter.drawPixmap(r, bd, QRectF(bd.rect()))
+            painter.restore()
         else:
             painter.fillRect(r, QColor(self.page_color or "#FFFFFF"))
         if self.show_grid:
@@ -1803,9 +1806,13 @@ class SlideView(QGraphicsView):
     imageDropped = Signal(str, QPointF)   # (local path, scene position)
     deleteRequested = Signal()            # Delete pressed with a selection
     contextMenuRequested = Signal(object, object)   # (globalPos, scenePos)
+    zoomChanged = Signal()                # zoomed, or fitted to the window
 
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
+        self.setRenderHint(QPainter.Antialiasing, True)
+        self.setRenderHint(QPainter.TextAntialiasing, True)
+        self.setRenderHint(QPainter.SmoothPixmapTransform, True)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
         self.setAcceptDrops(True)
@@ -1885,6 +1892,7 @@ class SlideView(QGraphicsView):
         if self._MIN <= scale <= self._MAX:
             self.fit_mode = False
             self.scale(factor, factor)
+            self.zoomChanged.emit()
 
     def fit_to_window(self):
         scene = self.scene()
@@ -1895,6 +1903,7 @@ class SlideView(QGraphicsView):
                     else scene.sceneRect())
             self.fitInView(rect, Qt.KeepAspectRatio)
             self.fit_mode = True
+            self.zoomChanged.emit()
 
 
 def thumbnail_dpr() -> float:
