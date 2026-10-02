@@ -127,7 +127,7 @@ class _CompileWorker(QThread):
 
 
 class _PdfWindow(QWidget):
-    """Top-level window holding the PDF / console panel when it is shown
+    """Top-level window holding the PDF panel when it is shown
     in its own window (e.g. on a second screen). Closing it docks the
     panel back beside the Visual editor instead of losing it."""
 
@@ -1511,7 +1511,8 @@ class SlideWindow(QMainWindow):
         self.left_tabs.addTab(self.latex_view, "LaTeX")
         self.left_tabs.setCurrentIndex(0)
 
-        # RIGHT tabs: the PDF preview (default) and the compiler Console.
+        # The compiler Console (a main-window tab) and, on the RIGHT, the PDF
+        # preview (default) and the overview of all the slides.
         self.console = QPlainTextEdit(); self.console.setReadOnly(True)
         cf = QFont("Consolas"); cf.setStyleHint(QFont.Monospace); cf.setPointSize(10)
         self.console.setFont(cf)
@@ -1519,10 +1520,11 @@ class SlideWindow(QMainWindow):
         self.console.setStyleSheet(
             "QPlainTextEdit { background: #0c0c0c; color: #e6e6e6;"
             " selection-background-color: #444; }")
+        # The Console sits in the main window, after the LaTeX tab.
+        self.left_tabs.addTab(self.console, "Console")
         self.pdf_view = PdfPreview()
         self.right_tabs = QTabWidget()
         self.right_tabs.addTab(self.pdf_view, "PDF")
-        self.right_tabs.addTab(self.console, "Console")
         self.overview = self._make_overview()
         self.right_tabs.addTab(self.overview, "Overview")
         self.right_tabs.currentChanged.connect(self._on_right_tab)
@@ -2130,7 +2132,7 @@ class SlideWindow(QMainWindow):
         self.console.appendPlainText(
             "Pre-downloading LaTeX packages for fast offline compiling…")
         if not auto:
-            self.right_tabs.setCurrentWidget(self.console)
+            self.left_tabs.setCurrentWidget(self.console)
         self.statusBar().showMessage("Downloading LaTeX packages…")
         self._dl_auto = auto
         self._dl_worker = _DownloadWorker()
@@ -3843,7 +3845,7 @@ class SlideWindow(QMainWindow):
         self._gen_worker.finished.connect(self._on_gen_finished)
         self.console.appendPlainText(
             f"Generating {total} theme x colour previews to disk…")
-        self.right_tabs.setCurrentWidget(self.console)
+        self.left_tabs.setCurrentWidget(self.console)
         self.statusBar().showMessage(f"Generating theme previews… 0/{total}")
         self._gen_worker.start()
 
@@ -4789,7 +4791,7 @@ class SlideWindow(QMainWindow):
             self.statusBar().showMessage(f"Exported PDF to {out}")
         else:
             self.console.setPlainText(self._clean_log(result.log))
-            self.right_tabs.setCurrentWidget(self.console)
+            self.left_tabs.setCurrentWidget(self.console)
             self.statusBar().showMessage("PDF export failed — see Console tab")
             QMessageBox.warning(
                 self, "Export PDF",
@@ -4811,7 +4813,7 @@ class SlideWindow(QMainWindow):
         current LaTeX, including any manual edits)."""
         if not tectonic_available():
             self.console.setPlainText("tectonic is not available on this system.")
-            self.right_tabs.setCurrentWidget(self.console)
+            self.left_tabs.setCurrentWidget(self.console)
             return
         if self._layout_mode == LAYOUT_VISUAL:
             self.apply_layout_mode(LAYOUT_SIDE)

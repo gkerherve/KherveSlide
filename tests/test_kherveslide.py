@@ -2972,3 +2972,18 @@ def test_flowchart_auto_layout_ranks_by_path():
     assert y == {"a": 0, "b": 1, "c": 1, "d": 2}
     xs = sorted(n.x for n in fc.nodes if n.id in "bc")
     assert xs == [-0.5, 0.5]                           # spread around 0
+
+
+def test_console_is_a_main_window_tab_after_latex(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide.window import SlideWindow
+    for name in ("_start_compile", "_start_backdrop",
+                 "_maybe_autodownload_packages"):
+        monkeypatch.setattr(SlideWindow, name, lambda self, *a: None)
+    w = SlideWindow()
+    tabs = [w.left_tabs.tabText(i) for i in range(w.left_tabs.count())]
+    assert tabs == ["Visual", "LaTeX", "Console"]
+    assert w.left_tabs.widget(2) is w.console
+    assert w.right_tabs.indexOf(w.console) == -1     # not with the PDF
+    w.close()

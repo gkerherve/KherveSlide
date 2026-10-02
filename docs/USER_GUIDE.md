@@ -47,8 +47,10 @@ toolbar.
 - **LaTeX** tab — the beamer source of the whole presentation, kept up
   to date as you edit. You can edit it by hand; *Regenerate from slides*
   returns to the slides as the source.
-- **PDF** and **Console** (right, in the side-by-side mode) — the
-  compiled result and the LaTeX log.
+- **Console** tab — the LaTeX log of the last compile; look here when
+  the PDF does not appear.
+- **PDF** and **Overview** (right, in the side-by-side mode) — the
+  compiled result and every slide as a mini page.
 - **Frame / Header / Foot** fields — around the slide; see
   *Titles, headers and footers*.
 - **The bar at the bottom**, as in PowerPoint: *Slide 3 of 12*, the
