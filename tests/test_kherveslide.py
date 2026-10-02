@@ -664,6 +664,23 @@ def test_box_border_uses_tikz_frame():
     assert "rounded corners" in tex
 
 
+@pytest.mark.parametrize("align,cmd", [("center", "\\centering"),
+                                       ("right", "\\raggedleft")])
+def test_framed_text_keeps_alignment_inside_node(align, cmd):
+    # TikZ closes its group around the node text before the paragraph
+    # ends, so the alignment only takes effect if the \par is inside the
+    # node too — otherwise a framed centred box prints left-aligned.
+    deck = Deck(slides=[Slide(objects=[
+        SlideText(text="Goal: a green QD-LED", align=align, fill="#E6EEF6",
+                  border_color="#003E74", corner="rounded", locked=False)])],
+        nav_symbols=False)
+    tex = serialize_deck(deck)
+    node = tex[tex.index("\\node["):tex.index("\\end{tikzpicture}")]
+    body = node[node.index("]{") + 2:node.rindex("};")]
+    assert body.startswith(cmd)
+    assert body.endswith("\\par")
+
+
 def test_no_box_frame_without_border_or_fill():
     deck = Deck(slides=[Slide(objects=[SlideText(text="plain", locked=False)])],
                 nav_symbols=False)

@@ -131,7 +131,11 @@ def _text_inner(obj: SlideText) -> str:
         arg = f"[{title}]" if title else ""
         content = f"\\begin{{{block}}}{arg}{content}\\end{{{block}}}"
     if _has_frame(obj):
-        return _frame_wrap(content, obj, "\\linewidth")
+        # The \par must sit inside the node: TikZ closes its own group
+        # around the node text before ending the paragraph, so without it
+        # \centering/\raggedleft are already undone when the lines are set
+        # and the box comes out justified (left-aligned, hyphenated).
+        return _frame_wrap(f"{content}\\par", obj, "\\linewidth")
     return f"{{{content}\\par}}"
 
 
