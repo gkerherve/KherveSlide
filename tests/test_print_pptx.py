@@ -61,7 +61,11 @@ def test_print_to_pdf_lays_out_sheets(qapp, tmp_path, layout, which, expect):
     assert printed.page_count == expect
     page = printed[0]
     assert (page.rect.width > page.rect.height) == (layout == "slides")
-    assert "Talk" in page.get_text()                   # the header
+    text = page.get_text()
+    assert "Talk" in text, (                           # the header
+        f"text={text!r} fonts={page.get_fonts()} "
+        f"drawings={len(page.get_drawings())} "
+        f"rawchars={sum(len(sp['chars']) for b in page.get_text('rawdict')['blocks'] for l in b.get('lines', []) for sp in l['spans'])}")
 
 
 def test_print_dialog_builds_its_preview(qapp, tmp_path):
