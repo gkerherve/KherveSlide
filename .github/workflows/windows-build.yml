@@ -47,7 +47,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller pytest
           python -c "import PySide6, pymupdf, pptx, spellchecker, pygit2; print('PySide6', PySide6.__version__)"
       - name: Install Inno Setup
         # Not guaranteed on the runner image; choco is. build_installer.py
