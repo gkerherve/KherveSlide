@@ -11,3 +11,4 @@ venv/
 *.kslide.json
 *.pdf
 crash*.txt
+kherveslide/VERSION

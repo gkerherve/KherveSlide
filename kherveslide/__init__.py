@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Minor is bumped by hand for behaviour changes; the patch component is
 # the repo's total commit count, appended automatically at runtime.
-__version__ = "0.158"
+__version__ = "0.159"
 
 
 def _git_build_info() -> tuple[int, str] | None:
@@ -29,6 +29,11 @@ def _git_build_info() -> tuple[int, str] | None:
 def version_string() -> str:
     info = _git_build_info()
     if info is None:
-        return f"v{__version__}"
+        # A frozen build has no .git: the packaging stamps VERSION instead.
+        stamped = Path(__file__).resolve().parent / "VERSION"
+        try:
+            return f"v{stamped.read_text(encoding='ascii').strip()}"
+        except OSError:
+            return f"v{__version__}"
     count, sha = info
     return f"v{__version__}.{count}+{sha}"

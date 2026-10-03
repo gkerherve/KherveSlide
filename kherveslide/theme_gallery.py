@@ -8,6 +8,7 @@ Both the theme and the colour theme are returned on Apply.
 """
 from __future__ import annotations
 
+import sys
 import tempfile
 from pathlib import Path
 
@@ -91,6 +92,7 @@ class _PreviewWorker(QThread):
 
 _PREVIEW_W = 300
 _PREVIEW_DIR = Path(__file__).resolve().parent / "theme_previews"
+_SHIPPED_GENERATED = Path(__file__).resolve().parent / "theme_previews_generated"
 
 
 def _bundled_preview(theme: str) -> QPixmap | None:
@@ -108,8 +110,14 @@ def _disk_cache_dir() -> Path:
     """Persistent store for compiled theme×colour previews, kept in the app's
     own ``theme_previews_generated`` folder so each combination is only ever
     rendered once (then loads instantly) and the previews live with the
-    project rather than in a hidden OS cache."""
-    d = Path(__file__).resolve().parent / "theme_previews_generated"
+    project rather than in a hidden OS cache. A frozen build cannot write
+    inside itself (it would break the macOS signature), so it renders new
+    ones into the user's cache and reads the shipped ones from the bundle."""
+    d = _SHIPPED_GENERATED
+    if getattr(sys, "frozen", False):
+        from PySide6.QtCore import QStandardPaths
+        d = Path(QStandardPaths.writableLocation(
+            QStandardPaths.CacheLocation)) / "theme_previews_generated"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -121,6 +129,8 @@ def _disk_cache_path(theme: str, color: str, aspect: str) -> Path:
 
 def _load_disk_preview(theme: str, color: str, aspect: str) -> QPixmap | None:
     p = _disk_cache_path(theme, color, aspect)
+    if not p.exists():
+        p = _SHIPPED_GENERATED / p.name
     if p.exists():
         pm = QPixmap(str(p))
         if not pm.isNull():

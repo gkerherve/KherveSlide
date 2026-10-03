@@ -111,3 +111,26 @@ image. Frequent text formatting (font size, bold/italic, alignment,
 colours) is on a compact Format toolbar that tracks the selection;
 deck/slide settings (title, author, theme, aspect, frame title,
 background) live in the menus.
+
+## Building a release (Windows + macOS)
+
+Packaging mirrors KherveNoise. Both specs share `packaging/spec_common.py`
+(data files, hidden imports, excludes) so the platforms cannot drift.
+
+- Version: `<__version__>.<commit count>`, e.g. `0.159.161`, stamped into
+  `kherveslide/VERSION` at build time (a frozen app has no `.git`;
+  `version_string()` falls back to that file). Same number as the title bar.
+- tectonic is bundled: `packaging/fetch_tectonic.py` downloads the official
+  self-contained release binary into `build/tectonic/`. Never bundle a
+  Homebrew tectonic — it links `/opt/homebrew` dylibs users don't have.
+- macOS (on a Mac): `.venv/bin/pip install pyinstaller` then
+  `.venv/bin/python packaging/build_macos.py` → `dist/KherveSlide-<ver>-macOS-<arch>.dmg`
+  (+ stable `KherveSlide-macOS-<arch>.dmg`). Ad hoc signed, not notarised.
+- Windows (on Windows): `python packaging/build_installer.py` → Inno installer
+  `KherveSlide-Setup-<ver>.exe`, portable zip, stable `KherveSlide-Setup.exe`.
+- CI builds everything from one tagged commit on `dev`:
+  `git tag v<ver>` → `windows-build.yml`; `git tag macos-v<ver>` →
+  `macos-build.yml` (arm64 + x86_64). Both only upload workflow artifacts;
+  the GitHub release is created by hand.
+- `packaging/smoke_test.py <exe>` checks VERSION, tectonic, data files and
+  that the frozen app stays up.
