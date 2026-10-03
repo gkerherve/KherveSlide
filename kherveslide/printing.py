@@ -114,6 +114,9 @@ def paint(printer, doc, s: PrintSettings, dpi: int = 200) -> int:
     painter.setRenderHint(QPainter.SmoothPixmapTransform)
     painter.setRenderHint(QPainter.Antialiasing)
     small = QFont("Helvetica")
+    # Windows has no Helvetica: the hint makes Qt fall back to Arial
+    # instead of a face that prints nothing.
+    small.setStyleHint(QFont.SansSerif)
     small.setPixelSize(max(1, int(9 * pt)))
     head_h = 16 * pt if s.header else 0
     foot_h = 14 * pt if s.header else 0
