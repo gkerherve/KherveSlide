@@ -58,8 +58,12 @@ jobs:
           }
 
       - name: Run the test suite
-        # Not QT_QPA_PLATFORM=offscreen: on Windows it has no font database,
-        # so printed text comes out blank. The runner has a desktop session.
+        # Offscreen Qt on Windows has no font database (printed text comes
+        # out blank) unless it is pointed at the system fonts. Some test
+        # modules force offscreen themselves, so set both.
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QPA_FONTDIR: C:\Windows\Fonts
         run: python -m pytest tests/ -q
 
       - name: Build the installer and portable zip
