@@ -64,7 +64,19 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QPA_FONTDIR: C:\Windows\Fonts
-        run: python -m pytest tests/ -q
+        # Qt faults while the process exits on Windows, after the results
+        # are in, so pass/fail is read from the JUnit report instead.
+        shell: bash
+        run: |
+          python -m pytest tests/ -q -p no:faulthandler --junitxml=junit.xml || true
+          python - <<'PY'
+          import xml.etree.ElementTree as ET, sys
+          r = ET.parse("junit.xml").getroot()
+          s = r if r.tag == "testsuite" else r.find("testsuite")
+          t, f, e = (int(s.get(k)) for k in ("tests", "failures", "errors"))
+          print(f"{t} tests, {f} failures, {e} errors")
+          sys.exit(1 if f or e or t < 300 else 0)
+          PY
 
       - name: Build the installer and portable zip
         run: python packaging/build_installer.py
