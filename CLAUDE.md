@@ -132,5 +132,19 @@ Packaging mirrors KherveNoise. Both specs share `packaging/spec_common.py`
   `git tag v<ver>` → `windows-build.yml`; `git tag macos-v<ver>` →
   `macos-build.yml` (arm64 + x86_64). Both only upload workflow artifacts;
   the GitHub release is created by hand.
-- `packaging/smoke_test.py <exe>` checks VERSION, tectonic, data files and
-  that the frozen app stays up.
+- Linux (Debian / Ubuntu amd64, Raspberry Pi OS arm64), on Linux:
+  `python packaging/build_deb.py` → `dist/KherveSlide_<ver>_<arch>.deb`
+  (+ stable `KherveSlide-linux-<arch>.deb`). Installs to /opt/kherveslide
+  with a `kherveslide` command, menu entry, icon and .kslide type; apt
+  pulls the Qt runtime libraries from Depends. CI: `linux-build.yml`
+  (same `v<ver>` tag as Windows), amd64 on ubuntu-22.04, arm64 on
+  ubuntu-22.04-arm — it installs the .deb with apt and smoke-tests it.
+- tectonic's package cache is REQUIRED in every installer:
+  `fetch_tectonic.warm_cache()` builds build/tectonic_cache (every package,
+  theme, font and example), the specs bundle it, and the frozen app copies
+  it into the user's tectonic cache on first launch
+  (`__main__._seed_tectonic_cache`; tectonic reports `<cache>/bundles`, the
+  copy goes one level up). Without it a new PC could not compile at all.
+- `packaging/smoke_test.py <exe>` checks VERSION, tectonic, data files,
+  that the frozen app stays up, and — on an EMPTY tectonic cache — that the
+  app seeds it and two example presentations compile with --only-cached.

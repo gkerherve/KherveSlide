@@ -33,6 +33,12 @@ def target() -> tuple[str, str]:
     if sys.platform == "darwin":
         arch = {"arm64": "aarch64", "x86_64": "x86_64"}[platform.machine()]
         return f"{arch}-apple-darwin.tar.gz", "tectonic"
+    if sys.platform.startswith("linux"):
+        # The musl builds are static: they run on any Debian, Ubuntu or
+        # Raspberry Pi OS whatever its glibc.
+        arch = {"x86_64": "x86_64", "amd64": "x86_64",
+                "aarch64": "aarch64", "arm64": "aarch64"}[platform.machine()]
+        return f"{arch}-unknown-linux-musl.tar.gz", "tectonic"
     raise SystemExit(f"no tectonic release for {sys.platform}")
 
 
