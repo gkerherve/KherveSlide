@@ -12,3 +12,4 @@ venv/
 *.pdf
 crash*.txt
 kherveslide/VERSION
+release/

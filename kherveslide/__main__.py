@@ -69,7 +69,8 @@ def main() -> int:
     splash.step("Building the window")
     win = SlideWindow(dark=dark, theme=theme)
     # Before the event loop runs, so "WYSIWYG only" never starts a compile.
-    win.apply_layout_mode(settings.value("layout_mode", "side"))
+    from .welcome import LAYOUT_DEFAULT
+    win.apply_layout_mode(settings.value("layout_mode", LAYOUT_DEFAULT))
     _center_on_main_screen(win)
     splash.step("Opening the presentation")
     win.show()

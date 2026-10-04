@@ -2401,17 +2401,18 @@ def test_latex_fonts_finds_the_cache_folder(tmp_path):
 
 # --- welcome page layout modes ---
 
-def test_layout_modes_normalise_to_side():
+def test_layout_modes_normalise_to_default():
     from kherveslide.welcome import (
-        LAYOUTS, LAYOUT_SIDE, LAYOUT_TEXT, LAYOUT_VISUAL, LAYOUT_WINDOW,
-        normalise_layout)
+        LAYOUT_DEFAULT, LAYOUTS, LAYOUT_SIDE, LAYOUT_TEXT, LAYOUT_VISUAL,
+        LAYOUT_WINDOW, normalise_layout)
+    assert LAYOUT_DEFAULT == LAYOUT_WINDOW              # PDF in its own window
     assert LAYOUTS == (LAYOUT_SIDE, LAYOUT_WINDOW, LAYOUT_VISUAL)
     for m in LAYOUTS:
         assert normalise_layout(m) == m
         assert LAYOUT_TEXT[m][0].startswith("Visual")
     assert normalise_layout("slide") == LAYOUT_VISUAL   # old saved mode
-    assert normalise_layout("bogus") == LAYOUT_SIDE
-    assert normalise_layout(None) == LAYOUT_SIDE
+    assert normalise_layout("bogus") == LAYOUT_DEFAULT
+    assert normalise_layout(None) == LAYOUT_DEFAULT
 
 
 # --- updater ---

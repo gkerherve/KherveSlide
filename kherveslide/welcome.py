@@ -12,6 +12,9 @@ LAYOUT_SIDE = "side"        # Visual + PDF side by side
 LAYOUT_WINDOW = "window"    # Visual + PDF in its own window
 LAYOUT_VISUAL = "visual"    # Visual only (PDF / console hidden)
 LAYOUTS = (LAYOUT_SIDE, LAYOUT_WINDOW, LAYOUT_VISUAL)
+# First launch: the PDF in its own window, so the Visual editor gets the
+# whole main window and the two can be compared side by side.
+LAYOUT_DEFAULT = LAYOUT_WINDOW
 
 LAYOUT_TEXT = {
     LAYOUT_SIDE: ("Visual + PDF side by side",
@@ -30,4 +33,4 @@ LAYOUT_TEXT = {
 def normalise_layout(mode) -> str:
     if mode in ("slide", "page"):     # v0.123's "just the slide"
         return LAYOUT_VISUAL
-    return mode if mode in LAYOUTS else LAYOUT_SIDE
+    return mode if mode in LAYOUTS else LAYOUT_DEFAULT

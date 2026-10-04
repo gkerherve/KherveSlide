@@ -162,18 +162,20 @@ class PdfPreview(QWidget):
         nav = self._view.pageNavigator()
         if nav:
             nav.jump(page, QPointF(0, 0))
-        zoom = self._view.zoomFactor()
-        spacing = self._view.pageSpacing()
-        # pagePointSize returns points (1/72 in); convert to pixels
-        scr = self._view.screen()
-        dpi_scale = (scr.logicalDotsPerInchY() / 72.0) if scr else (96.0 / 72.0)
-        y = 0.0
-        for i in range(page):
-            size = self._doc.pagePointSize(i)
-            y += size.height() * zoom * dpi_scale + spacing
         vbar = self._view.verticalScrollBar()
-        if vbar:
-            vbar.setValue(int(y))
+        if vbar is None:
+            return
+        # Measure the laid-out document instead of guessing from zoom and
+        # screen DPI (wrong on macOS's 72 dpi and in fit-to-width): the
+        # scroll range is margins + every page + the gaps between them.
+        spacing = self._view.pageSpacing()
+        margins = self._view.documentMargins()
+        heights = [self._doc.pagePointSize(i).height() for i in range(n)]
+        total = vbar.maximum() + vbar.pageStep()
+        room = total - margins.top() - margins.bottom() - spacing * (n - 1)
+        scale = room / sum(heights) if sum(heights) > 0 else 0
+        y = margins.top() + sum(h * scale + spacing for h in heights[:page])
+        vbar.setValue(int(round(y)))
 
     def find_text(self, text: str) -> None:
         """Search for *text* in the PDF, highlight all matches, and jump
