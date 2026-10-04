@@ -629,9 +629,6 @@ class SlideWindow(QMainWindow):
         m_file.addAction("Print preview…", self._print)
         m_file.addAction("Print…", self._print).setShortcut("Ctrl+P")
         m_file.addSeparator()
-        m_file.addAction("Download LaTeX packages (offline)…",
-                         self._download_packages)
-        m_file.addSeparator()
         m_file.addAction("Quit", self.close).setShortcut("Ctrl+Q")
 
         m_edit = mb.addMenu("&Edit")
@@ -956,6 +953,18 @@ class SlideWindow(QMainWindow):
         # Git — per-presentation version control with cloud backup. Every
         # save auto-commits and (if a remote is set) pushes; the actions
         # below add snapshots-with-a-message, history browsing and remotes.
+        # Compiler — the tectonic LaTeX engine behind the PDF: its state,
+        # and the offline package bundle, in one obvious place.
+        m_comp = mb.addMenu("C&ompiler")
+        m_comp.addAction("Compile to PDF", self._compile)
+        m_comp.addSeparator()
+        m_comp.addAction("Compiler status…", self.show_compiler_status)
+        self.act_download_bundle = m_comp.addAction(
+            "Download offline bundle…", self._download_packages)
+        m_comp.addAction("Open the package cache folder",
+                         self._open_tectonic_cache)
+        m_comp.aboutToShow.connect(self._update_bundle_action_label)
+
         m_git = mb.addMenu("&Git")
         self.act_commit_now = QAction(
             icons.commit(), "&Save snapshot and upload", self,
@@ -2223,6 +2232,95 @@ class SlideWindow(QMainWindow):
                     self, "Offline LaTeX packages",
                     "The download did not complete. Check your internet "
                     "connection and try again.")
+
+    # ---------------- compiler menu ----------------
+    def _update_bundle_action_label(self):
+        """Say on the menu item whether the offline packages are there."""
+        from .compiler import tectonic_cache_size_mb
+        try:
+            mb = tectonic_cache_size_mb() if tectonic_available() else 0.0
+        except Exception:
+            mb = 0.0
+        self.act_download_bundle.setText(
+            f"Download offline bundle  \u2714 ({mb:.0f} MB cached)" if mb > 5
+            else "Download offline bundle\u2026")
+
+    def _open_tectonic_cache(self):
+        from .compiler import _tectonic_cache_dir
+        d = _tectonic_cache_dir() if tectonic_available() else None
+        if d is None:
+            QMessageBox.information(
+                self, "Package cache",
+                "tectonic has no package cache yet — compile once or use "
+                "Compiler \u25b8 Download offline bundle.")
+            return
+        d.mkdir(parents=True, exist_ok=True)
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(d)))
+
+    def compiler_status(self) -> dict:
+        """What the Compiler status window shows: where tectonic is, its
+        version, the package cache and whether it compiles offline."""
+        from . import offline
+        from .compiler import _find_tectonic, _tectonic_cache_dir, \
+            tectonic_cache_size_mb
+        st = {"path": _find_tectonic(), "bundled": False, "version": "",
+              "cache": None, "cache_mb": 0.0, "offline": False}
+        if st["path"] is None:
+            return st
+        st["bundled"] = bool(getattr(sys, "frozen", False)) and \
+            Path(st["path"]).parent == Path(getattr(sys, "_MEIPASS", ""))
+        try:
+            kw: dict = dict(capture_output=True, text=True, timeout=15)
+            if sys.platform == "win32":
+                kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+            st["version"] = subprocess.run(
+                [st["path"], "--version"], **kw).stdout.strip()
+        except Exception:
+            st["version"] = "(did not run)"
+        st["cache"] = _tectonic_cache_dir()
+        st["cache_mb"] = tectonic_cache_size_mb()
+        st["offline"] = offline.packages_cached()
+        return st
+
+    def show_compiler_status(self):
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            st = self.compiler_status()
+        finally:
+            QApplication.restoreOverrideCursor()
+        if st["path"] is None:
+            rows = [("Engine", "<b style='color:#b91c1c'>tectonic not found"
+                     "</b> — reinstall KherveSlide, or install tectonic and "
+                     "put it on the PATH.")]
+        else:
+            where = ("bundled with KherveSlide" if st["bundled"]
+                     else st["path"])
+            ok = ("<b style='color:#15803d'>Yes</b> — slides compile "
+                  "without internet") if st["offline"] else (
+                  "<b style='color:#b45309'>Not yet</b> — click Download "
+                  "offline bundle (needs internet once)")
+            rows = [("Engine", f"{st['version'] or 'tectonic'}"),
+                    ("Location", where),
+                    ("Package cache", str(st["cache"] or "—")),
+                    ("Cache size", f"{st['cache_mb']:.0f} MB"),
+                    ("Offline ready", ok),
+                    ("Last compile", self._status_state.text() or "—")]
+        html = "<table cellspacing=6>" + "".join(
+            f"<tr><td><b>{k}</b></td><td>{v}</td></tr>" for k, v in rows
+        ) + "</table>"
+        box = QMessageBox(self)
+        box.setWindowTitle("Compiler status")
+        box.setTextFormat(Qt.RichText)
+        box.setText(html)
+        dl = box.addButton("Download offline bundle\u2026",
+                           QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Close)
+        dl.setEnabled(st["path"] is not None)
+        box.exec()
+        if box.clickedButton() is dl:
+            self._download_packages()
 
     def _on_dl_finished(self):
         worker = self._dl_worker

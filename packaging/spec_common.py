@@ -91,6 +91,11 @@ def analysis_inputs():
         (str(ROOT / "docs" / "USER_GUIDE.md"), "docs"),
         (str(VERSION_FILE), "kherveslide"),
     ]
+    # A warmed tectonic cache: __main__ copies it into the user's cache on
+    # first launch, so a new install compiles straight away, offline.
+    sys.path.insert(0, str(ROOT / "packaging"))
+    from fetch_tectonic import warm_cache
+    datas.append((str(warm_cache()), "kherveslide/tectonic_cache"))
     # example_media, theme_previews, theme_previews_generated, ...
     datas += collect_data_files("kherveslide")
     datas += collect_data_files("pptx")            # python-pptx's default.pptx

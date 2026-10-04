@@ -27,6 +27,44 @@ def _silence_fontconfig() -> None:
         pass
 
 
+
+def _seed_tectonic_cache() -> None:
+    """Copy the tectonic packages shipped in the installer into the user's
+    tectonic cache, so a brand-new install compiles at once and offline.
+
+    Without it the first compile found an empty cache, tectonic could not
+    even build its LaTeX format, and no slide compiled until something
+    filled the cache from the internet. Only missing files are copied, so
+    it is quick after the first launch and never overwrites newer ones."""
+    if not getattr(sys, "frozen", False):
+        return
+    import shutil
+    bundled = Path(sys._MEIPASS) / "kherveslide" / "tectonic_cache"
+    if not bundled.is_dir():
+        return
+    try:
+        from .compiler import (_find_tectonic, default_tectonic_cache_dir,
+                               query_tectonic_cache_dir)
+        # Ask the bundled binary itself: the path differs per OS (and
+        # honours TECTONIC_CACHE_DIR), and a mismatch leaves it empty.
+        tec = _find_tectonic()
+        dest = (query_tectonic_cache_dir(tec) if tec else None) \
+            or default_tectonic_cache_dir()
+        # tectonic reports <cache>/bundles; the shipped copy is the whole
+        # cache (bundles/ + formats/), so it goes one level up.
+        if dest.name == "bundles":
+            dest = dest.parent
+        dest.mkdir(parents=True, exist_ok=True)
+        for src in bundled.rglob("*"):
+            dst = dest / src.relative_to(bundled)
+            if src.is_dir():
+                dst.mkdir(parents=True, exist_ok=True)
+            elif not dst.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+    except Exception:
+        pass     # a compile can still fetch what it needs online
+
 _silence_fontconfig()
 
 from PySide6.QtCore import QSettings, QTimer
@@ -63,6 +101,8 @@ def main() -> int:
     from .splash import Splash
     splash = Splash()
     splash.show()
+    splash.step("Preparing the LaTeX packages")
+    _seed_tectonic_cache()
     splash.step("Loading the designer")
     # beamer's own Latin Modern faces for the canvas (from tectonic's cache).
     latex_fonts.ensure_loaded()

@@ -16,7 +16,7 @@ _INK = QColor("#ffffff")
 _ACCENT = QColor("#2c3e7a")   # a beamer-blue title bar on the slides
 
 #: The steps main() reports, in order; the bar advances through them.
-STEPS = ("Loading the designer", "Building the window",
+STEPS = ("Preparing the LaTeX packages", "Loading the designer", "Building the window",
          "Opening the presentation", "Ready")
 
 

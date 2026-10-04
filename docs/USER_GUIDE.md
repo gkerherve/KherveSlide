@@ -260,9 +260,16 @@ and the margin.
   instead of pictures — handy for long presentations.
 - **File → Export PDF…** saves the PDF; **File → Export LaTeX (.tex)…**
   saves the beamer source.
-- Compiling works **offline**: the LaTeX packages are kept on your
-  computer. **File → Download LaTeX packages (offline)…** fetches all of
-  them in one go, e.g. before travelling.
+- Compiling works **offline**. The installer ships the tectonic engine
+  and the LaTeX packages KherveSlide uses, so a new install compiles
+  straight away without internet. A package that is not in the bundle
+  is downloaded the first time a slide needs it, then kept.
+- The **Compiler** menu shows the engine's state: **Compiler →
+  Compiler status…** says where tectonic is, its version, the package
+  cache and its size, and whether slides compile offline.
+  **Compiler → Download offline bundle…** fetches every package and
+  theme in one go (e.g. before travelling); the menu item shows ✔ and
+  the cache size once it is done.
 
 ## Printing
 

@@ -38,6 +38,11 @@ _MISSING_RESOURCE_RE = re.compile(
     # KherveSlide divergence: a font the PDF stage (xdvipdfmx) can't find
     # in the cache — e.g. lmss12 for 11-14 pt sans — is fetchable too.
     r"|Could not locate a virtual/physical font|unable to generate PK font"
+    # An EMPTY cache (a fresh install) fails before any package is looked
+    # up: tectonic cannot even build its LaTeX format offline. Without this
+    # the app never went online and no slide ever compiled on a new PC.
+    r'|failed to open input file "tectonic-format-'
+    r"|no cached bundle|not cached and no network"
     r"|Cannot proceed without \.vf or \"physical\" font"
     r"|Font [^\n]* not loadable: Metric \(TFM\) file"
     r"|I did not find the tikz library")
@@ -583,6 +588,10 @@ def compile_tex(
         env["TEXINPUTS"] = sep.join(texinputs_parts) + sep + existing
 
     def _attempt(cache_only: bool) -> CompileResult:
+        # A cache-only compile takes seconds; one that may download has to
+        # allow for fetching the format and dozens of packages on a slow
+        # line the first time (well over two minutes on a fresh install).
+        limit = 120 if cache_only else 900
         cmd = [
             tectonic_path,
             "-Z", "continue-on-errors",
@@ -612,7 +621,7 @@ def compile_tex(
 
             def _watch():
                 try:
-                    sproc.wait(timeout=180)
+                    sproc.wait(timeout=max(limit, 180))
                 except subprocess.TimeoutExpired:
                     timed_out["v"] = True
                     sproc.kill()
@@ -632,7 +641,7 @@ def compile_tex(
             log = "\n".join(lines)
             if timed_out["v"]:
                 return CompileResult(False, None, log,
-                                     "tectonic timed out after 180s")
+                                     f"tectonic timed out after {max(limit, 180)}s")
             pdf_path = workdir / f"{basename}.pdf"
             if returncode == 0 and pdf_path.exists():
                 return CompileResult(True, pdf_path, log, None)
@@ -642,12 +651,13 @@ def compile_tex(
 
         try:
             kw: dict = dict(capture_output=True, text=True, encoding="utf-8",
-                            errors="replace", timeout=120, env=env)
+                            errors="replace", timeout=limit, env=env)
             if sys.platform == "win32":
                 kw["creationflags"] = subprocess.CREATE_NO_WINDOW
             proc = subprocess.run(cmd, **kw)
         except subprocess.TimeoutExpired:
-            return CompileResult(False, None, "", "tectonic timed out after 120s")
+            return CompileResult(False, None, "",
+                                 f"tectonic timed out after {limit}s")
 
         log = (proc.stdout or "") + (proc.stderr or "")
         pdf_path = workdir / f"{basename}.pdf"

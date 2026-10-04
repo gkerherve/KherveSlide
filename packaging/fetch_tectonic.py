@@ -63,5 +63,55 @@ def fetch() -> Path:
     return out
 
 
+
+
+CACHE = ROOT / "build" / "tectonic_cache"
+
+
+def warm_cache(force: bool = False) -> Path:
+    """Fill build/tectonic_cache with every package KherveSlide compiles
+    (core packages, all themes and colour themes, fonts, flowcharts,
+    chemistry, and every example presentation), using the binary that
+    will ship. The specs bundle it and the frozen app copies it into the
+    user's tectonic cache on first launch, so a new install compiles at
+    once, offline, instead of failing until something downloads."""
+    if CACHE.is_dir() and any(CACHE.rglob("*")) and not force:
+        return CACHE
+    import os
+    import shutil
+    import subprocess
+    tectonic = fetch()
+    shutil.rmtree(CACHE, ignore_errors=True)
+    CACHE.mkdir(parents=True)
+    env = dict(os.environ, TECTONIC_CACHE_DIR=str(CACHE),
+               PATH=str(tectonic.parent) + os.pathsep + os.environ.get("PATH", ""),
+               QT_QPA_PLATFORM="offscreen", MPLBACKEND="Agg")
+    script = r'''
+import sys, tempfile
+from pathlib import Path
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+from kherveslide import compiler, offline
+from kherveslide.examples import EXAMPLES, build_example
+from kherveslide.serializer import serialize_deck
+assert Path(compiler._find_tectonic()).parent == Path(sys.argv[1]), compiler._find_tectonic()
+ok = offline.download_offline(on_output=print, force=True)
+tmp = Path(tempfile.mkdtemp())
+for name, _desc, _f in EXAMPLES:
+    deck = build_example(name, tmp / "assets")
+    res = compiler.compile_tex(serialize_deck(deck), tmp / "ex", prefer_cached=False)
+    print(f"example {name!r}: {'ok' if res.ok else 'FAILED ' + str(res.error)}", flush=True)
+    ok = ok and res.ok
+sys.exit(0 if ok else 1)
+'''
+    subprocess.run([sys.executable, "-c", script, str(tectonic.parent)],
+                   cwd=ROOT, env=env, check=True)
+    size = sum(p.stat().st_size for p in CACHE.rglob("*") if p.is_file())
+    print(f"tectonic cache warmed: {CACHE} ({size / 1e6:.0f} MB)", flush=True)
+    return CACHE
+
+
 if __name__ == "__main__":
     print(fetch())
+    if "--warm" in sys.argv:
+        print(warm_cache(force=True))

@@ -3183,3 +3183,34 @@ def test_about_names_the_author_and_khervetools():
     assert "Gwilherm" in html and "Imperial College London" in html
     assert "https://khervetools.com" in html
     AboutDialog("v0.1").close()
+
+
+def test_empty_tectonic_cache_goes_online():
+    """A fresh install's first compile fails before any package lookup —
+    tectonic cannot build its format offline. That must count as a
+    missing resource, or the app never fetches anything."""
+    from kherveslide.compiler import _log_wants_network
+    log = ('note: using only cached resource files\n'
+           'note: generating format "latex"\n'
+           'error: failed to open input file "tectonic-format-latex.tex"\n')
+    assert _log_wants_network(log)
+    assert not _log_wants_network("! Undefined control sequence.\nl.4 \\foo")
+
+
+def test_compiler_menu_and_status(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from kherveslide import window
+    monkeypatch.setattr(window, "tectonic_available", lambda: False)
+    w = window.SlideWindow()
+    menus = [a.text().replace("&", "") for a in w.menuBar().actions()]
+    assert "Compiler" in menus
+    comp = next(a.menu() for a in w.menuBar().actions()
+                if a.text().replace("&", "") == "Compiler")
+    items = [a.text() for a in comp.actions()]
+    assert "Compiler status…" in items
+    assert any(t.startswith("Download offline bundle") for t in items)
+    from kherveslide import compiler
+    monkeypatch.setattr(compiler, "_find_tectonic", lambda: None)
+    st = w.compiler_status()
+    assert st["path"] is None and st["offline"] is False
