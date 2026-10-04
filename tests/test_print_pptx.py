@@ -231,7 +231,12 @@ def test_window_print_and_pptx_menu(qapp, tmp_path, monkeypatch):
                  "_maybe_autodownload_packages"):
         monkeypatch.setattr(SlideWindow, name, lambda self, *a: None)
     w = SlideWindow()
-    labels = [a.text() for a in w.menuBar().actions()[0].menu().actions()]
+    # Look the menu up through the window (QAction.menu() can hand back a
+    # wrapper whose QMenu PySide has already let go of on some platforms).
+    from PySide6.QtWidgets import QMenu
+    m_file = next(m for m in w.findChildren(QMenu)
+                  if m.title().replace("&", "") == "File")
+    labels = [a.text() for a in m_file.actions()]
     assert "Export PowerPoint (.pptx)…" in labels
     assert "Print…" in labels and "Print preview…" in labels
     w.deck.slides = [Slide(title="A"), Slide(title="B", hidden=True),

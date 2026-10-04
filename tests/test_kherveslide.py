@@ -3203,10 +3203,11 @@ def test_compiler_menu_and_status(monkeypatch):
     from kherveslide import window
     monkeypatch.setattr(window, "tectonic_available", lambda: False)
     w = window.SlideWindow()
+    from PySide6.QtWidgets import QMenu
     menus = [a.text().replace("&", "") for a in w.menuBar().actions()]
     assert "Compiler" in menus
-    comp = next(a.menu() for a in w.menuBar().actions()
-                if a.text().replace("&", "") == "Compiler")
+    comp = next(m for m in w.findChildren(QMenu)
+                if m.title().replace("&", "") == "Compiler")
     items = [a.text() for a in comp.actions()]
     assert "Compiler status…" in items
     assert any(t.startswith("Download offline bundle") for t in items)
