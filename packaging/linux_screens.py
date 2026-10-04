@@ -28,10 +28,10 @@ theme = themes.apply_theme(app, themes.DEFAULT_THEME)
 icons.set_dark(False)
 latex_fonts.ensure_loaded()
 win = SlideWindow(dark=False, theme=theme)
-win.setGeometry(10, 30, 1160, 900)
+win.setGeometry(10, 30, 1260, 940)
 win.show()
 win.apply_layout_mode(LAYOUT_WINDOW)
-win._pdf_window.setGeometry(1190, 30, 740, 900)
+win._pdf_window.setGeometry(1300, 30, 840, 940)
 state = {"i": 0}
 
 
@@ -46,7 +46,7 @@ def nxt():
 def pick(slide):
     win.current = slide
     win._reload_all()
-    QTimer.singleShot(60000, goto)
+    QTimer.singleShot(90000, goto)
 
 
 def goto():

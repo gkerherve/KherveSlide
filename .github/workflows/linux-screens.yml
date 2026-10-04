@@ -11,7 +11,7 @@ on:
 jobs:
   shots:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,12 +30,15 @@ jobs:
       - name: Python dependencies and tectonic
         run: |
           pip install -r requirements.txt
-          python packaging/fetch_tectonic.py
+          python packaging/fetch_tectonic.py --warm
           echo "$PWD/build/tectonic" >> "$GITHUB_PATH"
+          # The same warmed package cache the installers ship, so the PDF
+          # compiles at once and the canvas has beamer's own fonts.
+          echo "TECTONIC_CACHE_DIR=$PWD/build/tectonic_cache" >> "$GITHUB_ENV"
       - name: Take the screenshots
         run: |
           export DISPLAY=:99
-          Xvfb :99 -screen 0 1940x950x24 &
+          Xvfb :99 -screen 0 2160x1000x24 &
           sleep 2
           xsetroot -solid "#3b4252" || true
           xfwm4 --compositor=off &
