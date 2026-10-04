@@ -110,6 +110,12 @@ def main() -> int:
     win = SlideWindow(dark=dark, theme=theme)
     # Before the event loop runs, so "WYSIWYG only" never starts a compile.
     from .welcome import LAYOUT_DEFAULT
+    # Side by side used to be the default and was saved as everyone's
+    # choice; move everyone to the PDF in its own window once. A choice
+    # made after that is kept.
+    if not settings.value("layout_window_default_v1", False, type=bool):
+        settings.setValue("layout_mode", LAYOUT_DEFAULT)
+        settings.setValue("layout_window_default_v1", True)
     win.apply_layout_mode(settings.value("layout_mode", LAYOUT_DEFAULT))
     _center_on_main_screen(win)
     splash.step("Opening the presentation")
