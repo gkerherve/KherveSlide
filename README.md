@@ -45,3 +45,7 @@ Decks save as `*.kslide.json`. Export the LaTeX with **Export .tex**.
 | `navigator.py` | left visual slide strip with drag-to-reorder |
 | `window.py` | main window (toolbar, navigator, canvas, LaTeX/console) |
 | `icons.py`, `themes.py`, `compiler.py`, `style_manager.py`, `preview.py`, `latex_view.py` | vendored from KherveTeX |
+
+## Licence
+
+GPL v3 or later. © 2026 Gwilherm Kerherve.
