@@ -573,6 +573,10 @@ class SlideWindow(QMainWindow):
         self._build_toolbar()
         self._build_slide_toolbar()
         self._build_ui()
+        self._ribbon = None
+        self._ribbon_bar = None
+        self._apply_toolbar_style(QSettings("kherveDOC", "KherveSlide").value(
+            "toolbar_style", "powerpoint"))
         # Permanent compile / download indicator on the right of the status bar.
         self._downloaded_this_run = False
         self._status_state = QLabel("Ready")
@@ -681,6 +685,25 @@ class SlideWindow(QMainWindow):
             lambda on: self.apply_layout_mode(
                 LAYOUT_SIDE if on else LAYOUT_VISUAL))
         self._themed_icons.append((self.act_pdf_side, icons.pdf_side_panel))
+        m_view.addSeparator()
+        # As in KherveTeX: the ribbon or the classic toolbars, live.
+        self.act_style_ribbon = QAction("&PowerPoint ribbon", self,
+                                        checkable=True)
+        self.act_style_ribbon.setStatusTip(
+            "Tabs of grouped buttons, like Microsoft PowerPoint")
+        self.act_style_ribbon.triggered.connect(
+            lambda: self._apply_toolbar_style("powerpoint"))
+        self.act_style_classic = QAction("&Classic toolbars", self,
+                                         checkable=True)
+        self.act_style_classic.setStatusTip(
+            "One toolbar row and a vertical Insert bar")
+        self.act_style_classic.triggered.connect(
+            lambda: self._apply_toolbar_style("classic"))
+        style_group = QActionGroup(self)
+        m_tb = m_view.addMenu("&Toolbar style")
+        for a in (self.act_style_ribbon, self.act_style_classic):
+            style_group.addAction(a)
+            m_tb.addAction(a)
         m_view.addSeparator()
         self._view_actions = {}
         group = QActionGroup(self)
@@ -817,6 +840,7 @@ class SlideWindow(QMainWindow):
             a.triggered.connect(lambda _=False, n=name: self._set_colour_theme(n))
             self._ctheme_group.addAction(a)
             self._ctheme_actions[name] = a
+        self._m_ptheme, self._m_ctheme = m_ptheme, m_ctheme
         m_ptheme.aboutToShow.connect(self._sync_theme_menus)
         m_ctheme.aboutToShow.connect(self._sync_theme_menus)
         m_theme.addSeparator()
@@ -907,6 +931,7 @@ class SlideWindow(QMainWindow):
 
         m_insert.addSeparator()
         m_shapes = m_insert.addMenu("S&hapes")
+        self._m_shapes = m_shapes
         m_shapes.addAction("Line", self._add_line)
         m_shapes.addAction("Arrow", self._add_arrow)
         m_shapes.addSeparator()
@@ -918,6 +943,7 @@ class SlideWindow(QMainWindow):
                     lambda _checked=False, k=key: self._add_shape(k))
 
         m_table = m_insert.addMenu("&Table")
+        self._m_table = m_table
         m_table.addAction("Insert table…", self._insert_table_picker)
         m_table.addAction("Table design…", self._table_design_dialog)
         m_table.addSeparator()
@@ -1036,6 +1062,8 @@ class SlideWindow(QMainWindow):
     def _build_toolbar(self):
         # Row 1 — document actions: file, history, build, zoom, theme.
         tb = QToolBar("Main"); tb.setMovable(False); self.addToolBar(tb)
+        self._classic_bars = [tb]
+        self._classic_holders: dict = {}   # shared widget -> its holder
         tb.setIconSize(QSize(24, 24))
 
         self._tips: list = []      # (action / widget, tooltips key)
@@ -1094,7 +1122,7 @@ class SlideWindow(QMainWindow):
             "the corner badge or the right-click menu.")
         self.type_combo.currentIndexChanged.connect(self._on_type_combo)
         self.type_combo.setEnabled(False)   # until a box is selected
-        tb.addWidget(self.type_combo)
+        tb.addWidget(self._holder(self.type_combo))
 
         # Formatting controls continue on the same single horizontal bar.
         tb.addSeparator()
@@ -1108,11 +1136,11 @@ class SlideWindow(QMainWindow):
             self.fmt_family.addItem(label, key)
         self.fmt_family.setToolTip("Font type of the selected text box")
         self.fmt_family.currentIndexChanged.connect(self._set_font_family)
-        ftb.addWidget(self.fmt_family)
+        ftb.addWidget(self._holder(self.fmt_family))
         self.fmt_font = QSpinBox(); self.fmt_font.setRange(6, 160)
         self.fmt_font.setToolTip("Font size (pt)")
         self.fmt_font.valueChanged.connect(self._apply_text_format)
-        ftb.addWidget(self.fmt_font)
+        ftb.addWidget(self._holder(self.fmt_font))
 
         self.act_bold = QAction(icons.bold(), "Bold", self, checkable=True)
         self.act_bold.setToolTip("Bold — the selection while editing, "
@@ -1223,6 +1251,7 @@ class SlideWindow(QMainWindow):
         tb.setIconSize(QSize(24, 24))
         tb.setMovable(False)
         self.addToolBar(Qt.LeftToolBarArea, tb)
+        self._classic_bars.append(tb)
 
         def vact(factory, text, slot, key=None):
             a = tb.addAction(factory(), text, slot)
@@ -1282,6 +1311,261 @@ class SlideWindow(QMainWindow):
              "delete")
         self._apply_tooltips()
 
+    # ---------------- ribbon ----------------
+
+    def _holder(self, w: QWidget) -> QWidget:
+        """A box for a widget the toolbars and the ribbon share, so the
+        widget can move between them without being destroyed."""
+        box = QWidget()
+        lay = QHBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(w)
+        self._classic_holders[w] = box
+        return box
+
+    def _shared_widgets(self):
+        return (self.type_combo, self.fmt_family, self.fmt_font)
+
+    def _apply_toolbar_style(self, style: str) -> None:
+        """Swap between the PowerPoint ribbon and the classic toolbars."""
+        style = "classic" if style == "classic" else "powerpoint"
+        if self._ribbon_bar is not None:
+            for w in self._shared_widgets():
+                self._classic_holders[w].layout().addWidget(w)
+                w.show()
+            self.removeToolBar(self._ribbon_bar)
+            self._ribbon_bar.deleteLater()
+            self._ribbon_bar = None
+            self._ribbon = None
+        self._toolbar_style = style
+        for bar in self._classic_bars:
+            bar.setVisible(style == "classic")
+        if style == "powerpoint":
+            self._build_ribbon()
+        QSettings("kherveDOC", "KherveSlide").setValue("toolbar_style", style)
+        self.act_style_ribbon.setChecked(style == "powerpoint")
+        self.act_style_classic.setChecked(style == "classic")
+        self._sync_ribbon_context()
+
+    def _rb_act(self, factory, text, slot, *, checkable=False):
+        """A ribbon-only action (the menu bar has its own entry)."""
+        icon = factory() if callable(factory) else icons._glyph_icon(factory)
+        a = QAction(icon, text, self)
+        a.setToolTip(text)
+        a.setCheckable(checkable)
+        a.triggered.connect(slot)
+        if callable(factory):
+            self._themed_icons.append((a, factory))
+        return a
+
+    def _build_ribbon(self) -> None:
+        from .ribbon import Ribbon, menu_action
+        rb = Ribbon()
+        A = self._rb_act
+        new = A(icons.file_new, "New", self._new_deck)
+        opn = A(icons.file_open, "Open", self._open_deck)
+        save = A(icons.file_save, "Save", self._save_deck)
+        rb.set_corner([new, opn, save, None, self.act_undo, self.act_redo],
+                      Qt.TopLeftCorner)
+        rb.set_corner([self.act_pdf_side, None, self.act_skip_img,
+                       self.act_auto, self.act_force, None,
+                       A(icons.export_pdf, "Export PDF", self._export_pdf)],
+                      Qt.TopRightCorner)
+
+        def box(w):
+            h = QWidget()
+            lay = QHBoxLayout(h)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.addWidget(w)
+            w.show()
+            return h
+
+        new_slide = A(icons.slide_add, "New Slide", self._add_slide)
+        new_slide.setProperty(
+            "ribbon_menu", self._fill_new_slide_menu(QMenu(self)))
+        paste = A(icons.paste, "Paste", self._paste)
+        shapes_btn = menu_action(icons.rect_tool(), "Shapes",
+                                 self._m_shapes, self)
+        arrange = QMenu(self)
+        arrange.addAction(icons.to_front(), "Bring to front",
+                          lambda: self._zorder("front"))
+        arrange.addAction(icons.raise_box(), "Bring forward",
+                          lambda: self._zorder("raise"))
+        arrange.addAction(icons.lower_box(), "Send backward",
+                          lambda: self._zorder("lower"))
+        arrange.addAction(icons.to_back(), "Send to back",
+                          lambda: self._zorder("back"))
+        arrange.addSeparator()
+        arrange.addAction("Group", self._group_selected)
+        arrange.addAction("Ungroup", self._ungroup_selected)
+        arrange_btn = menu_action(icons.to_front(), "Arrange", arrange, self)
+        bullets = A(icons.bullet_list, "Bullets", self._insert_bullets)
+        numbered = A(icons.numbered_list, "Numbering", self._insert_numbered)
+        delete = A(icons.delete_box, "Delete", self._delete_selected)
+
+        home = rb.add_tab("Home")
+        home.add_group("Clipboard", large=[paste], rows=[
+            [A("✂", "Cut", self._cut_selected)],
+            [A("⧉", "Copy", self._copy_selected)],
+            [A("⊕", "Duplicate", self._duplicate_selected)]], text=True)
+        home.add_group("Slides", large=[new_slide], rows=[
+            [A(icons.slide_remove, "Delete slide", self._del_slide)],
+            [A(icons.prev_slide, "Previous", self._prev_slide)],
+            [A(icons.next_slide, "Next", self._next_slide)]], text=True)
+        home.add_group("Font", rows=[
+            [box(self.fmt_family), box(self.fmt_font)],
+            [self.act_bold, self.act_italic, self.act_super, self.act_sub,
+             self.act_textcolor]])
+        home.add_group("Paragraph", rows=[
+            [bullets, numbered],
+            list(self._align_actions.values())])
+        home.add_group("Drawing", large=[shapes_btn, arrange_btn], rows=[
+            [box(self.type_combo)], [self.act_fill]])
+        home.add_group("Editing", rows=[
+            [A("⌕", "Find", self._show_find)],
+            [delete]], text=True)
+
+        ins = rb.add_tab("Insert")
+        ins.add_group("Slides", large=[new_slide])
+        ins.add_group("Tables", large=[
+            A(icons.table, "Table", self._insert_table_picker)])
+        ins.add_group("Images", large=[
+            A(icons.image_box, "Picture", self._add_picture),
+            A(icons.video_box, "Video", self._add_video)])
+        ins.add_group("Illustrations", large=[shapes_btn], rows=[
+            [A(icons.drawing, "Drawing", self._add_drawing)],
+            [self.act_flowchart]], text=True)
+        ins.add_group("Text", large=[
+            A(icons.text_box, "Text Box", self._add_text)])
+        ins.add_group("Symbols", large=[self.act_equation_builder,
+            A(icons.symbol, "Symbol", self._insert_symbol)])
+        ins.add_group("Chemistry", large=[self.act_chemistry],
+                      rows=[[self.act_chemfig]], text=True)
+
+        des = rb.add_tab("Design")
+        des.add_group("Themes", large=[
+            menu_action(icons.theme_palette(), "Themes",
+                        self._m_ptheme, self),
+            A(icons.theme_palette, "Preview themes",
+              self._open_theme_gallery)])
+        des.add_group("Variants", large=[
+            menu_action(icons.color_swatch("#c43e1c", 24), "Colours", self._m_ctheme, self)],
+            rows=[[self.act_deco]], text=True)
+        des.add_group("Customize", large=[
+            A("▭", "Slide Size", self._page_setup),
+            A("◩", "Format Background", self._pick_slide_bg)],
+            rows=[[A("✕", "Clear background", self._clear_slide_bg)],
+                  [A("T", "Frame title", self._set_frame_title)]],
+            text=True)
+        des.add_group("Designer", large=[
+            A(icons.theme_palette, "Theme wizard", self._open_theme_wizard),
+            A(icons.theme_palette, "Theme builder",
+              self._open_theme_builder)])
+
+        show = rb.add_tab("Slide Show")
+        show.add_group("Start Slide Show", large=[
+            A(icons.slideshow, "From Beginning",
+              lambda: self.start_slideshow("full", False)),
+            A(icons.play, "From Current Slide",
+              lambda: self.start_slideshow("full", True)),
+            A(icons.view_master, "Presenter View",
+              lambda: self.start_slideshow("presenter", True)),
+            A(icons.pdf_side_panel, "In a Window",
+              lambda: self.start_slideshow("window", True))])
+        show.add_group("Set Up", large=[
+            A(icons.refresh, "Automatic", self._auto_slideshow),
+            menu_action(icons.pdf_side_panel(), "Monitor",
+                        self._m_show_screen, self)])
+
+        rev = rb.add_tab("Review")
+        rev.add_group("Proofing", large=[
+            A(icons.spell_check, "Spelling", self._check_spelling)],
+            rows=[[self.act_spell]], text=True)
+        rev.add_group("Versions", large=[self.act_commit_now,
+                                         self.act_history,
+                                         self.act_branches])
+
+        view = rb.add_tab("View")
+        view.add_group("Presentation Views",
+                       large=list(self._view_actions.values()))
+        view.add_group("Show", rows=[[self.act_show_nav], [self.act_grid],
+                                     [self.act_canvas_theme]], text=True)
+        view.add_group("Snap", rows=[[self.act_snap_grid],
+                                     [self.act_snap_obj]], text=True)
+        view.add_group("Zoom", large=[
+            A(icons.fit_width, "Fit to Window",
+              lambda: self.view.fit_to_window())], rows=[
+            [A(icons.zoom_in, "Zoom in", lambda: self.view.zoom_by(1.25))],
+            [A(icons.zoom_out, "Zoom out",
+               lambda: self.view.zoom_by(1 / 1.25))]], text=True)
+        view.add_group("Window", rows=[[a] for a in
+                                       self._layout_actions.values()],
+                       text=True)
+
+        hlp = rb.add_tab("Help")
+        hlp.add_group("Help", large=[
+            A("?", "User Guide", self.toggle_user_guide),
+            A(icons.slideshow, "Welcome", self.show_welcome)])
+        hlp.add_group("KherveSlide", large=[
+            A("i", "About", self._about)])
+
+        # PowerPoint's contextual tabs: shown only while one is selected.
+        sf = rb.add_contextual_tab("Shape Format", "shape")
+        sf.add_group("Insert Shapes", large=[shapes_btn])
+        sf.add_group("Shape Styles", large=[self.act_fill,
+                                            self.act_textcolor])
+        sf.add_group("Arrange", large=[
+            A(icons.to_front, "Bring Forward", lambda: self._zorder("raise")),
+            A(icons.to_back, "Send Backward", lambda: self._zorder("lower")),
+            arrange_btn])
+        pf = rb.add_contextual_tab("Picture Format", "picture")
+        pf.add_group("Adjust", large=[self.act_pic])
+        pf.add_group("Arrange", large=[
+            A(icons.to_front, "Bring Forward", lambda: self._zorder("raise")),
+            A(icons.to_back, "Send Backward", lambda: self._zorder("lower")),
+            arrange_btn])
+        td = rb.add_contextual_tab("Table Design", "table")
+        td.add_group("Table Style Options", large=[
+            A(icons.table, "Header Row", lambda: self._table_op("header"))])
+        td.add_group("Table Styles", large=[
+            A(icons.theme_palette, "Table design", self._table_design_dialog)])
+        tl = rb.add_contextual_tab("Table Layout", "table")
+        tl.add_group("Rows & Columns", large=[
+            A("⊞", "Add row", lambda: self._table_op("add_row")),
+            A("⊞", "Add column", lambda: self._table_op("add_col"))])
+        tl.add_group("Delete", large=[
+            A("⊟", "Delete row", lambda: self._table_op("del_row")),
+            A("⊟", "Delete column", lambda: self._table_op("del_col"))])
+        tl.add_group("Table", large=[
+            A("T", "Caption", lambda: self._table_op("caption")),
+            A(icons.table, "Properties", self._table_props_dialog)])
+
+        bar = QToolBar("Ribbon", self)
+        bar.setMovable(False)
+        bar.addWidget(rb)
+        self.insertToolBar(self._classic_bars[0], bar)
+        self._ribbon_bar = bar
+        self._ribbon = rb
+
+    def _sync_ribbon_context(self) -> None:
+        """Show PowerPoint's Shape / Picture / Table tabs for the selection."""
+        if getattr(self, "_ribbon", None) is None:
+            return
+        kind = None
+        try:
+            items = self._selected_items()
+        except Exception:
+            items = []
+        if len(items) == 1:
+            obj = items[0].obj
+            if isinstance(obj, SlidePicture):
+                kind = "picture"
+            elif isinstance(obj, SlideTable):
+                kind = "table"
+            elif isinstance(obj, (SlideShape, SlideLine, SlideText)):
+                kind = "shape"
+        self._ribbon.show_context(kind)
+
     def _apply_tooltips(self) -> None:
         """Every toolbar icon gets a detailed tooltip — what it does, how
         to use it, a tip — and a one-line status-bar text (tooltips.py)."""
@@ -1340,6 +1624,7 @@ class SlideWindow(QMainWindow):
         self._add_object(SlideShape(shape=key, w=w, h=h), offset=True)
 
     def _enable_format(self, on, is_text=True, is_pic=False):
+        self._sync_ribbon_context()
         for w in (self.fmt_font, self.fmt_family, self.act_bold,
                   self.act_italic, self.act_super, self.act_sub,
                   self.act_textcolor, self.act_fill,
