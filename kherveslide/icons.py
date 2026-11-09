@@ -59,7 +59,7 @@ def _glyph_icon(letter: str, *, bold=False, italic=False, underline=False,
 def app_icon_pixmap(sz: int) -> QPixmap:
     """One square of the application icon at *sz* px — PowerPoint-orange
     rounded square, white lettering. Sizes up to 32 px (taskbar / title
-    bar) collapse to a "KS" monogram; larger ones show a big "K" with
+    bar) collapse to a "kS" monogram; larger ones show a big "k" with
     "Slide" beneath it. Shared by the runtime QIcon and the .ico
     generator (tools/make_app_icon.py) so the exe matches the window."""
     from PySide6.QtGui import QLinearGradient
@@ -77,21 +77,33 @@ def app_icon_pixmap(sz: int) -> QPixmap:
     p.drawRoundedRect(QRectF(0, 0, sz, sz), radius, radius)
     p.setPen(QColor("#ffffff"))
     if sz <= 32:
-        # Mini: compact "KS" monogram.
+        # Mini: compact "kS" monogram.
         f = QFont("Georgia"); f.setPixelSize(int(sz * 0.56)); f.setBold(True)
         p.setFont(f)
-        p.drawText(QRectF(0, 0, sz, sz), Qt.AlignCenter, "KS")
+        p.drawText(QRectF(0, 0, sz, sz), Qt.AlignCenter, "kS")
     else:
-        # Large: big "K" over small "Slide".
-        fk = QFont("Georgia"); fk.setPixelSize(int(sz * 0.62)); fk.setBold(True)
-        p.setFont(fk)
-        p.drawText(QRectF(0, -sz * 0.08, sz, sz),
-                   Qt.AlignHCenter | Qt.AlignVCenter, "K")
-        fs = QFont("Helvetica"); fs.setPixelSize(int(sz * 0.20))
-        fs.setBold(True)
+        # Large: "kSlide" wordmark over a slide outline with a small bar
+        # chart, the same layout as kSheet / kRef / kTeX.
+        from PySide6.QtGui import QFontMetricsF
+        fs = QFont("Helvetica"); fs.setBold(True)
+        fs.setPixelSize(int(sz * 0.30))
+        while QFontMetricsF(fs).horizontalAdvance("kSlide") > sz * 0.84:
+            fs.setPixelSize(fs.pixelSize() - 1)
         p.setFont(fs)
-        p.drawText(QRectF(0, sz * 0.62, sz, sz * 0.34),
-                   Qt.AlignHCenter | Qt.AlignTop, "Slide")
+        p.drawText(QRectF(0, sz * 0.06, sz, sz * 0.38),
+                   Qt.AlignHCenter | Qt.AlignVCenter, "kSlide")
+        pen = QPen(QColor("#ffffff")); pen.setWidthF(sz * 0.035)
+        pen.setJoinStyle(Qt.RoundJoin); pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen); p.setBrush(Qt.NoBrush)
+        sl = QRectF(sz * 0.24, sz * 0.50, sz * 0.52, sz * 0.33)
+        p.drawRoundedRect(sl, sz * 0.02, sz * 0.02)
+        p.setPen(Qt.NoPen); p.setBrush(QColor("#ffffff"))
+        bw = sl.width() * 0.13
+        for i, hgt in enumerate((0.35, 0.6, 0.85)):
+            bx = sl.left() + sl.width() * (0.2 + 0.24 * i)
+            bh = sl.height() * 0.7 * hgt
+            p.drawRect(QRectF(bx, sl.bottom() - sl.height() * 0.15 - bh,
+                              bw, bh))
     p.end()
     return px
 
