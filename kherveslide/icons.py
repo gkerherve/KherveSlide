@@ -57,55 +57,10 @@ def _glyph_icon(letter: str, *, bold=False, italic=False, underline=False,
 
 
 def app_icon_pixmap(sz: int) -> QPixmap:
-    """One square of the application icon at *sz* px — PowerPoint-orange
-    rounded square, white lettering. Sizes up to 32 px (taskbar / title
-    bar) collapse to a "kS" monogram; larger ones show a big "k" with
-    "Slide" beneath it. Shared by the runtime QIcon and the .ico
-    generator (tools/make_app_icon.py) so the exe matches the window."""
-    from PySide6.QtGui import QLinearGradient
-    px = QPixmap(sz, sz)
-    px.fill(Qt.transparent)
-    p = QPainter(px)
-    p.setRenderHint(QPainter.Antialiasing, True)
-    p.setRenderHint(QPainter.TextAntialiasing, True)
-    radius = sz * 0.18
-    grad = QLinearGradient(0, 0, 0, sz)     # the app's Office-orange theme
-    grad.setColorAt(0.0, QColor("#F5924C"))
-    grad.setColorAt(1.0, QColor("#DE6A14"))
-    p.setPen(Qt.NoPen)
-    p.setBrush(QBrush(grad))
-    p.drawRoundedRect(QRectF(0, 0, sz, sz), radius, radius)
-    p.setPen(QColor("#ffffff"))
-    if sz <= 32:
-        # Mini: compact "kS" monogram.
-        f = QFont("Georgia"); f.setPixelSize(int(sz * 0.56)); f.setBold(True)
-        p.setFont(f)
-        p.drawText(QRectF(0, 0, sz, sz), Qt.AlignCenter, "kS")
-    else:
-        # Large: "kSlide" wordmark over a slide outline with a small bar
-        # chart, the same layout as kSheet / kRef / kTeX.
-        from PySide6.QtGui import QFontMetricsF
-        fs = QFont("Helvetica"); fs.setBold(True)
-        fs.setPixelSize(int(sz * 0.30))
-        while QFontMetricsF(fs).horizontalAdvance("kSlide") > sz * 0.84:
-            fs.setPixelSize(fs.pixelSize() - 1)
-        p.setFont(fs)
-        p.drawText(QRectF(0, sz * 0.06, sz, sz * 0.38),
-                   Qt.AlignHCenter | Qt.AlignVCenter, "kSlide")
-        pen = QPen(QColor("#ffffff")); pen.setWidthF(sz * 0.035)
-        pen.setJoinStyle(Qt.RoundJoin); pen.setCapStyle(Qt.RoundCap)
-        p.setPen(pen); p.setBrush(Qt.NoBrush)
-        sl = QRectF(sz * 0.24, sz * 0.50, sz * 0.52, sz * 0.33)
-        p.drawRoundedRect(sl, sz * 0.02, sz * 0.02)
-        p.setPen(Qt.NoPen); p.setBrush(QColor("#ffffff"))
-        bw = sl.width() * 0.13
-        for i, hgt in enumerate((0.35, 0.6, 0.85)):
-            bx = sl.left() + sl.width() * (0.2 + 0.24 * i)
-            bh = sl.height() * 0.7 * hgt
-            p.drawRect(QRectF(bx, sl.bottom() - sl.height() * 0.15 - bh,
-                              bw, bh))
-    p.end()
-    return px
+    """One square of the application icon at *sz* px: the shared
+    Kherve-family "kSlide" mark (see ``kmark``)."""
+    from .kmark import paint
+    return paint(sz, "slide")
 
 
 def app_icon() -> QIcon:
